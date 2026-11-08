@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Collections.NonGeneric: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Collections.NonGeneric"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Collections.CollectionBase.#ctor",
+    "M:System.Collections.CollectionBase.get_Count~System.Int32",
+    "M:System.Collections.CollectionBase.get_List~System.Collections.IList",
+    "M:System.Collections.ReadOnlyCollectionBase.#ctor",
+    "M:System.Collections.ReadOnlyCollectionBase.GetEnumerator~System.Collections.IEnumerator",
+    "M:System.Collections.ReadOnlyCollectionBase.get_Count~System.Int32",
+    "M:System.Collections.ReadOnlyCollectionBase.get_InnerList~System.Collections.ArrayList",
+    "M:System.Collections.SortedList.#ctor",
+    "M:System.Collections.SortedList.#ctor(System.Collections.IComparer)",
+    "M:System.Collections.SortedList.GetByIndex(System.Int32)~System.Object",
+    "M:System.Collections.SortedList.GetEnumerator~System.Collections.IDictionaryEnumerator",
+    "M:System.Collections.SortedList.GetKey(System.Int32)~System.Object",
+    "M:System.Collections.SortedList.GetValueList~System.Collections.IList",
+    "M:System.Collections.SortedList.Remove(System.Object)",
+    "M:System.Collections.SortedList.Synchronized(System.Collections.SortedList)~System.Collections.SortedList",
+    "M:System.Collections.SortedList.get_Count~System.Int32",
+    "M:System.Collections.SortedList.get_Item(System.Object)~System.Object",
+    "M:System.Collections.SortedList.get_SyncRoot~System.Object",
+    "M:System.Collections.SortedList.get_Values~System.Collections.ICollection",
+    "M:System.Collections.SortedList.set_Item(System.Object,System.Object)",
+    "M:System.Collections.Stack.#ctor",
+    "M:System.Collections.Stack.GetEnumerator~System.Collections.IEnumerator"
+  ]
+}

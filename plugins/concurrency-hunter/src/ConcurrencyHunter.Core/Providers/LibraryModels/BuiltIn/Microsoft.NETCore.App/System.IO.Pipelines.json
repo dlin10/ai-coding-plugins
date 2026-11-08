@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.IO.Pipelines: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.IO.Pipelines"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.IO.Pipelines.PipeOptions.get_MinimumSegmentSize~System.Int32",
+      "assemblies": [
+        "System.IO.Pipelines"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.IO.Pipelines.FlushResult.#ctor(System.Boolean,System.Boolean)",
+    "M:System.IO.Pipelines.FlushResult.get_IsCanceled~System.Boolean",
+    "M:System.IO.Pipelines.FlushResult.get_IsCompleted~System.Boolean",
+    "M:System.IO.Pipelines.PipeOptions.get_Default~System.IO.Pipelines.PipeOptions",
+    "M:System.IO.Pipelines.PipeWriter.#ctor",
+    "M:System.IO.Pipelines.PipeWriter.Advance(System.Int32)",
+    "M:System.IO.Pipelines.PipeWriter.FlushAsync(System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.IO.Pipelines.FlushResult}",
+    "M:System.IO.Pipelines.PipeWriter.GetSpan(System.Int32)~System.Span{System.Byte}",
+    "M:System.IO.Pipelines.PipeWriter.get_CanGetUnflushedBytes~System.Boolean",
+    "M:System.IO.Pipelines.PipeWriter.get_UnflushedBytes~System.Int64"
+  ]
+}

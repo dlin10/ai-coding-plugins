@@ -46,9 +46,10 @@ public sealed class ModelVocabularyTests
 
         Assert.All(described, member =>
         {
-            var methods = Resolve(member.Id);
+            var lookup = BuiltInCensus.Lookup(member, Fixture.Value);
+            var methods = lookup.Symbols.OfType<IMethodSymbol>().ToArray();
             Assert.NotEmpty(methods);
-            Assert.All(methods, method => Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, Fixture.Value,
+            Assert.All(methods, method => Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, lookup.Compilation,
                 member.Effects, member.Stores, member.Outputs, member.Keeps, member.Receiver)));
         });
         return described.Length;

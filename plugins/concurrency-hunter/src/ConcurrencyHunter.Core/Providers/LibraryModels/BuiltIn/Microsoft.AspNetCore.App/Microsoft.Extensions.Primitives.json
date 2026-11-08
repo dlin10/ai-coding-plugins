@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Primitives: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Primitives"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Extensions.Primitives.StringSegment.Equals(System.String,System.StringComparison)~System.Boolean",
+      "assemblies": [
+        "Microsoft.Extensions.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Primitives.StringSegment.get_Buffer~System.String",
+      "assemblies": [
+        "Microsoft.Extensions.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Primitives.StringSegment.get_Length~System.Int32",
+      "assemblies": [
+        "Microsoft.Extensions.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Primitives.StringSegment.get_Offset~System.Int32",
+      "assemblies": [
+        "Microsoft.Extensions.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.Extensions.Primitives.CancellationChangeToken.#ctor(System.Threading.CancellationToken)",
+    "M:Microsoft.Extensions.Primitives.ChangeToken.OnChange(System.Func{Microsoft.Extensions.Primitives.IChangeToken},System.Action)~System.IDisposable",
+    "M:Microsoft.Extensions.Primitives.StringSegment.#ctor(System.String)",
+    "M:Microsoft.Extensions.Primitives.StringSegment.#ctor(System.String,System.Int32,System.Int32)",
+    "M:Microsoft.Extensions.Primitives.StringSegment.Subsegment(System.Int32)~Microsoft.Extensions.Primitives.StringSegment",
+    "M:Microsoft.Extensions.Primitives.StringTokenizer.#ctor(Microsoft.Extensions.Primitives.StringSegment,System.Char[])",
+    "M:Microsoft.Extensions.Primitives.StringTokenizer.Enumerator.MoveNext~System.Boolean",
+    "M:Microsoft.Extensions.Primitives.StringTokenizer.Enumerator.get_Current~Microsoft.Extensions.Primitives.StringSegment",
+    "M:Microsoft.Extensions.Primitives.StringTokenizer.GetEnumerator~Microsoft.Extensions.Primitives.StringTokenizer.Enumerator"
+  ]
+}

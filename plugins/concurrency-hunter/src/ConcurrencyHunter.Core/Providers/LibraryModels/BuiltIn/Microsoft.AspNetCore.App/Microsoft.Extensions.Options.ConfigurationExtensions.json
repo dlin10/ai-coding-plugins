@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Options.ConfigurationExtensions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Options.ConfigurationExtensions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.Extensions.DependencyInjection.OptionsConfigurationServiceCollectionExtensions.Configure\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.Configuration.IConfiguration)~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.Options.ConfigurationChangeTokenSource\u00601.#ctor(Microsoft.Extensions.Configuration.IConfiguration)"
+  ]
+}

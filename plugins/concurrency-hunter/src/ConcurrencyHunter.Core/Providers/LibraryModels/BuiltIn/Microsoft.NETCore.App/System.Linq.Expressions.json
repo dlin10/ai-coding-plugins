@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Linq.Expressions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Linq.Expressions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Linq.Expressions.Expression.Constant(System.Object)~System.Linq.Expressions.ConstantExpression",
+      "assemblies": [
+        "System.Linq.Expressions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "result": "new",
+      "keeps": {
+        "result": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:System.Dynamic.DynamicObject.#ctor",
+    "M:System.Linq.Expressions.Expression.#ctor",
+    "M:System.Linq.Expressions.Expression.ArrayAccess(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression[])~System.Linq.Expressions.IndexExpression",
+    "M:System.Linq.Expressions.Expression.ArrayIndex(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.BinaryExpression",
+    "M:System.Linq.Expressions.Expression.Assign(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.BinaryExpression",
+    "M:System.Linq.Expressions.Expression.Block(System.Collections.Generic.IEnumerable{System.Linq.Expressions.ParameterExpression},System.Linq.Expressions.Expression[])~System.Linq.Expressions.BlockExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression,System.Reflection.MethodInfo,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression,System.Reflection.MethodInfo,System.Linq.Expressions.Expression[])~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Collections.Generic.IEnumerable{System.Linq.Expressions.Expression})~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression)~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.MethodCallExpression",
+    "M:System.Linq.Expressions.Expression.Coalesce(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.BinaryExpression",
+    "M:System.Linq.Expressions.Expression.Condition(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.ConditionalExpression",
+    "M:System.Linq.Expressions.Expression.Constant(System.Object,System.Type)~System.Linq.Expressions.ConstantExpression",
+    "M:System.Linq.Expressions.Expression.Convert(System.Linq.Expressions.Expression,System.Type)~System.Linq.Expressions.UnaryExpression",
+    "M:System.Linq.Expressions.Expression.Default(System.Type)~System.Linq.Expressions.DefaultExpression",
+    "M:System.Linq.Expressions.Expression.Equal(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)~System.Linq.Expressions.BinaryExpression",
+    "M:System.Linq.Expressions.Expression.GetFuncType(System.Type[])~System.Type",
+    "M:System.Linq.Expressions.Expression.Invoke(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression[])~System.Linq.Expressions.InvocationExpression",
+    "M:System.Linq.Expressions.Expression.Lambda(System.Linq.Expressions.Expression,System.Linq.Expressions.ParameterExpression[])~System.Linq.Expressions.LambdaExpression",
+    "M:System.Linq.Expressions.Expression.Lambda(System.Type,System.Linq.Expressions.Expression,System.Collections.Generic.IEnumerable{System.Linq.Expressions.ParameterExpression})~System.Linq.Expressions.LambdaExpression",
+    "M:System.Linq.Expressions.Expression.Lambda\u0060\u00601(System.Linq.Expressions.Expression,System.Linq.Expressions.ParameterExpression[])~System.Linq.Expressions.Expression{\u0060\u00600}",
+    "M:System.Linq.Expressions.Expression.MakeMemberAccess(System.Linq.Expressions.Expression,System.Reflection.MemberInfo)~System.Linq.Expressions.MemberExpression",
+    "M:System.Linq.Expressions.Expression.New(System.Reflection.ConstructorInfo,System.Linq.Expressions.Expression[])~System.Linq.Expressions.NewExpression",
+    "M:System.Linq.Expressions.Expression.NewArrayBounds(System.Type,System.Linq.Expressions.Expression[])~System.Linq.Expressions.NewArrayExpression",
+    "M:System.Linq.Expressions.Expression.NewArrayInit(System.Type,System.Linq.Expressions.Expression[])~System.Linq.Expressions.NewArrayExpression",
+    "M:System.Linq.Expressions.Expression.Parameter(System.Type)~System.Linq.Expressions.ParameterExpression",
+    "M:System.Linq.Expressions.Expression.Parameter(System.Type,System.String)~System.Linq.Expressions.ParameterExpression",
+    "M:System.Linq.Expressions.Expression.Quote(System.Linq.Expressions.Expression)~System.Linq.Expressions.UnaryExpression",
+    "M:System.Linq.Expressions.Expression.Throw(System.Linq.Expressions.Expression,System.Type)~System.Linq.Expressions.UnaryExpression",
+    "M:System.Linq.Expressions.Expression.Variable(System.Type,System.String)~System.Linq.Expressions.ParameterExpression",
+    "M:System.Linq.Expressions.Expression\u00601.Compile~\u00600",
+    "M:System.Linq.Expressions.LambdaExpression.get_Body~System.Linq.Expressions.Expression",
+    "M:System.Linq.Expressions.MethodCallExpression.get_Method~System.Reflection.MethodInfo",
+    "M:System.Linq.Expressions.NewExpression.get_Constructor~System.Reflection.ConstructorInfo",
+    "M:System.Linq.Expressions.ParameterExpression.get_Name~System.String",
+    "M:System.Linq.Expressions.ParameterExpression.get_Type~System.Type",
+    "M:System.Linq.IQueryProvider.CreateQuery\u0060\u00601(System.Linq.Expressions.Expression)~System.Linq.IQueryable{\u0060\u00600}",
+    "M:System.Linq.IQueryProvider.Execute\u0060\u00601(System.Linq.Expressions.Expression)~\u0060\u00600",
+    "M:System.Linq.IQueryable.get_Expression~System.Linq.Expressions.Expression",
+    "M:System.Linq.IQueryable.get_Provider~System.Linq.IQueryProvider"
+  ]
+}

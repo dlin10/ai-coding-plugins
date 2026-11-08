@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(System.String[])~Microsoft.AspNetCore.Builder.WebApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder~Microsoft.AspNetCore.Builder.WebApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.Run(System.String)",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.get_Configuration~Microsoft.Extensions.Configuration.IConfiguration",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.get_Environment~Microsoft.AspNetCore.Hosting.IWebHostEnvironment",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.get_Logger~Microsoft.Extensions.Logging.ILogger",
+    "M:Microsoft.AspNetCore.Builder.WebApplication.get_Services~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.Build~Microsoft.AspNetCore.Builder.WebApplication",
+    "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.get_Configuration~Microsoft.Extensions.Configuration.ConfigurationManager",
+    "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.get_Host~Microsoft.AspNetCore.Builder.ConfigureHostBuilder",
+    "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.get_Services~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.AspNetCore.WebHost.CreateDefaultBuilder(System.String[])~Microsoft.AspNetCore.Hosting.IWebHostBuilder",
+    "M:Microsoft.Extensions.Hosting.GenericHostBuilderExtensions.ConfigureWebHostDefaults(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.IWebHostBuilder})~Microsoft.Extensions.Hosting.IHostBuilder"
+  ]
+}

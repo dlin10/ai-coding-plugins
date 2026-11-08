@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Security.Principal.Windows: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Security.Principal.Windows"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Win32.SafeHandles.SafeAccessTokenHandle.get_InvalidHandle~Microsoft.Win32.SafeHandles.SafeAccessTokenHandle",
+      "assemblies": [
+        "System.Security.Principal.Windows"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "result": "new"
+    }
+  ],
+  "failed": [
+    "M:System.Security.Principal.WindowsIdentity.GetCurrent~System.Security.Principal.WindowsIdentity",
+    "M:System.Security.Principal.WindowsIdentity.RunImpersonated(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle,System.Action)",
+    "M:System.Security.Principal.WindowsIdentity.RunImpersonated\u0060\u00601(Microsoft.Win32.SafeHandles.SafeAccessTokenHandle,System.Func{\u0060\u00600})~\u0060\u00600",
+    "M:System.Security.Principal.WindowsIdentity.get_Name~System.String"
+  ]
+}

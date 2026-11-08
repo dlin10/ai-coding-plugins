@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Text.Encodings.Web: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Text.Encodings.Web"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Text.Encodings.Web.HtmlEncoder.get_Default~System.Text.Encodings.Web.HtmlEncoder",
+    "M:System.Text.Encodings.Web.JavaScriptEncoder.#ctor",
+    "M:System.Text.Encodings.Web.JavaScriptEncoder.get_Default~System.Text.Encodings.Web.JavaScriptEncoder",
+    "M:System.Text.Encodings.Web.JavaScriptEncoder.get_UnsafeRelaxedJsonEscaping~System.Text.Encodings.Web.JavaScriptEncoder",
+    "M:System.Text.Encodings.Web.TextEncoder.Encode(System.ReadOnlySpan{System.Char},System.Span{System.Char},System.Int32@,System.Int32@,System.Boolean)~System.Buffers.OperationStatus",
+    "M:System.Text.Encodings.Web.TextEncoder.EncodeUtf8(System.ReadOnlySpan{System.Byte},System.Span{System.Byte},System.Int32@,System.Int32@,System.Boolean)~System.Buffers.OperationStatus",
+    "M:System.Text.Encodings.Web.TextEncoder.FindFirstCharacterToEncode(System.Char*,System.Int32)~System.Int32",
+    "M:System.Text.Encodings.Web.TextEncoder.FindFirstCharacterToEncodeUtf8(System.ReadOnlySpan{System.Byte})~System.Int32",
+    "M:System.Text.Encodings.Web.UrlEncoder.get_Default~System.Text.Encodings.Web.UrlEncoder"
+  ]
+}

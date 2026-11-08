@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Authentication.Abstractions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Authentication.Abstractions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticateResult.get_Succeeded~System.Boolean",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticationProperties.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticationScheme.get_HandlerType~System.Type",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticationToken.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Authentication.AuthenticateResult.get_Principal~System.Security.Claims.ClaimsPrincipal",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticateResult.get_Properties~Microsoft.AspNetCore.Authentication.AuthenticationProperties",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.AuthenticateAsync(Microsoft.AspNetCore.Http.HttpContext)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticateResult}",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.AuthenticateAsync(Microsoft.AspNetCore.Http.HttpContext,System.String)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticateResult}",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.GetTokenAsync(Microsoft.AspNetCore.Http.HttpContext,System.String)~System.Threading.Tasks.Task{System.String}",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.SignInAsync(Microsoft.AspNetCore.Http.HttpContext,System.String,System.Security.Claims.ClaimsPrincipal,Microsoft.AspNetCore.Authentication.AuthenticationProperties)~System.Threading.Tasks.Task",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.SignOutAsync(Microsoft.AspNetCore.Http.HttpContext,System.String)~System.Threading.Tasks.Task",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationProperties.get_Items~System.Collections.Generic.IDictionary{System.String,System.String}",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationProperties.set_RedirectUri(System.String)",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationScheme.#ctor(System.String,System.String,System.Type)",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationScheme.get_DisplayName~System.String",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationScheme.get_Name~System.String",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationToken.set_Name(System.String)",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationToken.set_Value(System.String)",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationTokenExtensions.GetTokenValue(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.String)~System.String",
+    "M:Microsoft.AspNetCore.Authentication.AuthenticationTokenExtensions.StoreTokens(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.Collections.Generic.IEnumerable{Microsoft.AspNetCore.Authentication.AuthenticationToken})",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationHandlerProvider.GetHandlerAsync(Microsoft.AspNetCore.Http.HttpContext,System.String)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.IAuthenticationHandler}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetAllSchemesAsync~System.Threading.Tasks.Task{System.Collections.Generic.IEnumerable{Microsoft.AspNetCore.Authentication.AuthenticationScheme}}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetDefaultAuthenticateSchemeAsync~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetDefaultChallengeSchemeAsync~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetDefaultForbidSchemeAsync~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetDefaultSignInSchemeAsync~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetDefaultSignOutSchemeAsync~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}",
+    "M:Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider.GetSchemeAsync(System.String)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Authentication.AuthenticationScheme}"
+  ]
+}

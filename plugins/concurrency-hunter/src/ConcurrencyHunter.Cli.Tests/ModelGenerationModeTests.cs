@@ -100,5 +100,26 @@ public sealed class ModelGenerationModeTests
         }
     }
 
+    [Fact]
+    public async Task Census_option_selects_the_census_budget_and_its_folder_only_for_a_run_that_generates()
+    {
+        // The census folder stands for the run's repository root; --settle reads the census as written instead of leaving it out.
+        var census = Parse("--census", "scratch/census");
+        Assert.Equal((GenerationBudget.Census, "scratch/census", false), (census.Budget, census.Census, census.Settle));
+        Assert.True(Parse("--settle", "--census", "scratch/census", "--generation", "on").Settle);
+        Assert.Equal((GenerationBudget.Run, null), (Parse().Budget, Parse().Census));
+
+        foreach (var arguments in new[] { new[] { "--census", "c", "--generation", "read" }, ["--census", "c", "--recording"], ["--recording", "--census", "c"] })
+        {
+            using var error = new StringWriter();
+            Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", TARGET, "--out", OUT, .. arguments], error));
+            Assert.Contains("--census needs a folder and --generation on, and does not go with --recording.", error.ToString(), StringComparison.Ordinal);
+        }
+
+        using var settleAlone = new StringWriter();
+        Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", TARGET, "--out", OUT, "--settle"], settleAlone));
+        Assert.Contains("--settle needs --census.", settleAlone.ToString(), StringComparison.Ordinal);
+    }
+
     private static MetricsCommand.Options Parse(params string[] extra) => MetricsCommand.Options.Parse(["--target", TARGET, "--out", OUT, .. extra]);
 }

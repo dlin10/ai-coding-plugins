@@ -16,7 +16,7 @@ public sealed class SettingsBox
     public SettingsBox() => Settings = new Settings();
 }
 
-/// <summary>Hands the singleton's <c>Settings</c> to <c>Options.Create</c>, a member the committed generated models describe. The project's
+/// <summary>Hands the singleton's <c>Settings</c> to <c>Options.Create</c>, a member the frameworks' built-in census describes. The project's
 /// <c>opaque</c> entry for the same member stands over that model: the call is opaque again, its unknown effect reaches the <c>Settings</c>,
 /// and the read of <c>Level</c> in the other action meets it.</summary>
 [ApiController]

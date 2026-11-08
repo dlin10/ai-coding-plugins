@@ -250,14 +250,6 @@
       "effects": {}
     },
     {
-      "member": "M:System.Net.Http.HttpResponseMessage.get_StatusCode~System.Net.HttpStatusCode",
-      "effects": {}
-    },
-    {
-      "member": "M:System.Net.Http.HttpResponseMessage.get_IsSuccessStatusCode~System.Boolean",
-      "effects": {}
-    },
-    {
       "member": "M:System.Net.Http.HttpResponseMessage.get_ReasonPhrase~System.String",
       "effects": {}
     },

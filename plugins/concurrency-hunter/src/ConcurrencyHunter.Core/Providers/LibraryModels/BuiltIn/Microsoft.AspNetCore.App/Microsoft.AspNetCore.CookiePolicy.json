@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.CookiePolicy: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.CookiePolicy"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.CookiePolicyOptions.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.CookiePolicy"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.CookiePolicyAppBuilderExtensions.UseCookiePolicy(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Builder.CookiePolicyOptions)~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.CookiePolicyOptions.set_MinimumSameSitePolicy(Microsoft.AspNetCore.Http.SameSiteMode)"
+  ]
+}

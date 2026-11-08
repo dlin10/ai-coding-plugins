@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.NameResolution: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.NameResolution"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Net.Dns.GetHostAddresses(System.String)~System.Net.IPAddress[]",
+    "M:System.Net.Dns.GetHostAddresses(System.String,System.Net.Sockets.AddressFamily)~System.Net.IPAddress[]",
+    "M:System.Net.Dns.GetHostAddressesAsync(System.String,System.Net.Sockets.AddressFamily,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.IPAddress[]}",
+    "M:System.Net.Dns.GetHostEntryAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.IPHostEntry}",
+    "M:System.Net.IPHostEntry.get_HostName~System.String"
+  ]
+}

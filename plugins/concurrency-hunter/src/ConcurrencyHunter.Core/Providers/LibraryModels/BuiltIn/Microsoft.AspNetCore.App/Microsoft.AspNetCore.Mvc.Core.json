@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Mvc.Core: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Mvc.Core"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ApplicationParts.AssemblyPart.#ctor(System.Reflection.Assembly)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:assembly"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.RedirectResult.#ctor(System.String)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)~Microsoft.AspNetCore.Builder.ControllerActionEndpointConventionBuilder",
+    "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapDefaultControllerRoute(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)~Microsoft.AspNetCore.Builder.ControllerActionEndpointConventionBuilder",
+    "M:Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager.get_ApplicationParts~System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPart}",
+    "M:Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager.get_FeatureProviders~System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.ApplicationParts.IApplicationFeatureProvider}",
+    "M:Microsoft.AspNetCore.Mvc.ApplicationParts.AssemblyPart.get_Assembly~System.Reflection.Assembly",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.Accepted~Microsoft.AspNetCore.Mvc.AcceptedResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.BadRequest(System.Object)~Microsoft.AspNetCore.Mvc.BadRequestObjectResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.BadRequest~Microsoft.AspNetCore.Mvc.BadRequestResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.Challenge(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.String[])~Microsoft.AspNetCore.Mvc.ChallengeResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.CreatedAtAction(System.String,System.Object,System.Object)~Microsoft.AspNetCore.Mvc.CreatedAtActionResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Byte[],System.String)~Microsoft.AspNetCore.Mvc.FileContentResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.NoContent~Microsoft.AspNetCore.Mvc.NoContentResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.NotFound(System.Object)~Microsoft.AspNetCore.Mvc.NotFoundObjectResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.NotFound~Microsoft.AspNetCore.Mvc.NotFoundResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok(System.Object)~Microsoft.AspNetCore.Mvc.OkObjectResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok~Microsoft.AspNetCore.Mvc.OkResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.Redirect(System.String)~Microsoft.AspNetCore.Mvc.RedirectResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToAction(System.String)~Microsoft.AspNetCore.Mvc.RedirectToActionResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToAction(System.String,System.String)~Microsoft.AspNetCore.Mvc.RedirectToActionResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToAction(System.String,System.String,System.Object)~Microsoft.AspNetCore.Mvc.RedirectToActionResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToPage(System.String)~Microsoft.AspNetCore.Mvc.RedirectToPageResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.SignOut(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.String[])~Microsoft.AspNetCore.Mvc.SignOutResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.StatusCode(System.Int32,System.Object)~Microsoft.AspNetCore.Mvc.ObjectResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.ValidationProblem(Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary)~Microsoft.AspNetCore.Mvc.ActionResult",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_ControllerContext~Microsoft.AspNetCore.Mvc.ControllerContext",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_ModelState~Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_Request~Microsoft.AspNetCore.Http.HttpRequest",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_Url~Microsoft.AspNetCore.Mvc.IUrlHelper",
+    "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_User~System.Security.Claims.ClaimsPrincipal",
+    "M:Microsoft.AspNetCore.Mvc.Filters.FilterCollection.Add(System.Type)~Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata",
+    "M:Microsoft.AspNetCore.Mvc.JsonOptions.get_JsonSerializerOptions~System.Text.Json.JsonSerializerOptions",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.EmptyModelMetadataProvider.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.MvcOptions.get_Conventions~System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.ApplicationModels.IApplicationModelConvention}",
+    "M:Microsoft.AspNetCore.Mvc.MvcOptions.get_Filters~Microsoft.AspNetCore.Mvc.Filters.FilterCollection",
+    "M:Microsoft.AspNetCore.Mvc.SignOutResult.#ctor(System.String,Microsoft.AspNetCore.Authentication.AuthenticationProperties)",
+    "M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Action(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String)~System.String",
+    "M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Action(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String,System.Object)~System.String",
+    "M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Action(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String,System.String)~System.String",
+    "M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Page(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String)~System.String",
+    "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_PartManager~Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager",
+    "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_Services~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.MvcBuilder.#ctor(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager)",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddApplicationPart(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Reflection.Assembly)~Microsoft.Extensions.DependencyInjection.IMvcBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddJsonOptions(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Action{Microsoft.AspNetCore.Mvc.JsonOptions})~Microsoft.Extensions.DependencyInjection.IMvcBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcCoreBuilderExtensions.AddAuthorization(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder)~Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcCoreBuilderExtensions.AddFormatterMappings(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder)~Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcCoreBuilderExtensions.AddMvcOptions(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder,System.Action{Microsoft.AspNetCore.Mvc.MvcOptions})~Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.MvcCoreServiceCollectionExtensions.AddMvcCore(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder",
+    "M:Microsoft.Extensions.Internal.CopyOnWriteDictionary\u00602.#ctor(System.Collections.Generic.IDictionary{\u00600,\u00601},System.Collections.Generic.IEqualityComparer{\u00600})"
+  ]
+}

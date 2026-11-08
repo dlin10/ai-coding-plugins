@@ -5,6 +5,7 @@ using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
 using ConcurrencyHunter.Solving;
@@ -50,6 +51,28 @@ public static class PhaseOneAnalyzer
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
                                                     ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
         AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation, budget);
+
+    /// <summary>The owner's run over one corpus for the shared frameworks' census (TD-034c): it generates within the census budget, and it
+    /// reads and writes its generated files and model lock under <paramref name="censusFolder"/> rather than the corpus's repository, so it
+    /// reads no project model of the corpus. A regenerating run reads the built-in models without the census's records
+    /// (<see cref="LibraryModels.ForCensus"/>), so that it generates every census member; a settling run reads them as they ship, so that
+    /// it generates only the framework members the census does not answer yet.</summary>
+    /// <param name="solution">The corpus's solution.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="censusFolder">The scratch folder that stands for the repository root.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="settle">Whether the run settles the census written before rather than regenerating it.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
+    public static Task<AnalysisResult> AnalyzeCensusAsync(Solution solution, string rootDirectory, string censusFolder, AnalysisLimits limits, bool settle,
+                                                          CancellationToken cancellationToken)
+    {
+        var install = ImplementationAssemblies.ForThisProcess();
+        var builtIn = settle ? null : LibraryModels.ForCensus(FrameworkAssemblies.Installed(install.DotnetRoot));
+        return AnalyzeAsync(solution, rootDirectory, Path.GetFullPath(censusFolder), ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits,
+                            Z3ConstraintSolver.Create, new GenerationSetup(ModelGeneration.Generate, install, Budget: GenerationBudget.Census, BuiltIn: builtIn),
+                            cancellationToken);
+    }
 
     /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, the program index,
     /// the reachable set (lowering once per method across scopes), summaries, the whole-program heap, executions and ownership,
@@ -231,6 +254,10 @@ public static class PhaseOneAnalyzer
 
             var (models, modelRejections) = ProjectModelResolver.Resolve(projectModels, compilations, modelLock);
             diagnostics.AddRange(modelRejections.Select(rejection => rejection.Diagnostic));
+            // The run that regenerates the frameworks' census reads its own built-in models and no project model: its repository root is
+            // the census's scratch folder, which holds none (TD-034c).
+            if (generation.BuiltIn is { } builtIn)
+                models = builtIn;
 
             var run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models, limits, lowered, null,
                                         cancellationToken);
@@ -241,7 +268,8 @@ public static class PhaseOneAnalyzer
                                                                                            .Select(reference =>
                 $"library-models: {RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion} {compiled.Project.Name}: " +
                 $"{reference.Assembly.Name} {reference.Assembly.Version}: {compiled.Project.Name} references {reference.Assembly.Name} " +
-                $"{reference.Assembly.Version}, outside the supported range {reference.Range.Minimum} up to {reference.Range.MaximumExclusive}; " +
+                $"{reference.Assembly.Version}, outside the supported range{(reference.Ranges.Count == 1 ? string.Empty : "s")} " +
+                $"{string.Join(", ", reference.Ranges.Select(range => $"{range.Minimum} up to {range.MaximumExclusive}"))}; " +
                 "the calls of its members only the built-in models describe are opaque calls.")).ToArray();
 
             // Scope discovery still spans the DI index, the providers, the bindings and the out-of-range diagnostics.

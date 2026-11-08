@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Threading.Channels: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Threading.Channels"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Threading.Channels.UnboundedChannelOptions.#ctor",
+      "assemblies": [
+        "System.Threading.Channels"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601(System.Threading.Channels.UnboundedChannelOptions)~System.Threading.Channels.Channel{\u0060\u00600}",
+    "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601~System.Threading.Channels.Channel{\u0060\u00600}",
+    "M:System.Threading.Channels.ChannelOptions.set_SingleReader(System.Boolean)",
+    "M:System.Threading.Channels.ChannelReader\u00601.ReadAsync(System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{\u00600}",
+    "M:System.Threading.Channels.ChannelReader\u00601.TryRead(\u00600@)~System.Boolean",
+    "M:System.Threading.Channels.ChannelReader\u00601.WaitToReadAsync(System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Boolean}",
+    "M:System.Threading.Channels.ChannelWriter\u00601.TryComplete(System.Exception)~System.Boolean",
+    "M:System.Threading.Channels.ChannelWriter\u00601.TryWrite(\u00600)~System.Boolean",
+    "M:System.Threading.Channels.Channel\u00602.get_Reader~System.Threading.Channels.ChannelReader{\u00601}",
+    "M:System.Threading.Channels.Channel\u00602.get_Writer~System.Threading.Channels.ChannelWriter{\u00600}"
+  ]
+}

@@ -100,6 +100,7 @@
 - Команда `generate` по-прежнему отвечает `corelib` для любого члена `System.Private.CoreLib` до чтения сборки; открытие команды — 5d run C ([#260](https://github.com/dlin10/ai-coding-plugins/issues/260)).
 - Исходники библиотеки по PDB и Source Link не читаются и не загружаются, кэша исходников и режима offline нет: генерация компилирует только декомпилированный код и в сеть не ходит (TD-005, TD-034b, TD-034c; 5d run L2, [#278](https://github.com/dlin10/ai-coding-plugins/issues/278)).
 - Слоя AI-моделей нет (TD-034a; 5e, [#272](https://github.com/dlin10/ai-coding-plugins/issues/272)).
+- Регенерация переписи фреймворков не просит AI о моделях неудавшихся членов: они остаются в списке неудавшихся (TD-034a, TD-034c; 5e, [#383](https://github.com/dlin10/ai-coding-plugins/issues/383)).
 - Resolver не вызывается: gaps, в том числе `unresolved-dispatch` и `model-gap` locator-вызовов, видны в coverage и uncertainty, а обязательность resolver по TD-130 и TC-09 не действует (5f, [#273](https://github.com/dlin10/ai-coding-plugins/issues/273)).
 - Non-generic и `Type`-valued регистрации и keyed services не анализируются (5g, [#274](https://github.com/dlin10/ai-coding-plugins/issues/274)).
 - `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5g, [#274](https://github.com/dlin10/ai-coding-plugins/issues/274)).

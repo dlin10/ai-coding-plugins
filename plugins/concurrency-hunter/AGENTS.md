@@ -117,10 +117,22 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
 - `build/check-docs.ps1` fails when `docs/SPEC.md` or `CONTEXT.md` names a phase, run, question,
   issue, interview or date of the development process, or links PLAN, QUESTIONS or `docs/runs/`. Run it
   after editing either; CI does not.
-- `build/package.ps1` is what CI runs (`build-concurrency-hunter.yml`). It publishes the single
+- `build/package.ps1` is what CI runs (`build-concurrency-hunter.yml`, with `-Release`). It publishes the single
   `bin/win-x64/concurrency-hunter.exe`, checks that it reports the manifests' version, and runs the
   full suite with `CONCURRENCYHUNTER_REQUIRE_E2E=1`. A host session with the plugin loaded holds that
-  exe open, and the publish fails with access denied until its MCP server stops.
+  exe open, and the publish fails with access denied until its MCP server stops. First it compares the engine fingerprint
+  of the tree (`dotnet msbuild src/ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj -restore -t:ComputeEngineFingerprint
+  -getProperty:EngineFingerprint`) with the one `skills/hunt/evals/models/framework-census.tsv` names: with `-Release` a
+  difference fails the script, without it the script warns and goes on (ADR 0022). Every change to Analysis or Core that
+  changes a token makes the census stale; regenerate it before merging to `main`.
+- `build/generate-frameworks.ps1` regenerates the built-in census of `Microsoft.NETCore.App` and
+  `Microsoft.AspNetCore.App` 10.0 (ADR 0012 and ADR 0022, amendments of 2026-11-07). It needs `CH_ESHOP_ROOT`, a restored
+  eShop and a working tree with nothing uncommitted in the engine; it runs `metrics --census <folder>` on the demo and eShop,
+  writes `src/ConcurrencyHunter.Core/Providers/LibraryModels/BuiltIn/<framework>/<assembly>.json` and the record, settles
+  with `--settle` runs, and prints the report against the record it started from. Its scratch is
+  `scratch/framework-census/<time>`. `-Since` lists what changed since the census's commit. Whether to regenerate is the
+  owner's call: run `-Since` and ask first. After it, re-record the demo (`build/record-demo-models.ps1`): the census files are
+  inputs of the generator version.
 - `build/package.ps1` and `build/check-test-baseline.ps1` isolate .NET bundle extraction in a unique
   temporary directory inherited by their child processes, remove it in `finally`, and restore the
   caller's `DOTNET_BUNDLE_EXTRACT_BASE_DIR`. `PublishedExecutableEndToEndTests` extracts each test's
@@ -143,20 +155,23 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
   is still running — stop that one process.
-- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording]` is
+- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording | --census <folder> [--settle]]` is
   the measurement behind the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run
   it as `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
   `--generation` is what the run does with the generated model layer: `on` (the default) generates the
   models no layer describes and writes `.concurrency-hunter/models/generated/` under the repository
   root, `read` only reads and applies those files, `off` leaves the layer out. `--recording`, valid only with
   `--generation on`, spends the recording limit instead of the run limit (ADR 0031); only
-  `build/record-demo-models.ps1` passes it.
+  `build/record-demo-models.ps1` passes it. `--census <folder>` is the owner's census run, which only
+  `build/generate-frameworks.ps1` passes: the census budget, the folder as the repository root, and the built-in models
+  without the census's own records unless `--settle` is given.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
   `demo/.concurrency-hunter/models/generated/`, with a `--generation on` run of the demo, then re-reads them to show they suffice.
   A source edit in `Analysis` or `Core` that changes a token or a directive changes the generator version (an edit of
   comments or whitespace alone does not, ADR 0023); `build/record-demo-models.ps1` rewrites the demo files.
   Run it when a demo case reaches a library member no committed model describes: a demo run that would generate fails
-  `DemoGeneratedModelsTests`.
+  `DemoGeneratedModelsTests`. The committed files hold package members only: the script removes the framework folders first
+  and fails when the run writes one again, since then the census misses a framework member the demo reaches.
 
 ## Environment variables
 

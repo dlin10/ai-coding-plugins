@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Options: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Options"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Extensions.Options.ConfigureOptions\u00601.#ctor(System.Action{\u00600})",
+      "assemblies": [
+        "Microsoft.Extensions.Options"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "fates": {
+        "action": {
+          "fate": "holder",
+          "holder": "result",
+          "inputs": [
+            [
+              "holder-arg:0"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Options.Options.Create\u0060\u00601(\u0060\u00600)~Microsoft.Extensions.Options.IOptions{\u0060\u00600}",
+      "assemblies": [
+        "Microsoft.Extensions.Options"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "result": "new",
+      "keeps": {
+        "result": [
+          "arg:options"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:Microsoft.Extensions.DependencyInjection.OptionsBuilderExtensions.ValidateOnStart\u0060\u00601(Microsoft.Extensions.Options.OptionsBuilder{\u0060\u00600})~Microsoft.Extensions.Options.OptionsBuilder{\u0060\u00600}",
+    "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.AddOptions(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.AddOptions\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.Options.OptionsBuilder{\u0060\u00600}",
+    "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.Configure\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{\u0060\u00600})~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.Configure\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.String,System.Action{\u0060\u00600})~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.PostConfigure\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{\u0060\u00600})~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.Options.ConfigureNamedOptions\u00601.#ctor(System.String,System.Action{\u00600})",
+    "M:Microsoft.Extensions.Options.IOptions\u00601.get_Value~\u00600",
+    "M:Microsoft.Extensions.Options.OptionsBuilder\u00601.Configure\u0060\u00601(System.Action{\u00600,\u0060\u00600})~Microsoft.Extensions.Options.OptionsBuilder{\u00600}"
+  ]
+}

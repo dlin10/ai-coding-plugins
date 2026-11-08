@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Caching.Abstractions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Caching.Abstractions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,System.Threading.Tasks.Task{\u0060\u00600}})~System.Threading.Tasks.Task{\u0060\u00600}",
+    "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,\u0060\u00600})~\u0060\u00600",
+    "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,\u0060\u00600},Microsoft.Extensions.Caching.Memory.MemoryCacheEntryOptions)~\u0060\u00600",
+    "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.Set\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,\u0060\u00600)~\u0060\u00600",
+    "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.TryGetValue\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,\u0060\u00600@)~System.Boolean"
+  ]
+}

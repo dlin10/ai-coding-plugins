@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.Quic: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.Quic"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.Quic.QuicClientConnectionOptions.set_ClientAuthenticationOptions(System.Net.Security.SslClientAuthenticationOptions)",
+      "assemblies": [
+        "System.Net.Quic"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Quic.QuicClientConnectionOptions.set_RemoteEndPoint(System.Net.EndPoint)",
+      "assemblies": [
+        "System.Net.Quic"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:System.Net.Quic.QuicClientConnectionOptions.#ctor",
+    "M:System.Net.Quic.QuicConnection.AcceptInboundStreamAsync(System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Net.Quic.QuicStream}",
+    "M:System.Net.Quic.QuicConnection.CloseAsync(System.Int64,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Quic.QuicConnection.ConnectAsync(System.Net.Quic.QuicClientConnectionOptions,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Net.Quic.QuicConnection}",
+    "M:System.Net.Quic.QuicConnection.DisposeAsync~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Quic.QuicConnection.OpenOutboundStreamAsync(System.Net.Quic.QuicStreamType,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Net.Quic.QuicStream}",
+    "M:System.Net.Quic.QuicConnection.get_IsSupported~System.Boolean",
+    "M:System.Net.Quic.QuicConnection.get_NegotiatedApplicationProtocol~System.Net.Security.SslApplicationProtocol",
+    "M:System.Net.Quic.QuicConnection.get_RemoteEndPoint~System.Net.IPEndPoint",
+    "M:System.Net.Quic.QuicConnectionOptions.set_DefaultCloseErrorCode(System.Int64)",
+    "M:System.Net.Quic.QuicConnectionOptions.set_DefaultStreamErrorCode(System.Int64)",
+    "M:System.Net.Quic.QuicConnectionOptions.set_IdleTimeout(System.TimeSpan)",
+    "M:System.Net.Quic.QuicConnectionOptions.set_MaxInboundBidirectionalStreams(System.Int32)",
+    "M:System.Net.Quic.QuicConnectionOptions.set_MaxInboundUnidirectionalStreams(System.Int32)",
+    "M:System.Net.Quic.QuicConnectionOptions.set_StreamCapacityCallback(System.Action{System.Net.Quic.QuicConnection,System.Net.Quic.QuicStreamCapacityChangedArgs})",
+    "M:System.Net.Quic.QuicListener.get_IsSupported~System.Boolean",
+    "M:System.Net.Quic.QuicStream.Abort(System.Net.Quic.QuicAbortDirection,System.Int64)",
+    "M:System.Net.Quic.QuicStream.CompleteWrites",
+    "M:System.Net.Quic.QuicStream.DisposeAsync~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Quic.QuicStream.Read(System.Span{System.Byte})~System.Int32",
+    "M:System.Net.Quic.QuicStream.ReadAsync(System.Memory{System.Byte},System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Int32}",
+    "M:System.Net.Quic.QuicStream.WriteAsync(System.ReadOnlyMemory{System.Byte},System.Boolean,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Quic.QuicStream.WriteAsync(System.ReadOnlyMemory{System.Byte},System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Quic.QuicStream.get_Id~System.Int64",
+    "M:System.Net.Quic.QuicStream.get_WritesClosed~System.Threading.Tasks.Task",
+    "M:System.Net.Quic.QuicStreamCapacityChangedArgs.get_BidirectionalIncrement~System.Int32"
+  ]
+}

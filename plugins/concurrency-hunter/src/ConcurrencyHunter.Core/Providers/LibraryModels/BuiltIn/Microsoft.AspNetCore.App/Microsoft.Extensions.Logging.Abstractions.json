@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Logging.Abstractions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Logging.Abstractions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Extensions.Logging.LogDefineOptions.#ctor",
+      "assemblies": [
+        "Microsoft.Extensions.Logging.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.Extensions.Logging.Abstractions.NullLogger.get_Instance~Microsoft.Extensions.Logging.Abstractions.NullLogger",
+    "M:Microsoft.Extensions.Logging.ILoggingBuilder.get_Services~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.Logging.LogDefineOptions.set_SkipEnabledCheck(System.Boolean)",
+    "M:Microsoft.Extensions.Logging.LoggerMessage.Define(Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,Microsoft.Extensions.Logging.LogDefineOptions)~System.Action{Microsoft.Extensions.Logging.ILogger,System.Exception}",
+    "M:Microsoft.Extensions.Logging.LoggerMessage.Define\u0060\u00601(Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,Microsoft.Extensions.Logging.LogDefineOptions)~System.Action{Microsoft.Extensions.Logging.ILogger,\u0060\u00600,System.Exception}",
+    "M:Microsoft.Extensions.Logging.LoggerMessage.Define\u0060\u00605(Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,Microsoft.Extensions.Logging.LogDefineOptions)~System.Action{Microsoft.Extensions.Logging.ILogger,\u0060\u00600,\u0060\u00601,\u0060\u00602,\u0060\u00603,\u0060\u00604,System.Exception}"
+  ]
+}

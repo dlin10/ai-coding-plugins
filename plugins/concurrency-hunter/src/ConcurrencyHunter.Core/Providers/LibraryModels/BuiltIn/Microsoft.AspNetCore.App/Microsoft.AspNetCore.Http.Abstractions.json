@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Http.Abstractions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Http.Abstractions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_ApplicationServices(System.IServiceProvider)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.CookieBuilder.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.PathString.StartsWithSegments(Microsoft.AspNetCore.Http.PathString)~System.Boolean",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.PathString.get_Value~System.String",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateResult.#ctor(Microsoft.AspNetCore.Http.RequestDelegate,System.Collections.Generic.IReadOnlyList{System.Object})",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "fates": {
+        "requestDelegate": {
+          "fate": "unknown-execution"
+        }
+      },
+      "keeps": {
+        "this": [
+          "arg:metadata"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Count~System.Int32",
+      "assemblies": [
+        "Microsoft.AspNetCore.Http.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.#ctor",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_ApplicationServices~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_DisplayName~System.String",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_FilterFactories~System.Collections.Generic.IList{System.Func{Microsoft.AspNetCore.Http.EndpointFilterFactoryContext,Microsoft.AspNetCore.Http.EndpointFilterDelegate,Microsoft.AspNetCore.Http.EndpointFilterDelegate}}",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_Metadata~System.Collections.Generic.IList{System.Object}",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_RequestDelegate~Microsoft.AspNetCore.Http.RequestDelegate",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_DisplayName(System.String)",
+    "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_RequestDelegate(Microsoft.AspNetCore.Http.RequestDelegate)",
+    "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build~Microsoft.AspNetCore.Http.RequestDelegate",
+    "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate})~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_ApplicationServices~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties~System.Collections.Generic.IDictionary{System.String,System.Object}",
+    "M:Microsoft.AspNetCore.Builder.IEndpointConventionBuilder.Add(System.Action{Microsoft.AspNetCore.Builder.EndpointBuilder})",
+    "M:Microsoft.AspNetCore.Builder.RunExtensions.Run(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Http.RequestDelegate)",
+    "M:Microsoft.AspNetCore.Builder.UseMiddlewareExtensions.UseMiddleware\u0060\u00601(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Object[])~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.UsePathBaseExtensions.UsePathBase(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Http.PathString)~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Http.ConnectionInfo.get_LocalIpAddress~System.Net.IPAddress",
+    "M:Microsoft.AspNetCore.Http.ConnectionInfo.get_RemoteIpAddress~System.Net.IPAddress",
+    "M:Microsoft.AspNetCore.Http.CookieBuilder.set_Expiration(System.Nullable{System.TimeSpan})",
+    "M:Microsoft.AspNetCore.Http.CookieBuilder.set_IsEssential(System.Boolean)",
+    "M:Microsoft.AspNetCore.Http.CookieBuilder.set_Name(System.String)",
+    "M:Microsoft.AspNetCore.Http.DefaultEndpointFilterInvocationContext.#ctor(Microsoft.AspNetCore.Http.HttpContext,System.Object[])",
+    "M:Microsoft.AspNetCore.Http.Endpoint.#ctor(Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.EndpointMetadataCollection,System.String)",
+    "M:Microsoft.AspNetCore.Http.Endpoint.get_DisplayName~System.String",
+    "M:Microsoft.AspNetCore.Http.Endpoint.get_RequestDelegate~Microsoft.AspNetCore.Http.RequestDelegate",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterDelegate.Invoke(Microsoft.AspNetCore.Http.EndpointFilterInvocationContext)~System.Threading.Tasks.ValueTask{System.Object}",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.#ctor",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.get_ApplicationServices~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.get_MethodInfo~System.Reflection.MethodInfo",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.set_ApplicationServices(System.IServiceProvider)",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.set_MethodInfo(System.Reflection.MethodInfo)",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_Arguments~System.Collections.Generic.IList{System.Object}",
+    "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Http.EndpointHttpContextExtensions.GetEndpoint(Microsoft.AspNetCore.Http.HttpContext)~Microsoft.AspNetCore.Http.Endpoint",
+    "M:Microsoft.AspNetCore.Http.EndpointMetadataCollection.#ctor(System.Collections.Generic.IEnumerable{System.Object})",
+    "M:Microsoft.AspNetCore.Http.HttpContext.#ctor",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_Connection~Microsoft.AspNetCore.Http.ConnectionInfo",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_Features~Microsoft.AspNetCore.Http.Features.IFeatureCollection",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_Items~System.Collections.Generic.IDictionary{System.Object,System.Object}",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestAborted~System.Threading.CancellationToken",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestServices~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_Request~Microsoft.AspNetCore.Http.HttpRequest",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_Response~Microsoft.AspNetCore.Http.HttpResponse",
+    "M:Microsoft.AspNetCore.Http.HttpContext.get_User~System.Security.Claims.ClaimsPrincipal",
+    "M:Microsoft.AspNetCore.Http.HttpMethods.IsOptions(System.String)~System.Boolean",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.#ctor",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.get_Headers~Microsoft.AspNetCore.Http.IHeaderDictionary",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.get_Method~System.String",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.get_Path~Microsoft.AspNetCore.Http.PathString",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.get_Query~Microsoft.AspNetCore.Http.IQueryCollection",
+    "M:Microsoft.AspNetCore.Http.HttpRequest.get_RouteValues~Microsoft.AspNetCore.Routing.RouteValueDictionary",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.#ctor",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_BodyWriter~System.IO.Pipelines.PipeWriter",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_ContentType~System.String",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_HasStarted~System.Boolean",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_Headers~Microsoft.AspNetCore.Http.IHeaderDictionary",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.get_StatusCode~System.Int32",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.set_ContentType(System.String)",
+    "M:Microsoft.AspNetCore.Http.HttpResponse.set_StatusCode(System.Int32)",
+    "M:Microsoft.AspNetCore.Http.HttpResponseWritingExtensions.WriteAsync(Microsoft.AspNetCore.Http.HttpResponse,System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+    "M:Microsoft.AspNetCore.Http.HttpResults.EmptyHttpResult.get_Instance~Microsoft.AspNetCore.Http.HttpResults.EmptyHttpResult",
+    "M:Microsoft.AspNetCore.Http.HttpValidationProblemDetails.#ctor(System.Collections.Generic.IDictionary{System.String,System.String[]})",
+    "M:Microsoft.AspNetCore.Http.IHttpContextAccessor.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Http.IProblemDetailsService.TryWriteAsync(Microsoft.AspNetCore.Http.ProblemDetailsContext)~System.Threading.Tasks.ValueTask{System.Boolean}",
+    "M:Microsoft.AspNetCore.Http.IResult.ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext)~System.Threading.Tasks.Task",
+    "M:Microsoft.AspNetCore.Http.Metadata.AcceptsMetadata.#ctor(System.String[],System.Type,System.Boolean)",
+    "M:Microsoft.AspNetCore.Http.PathString.#ctor(System.String)",
+    "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.#ctor",
+    "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.set_HttpContext(Microsoft.AspNetCore.Http.HttpContext)",
+    "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.set_ProblemDetails(Microsoft.AspNetCore.Mvc.ProblemDetails)",
+    "M:Microsoft.AspNetCore.Http.RequestDelegate.Invoke(Microsoft.AspNetCore.Http.HttpContext)~System.Threading.Tasks.Task",
+    "M:Microsoft.AspNetCore.Http.RequestDelegateResult.get_RequestDelegate~Microsoft.AspNetCore.Http.RequestDelegate",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.#ctor",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.#ctor(System.Collections.Generic.IEnumerable{System.Collections.Generic.KeyValuePair{System.String,System.Object}})",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.#ctor(System.Object)",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.ContainsKey(System.String)~System.Boolean",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.Enumerator.MoveNext~System.Boolean",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.Enumerator.get_Current~System.Collections.Generic.KeyValuePair{System.String,System.Object}",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.GetEnumerator~Microsoft.AspNetCore.Routing.RouteValueDictionary.Enumerator",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.TryGetValue(System.String,System.Object@)~System.Boolean",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Item(System.String)~System.Object",
+    "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.set_Item(System.String,System.Object)"
+  ]
+}

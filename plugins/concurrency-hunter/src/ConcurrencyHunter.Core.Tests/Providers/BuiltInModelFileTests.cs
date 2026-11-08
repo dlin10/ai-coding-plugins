@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
 using Xunit;
@@ -14,7 +15,9 @@ public sealed class BuiltInModelFileTests
     [Fact]
     public void Every_family_is_one_embedded_file()
     {
-        var names = typeof(LibraryModels).Assembly.GetManifestResourceNames().Where(name => name.StartsWith("LibraryModels.BuiltIn.", StringComparison.Ordinal));
+        // A framework's census files sit in a folder of their own beside the owner's topical files.
+        var names = typeof(LibraryModels).Assembly.GetManifestResourceNames().Where(name => name.StartsWith("LibraryModels.BuiltIn.", StringComparison.Ordinal) &&
+                                                                                            !BuiltInCensus.IsCensusFile(name));
         Assert.Equal(["LibraryModels.BuiltIn.entity-framework.json", "LibraryModels.BuiltIn.http-client.json", "LibraryModels.BuiltIn.linq.json",
                       "LibraryModels.BuiltIn.logging.json", "LibraryModels.BuiltIn.newtonsoft-json.json", "LibraryModels.BuiltIn.polly.json",
                       "LibraryModels.BuiltIn.system-text-json.json", "LibraryModels.BuiltIn.system.json"], names.Order(StringComparer.Ordinal));
@@ -23,7 +26,8 @@ public sealed class BuiltInModelFileTests
     [Fact]
     public void Built_in_set_equals_the_recorded_table()
     {
-        var lines = LibraryModels.BuiltIn.Members.Select(member =>
+        // The table records the owner's records; the census's are data its regeneration writes, recorded in framework-census.tsv.
+        var lines = LibraryModels.BuiltIn.Members.Where(member => !BuiltInCensus.Ids.Contains(member.Id)).Select(member =>
                 $"M {member.Id} | {string.Join(',', member.Effects.Select(effect => Effect(effect.Kind) + ":" + effect.Parameter))} | " +
                 string.Join(';', member.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}")) +
                 Vocabulary(member))

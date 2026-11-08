@@ -10,22 +10,6 @@
   },
   "models": [
     {
-      "member": "M:System.Linq.Enumerable.Any\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Boolean",
-      "effects": {
-        "source": [
-          "reads-deep"
-        ]
-      }
-    },
-    {
-      "member": "M:System.Linq.Enumerable.Count\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Int32",
-      "effects": {
-        "source": [
-          "reads-deep"
-        ]
-      }
-    },
-    {
       "member": "M:System.Linq.Enumerable.LongCount\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Int64",
       "effects": {
         "source": [
@@ -1413,20 +1397,6 @@
     },
     {
       "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Double})~System.Double",
-      "effects": {},
-      "fates": {
-        "selector": {
-          "fate": "invoke-now",
-          "inputs": [
-            [
-              "elements(arg:source)"
-            ]
-          ]
-        }
-      }
-    },
-    {
-      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})~System.Int32",
       "effects": {},
       "fates": {
         "selector": {

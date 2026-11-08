@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Identity.Core: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Identity.Core"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Identity.IdentityBuilder.get_UserType~System.Type",
+      "assemblies": [
+        "Microsoft.Extensions.Identity.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Identity.IdentityResult.get_Succeeded~System.Boolean",
+      "assemblies": [
+        "Microsoft.Extensions.Identity.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Identity.SignInResult.get_Succeeded~System.Boolean",
+      "assemblies": [
+        "Microsoft.Extensions.Identity.Core"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Identity.IdentityBuilder.#ctor(System.Type,Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+    "M:Microsoft.AspNetCore.Identity.IdentityBuilder.AddTokenProvider(System.String,System.Type)~Microsoft.AspNetCore.Identity.IdentityBuilder",
+    "M:Microsoft.AspNetCore.Identity.IdentityError.get_Description~System.String",
+    "M:Microsoft.AspNetCore.Identity.IdentityResult.get_Errors~System.Collections.Generic.IEnumerable{Microsoft.AspNetCore.Identity.IdentityError}",
+    "M:Microsoft.AspNetCore.Identity.UserLoginInfo.#ctor(System.String,System.String,System.String)",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.AddClaimsAsync(\u00600,System.Collections.Generic.IEnumerable{System.Security.Claims.Claim})~System.Threading.Tasks.Task{Microsoft.AspNetCore.Identity.IdentityResult}",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.AddLoginAsync(\u00600,Microsoft.AspNetCore.Identity.UserLoginInfo)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Identity.IdentityResult}",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.CreateAsync(\u00600)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Identity.IdentityResult}",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.CreateAsync(\u00600,System.String)~System.Threading.Tasks.Task{Microsoft.AspNetCore.Identity.IdentityResult}",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.FindByLoginAsync(System.String,System.String)~System.Threading.Tasks.Task{\u00600}",
+    "M:Microsoft.AspNetCore.Identity.UserManager\u00601.FindByNameAsync(System.String)~System.Threading.Tasks.Task{\u00600}"
+  ]
+}

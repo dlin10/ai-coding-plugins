@@ -470,7 +470,9 @@ _Avoid_: library semantics table, built-in semantics, stub, annotation
 
 **Model layer**:
 Where a **Library model** comes from, recorded as its provenance: built-in (shipped with the
-plugin), project (written by the team in the repository's `.concurrency-hunter/models/`), generated
+plugin, whoever produced it — the owner by hand, the owner's regeneration of a **Census**, or AI working
+for the owner; a built-in file does not record which), project (written by the team in the repository's
+`.concurrency-hunter/models/`), generated
 (by the **Model generator** in the run, stored in the same folder, which the run creates when the
 repository has none, and committed) and AI. A generated model belongs to the assembly it describes:
 a package's assembly by its name, version and MVID, an assembly of a shared framework by its name and
@@ -479,7 +481,24 @@ model wins
 over every other layer, including by declaring a member opaque, and two project models that
 disagree about one member leave it opaque rather than handing it to another layer; the others apply
 in the order built-in, generated, AI.
-_Avoid_: source, tier, pack (a pack is how built-in models ship, not a layer)
+_Avoid_: source, tier, pack (a pack is how built-in models ship, not a layer), hand-written model (a
+built-in model is one kind of entry, whoever wrote it)
+
+**Census**:
+The members a set of built-in **Library models** describes, chosen by what programs reach rather than
+by the library's public surface. For `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 10.0 it is
+the members, other than `System.Private.CoreLib`'s, that runs of the demo and eShop reach, with the
+members their generation reads; the owner regenerates it, and each regeneration finds it again from
+those runs. For `System.Private.CoreLib` it is the members the demo and the corpora call. A member of a
+census that has no model is a **Failed member**.
+_Avoid_: snapshot (a snapshot records a measurement), surface, catalog
+
+**Failed member**:
+A member of a **Census** that ships by its declaration id alone: the owner's regeneration gave it no
+model, and no other built-in entry describes it. A run treats its call as an **Opaque call**, counted
+under `opaque-by-built-in`, and never generates it. The file keeps no reason; the regeneration's report
+does.
+_Avoid_: refusal (a **Generation refusal** is the generator's answer kept beside generated models), failed id
 
 **Model lock**:
 The committed record, next to the project models, of which exact members each overload pattern of
@@ -550,8 +569,8 @@ names to the run, which answers them in the same **Generation round**. Non-CoreL
 generation starts with **Inert type initializer** executions and repeats the whole member with
 initializers left outside the set and **Recipe value** construction when the final fate pass or confirmation
 exceeds 1,500 bodies. CoreLib keeps running initializers. One server constant limits a member to
-120 seconds of its thread's CPU time across both attempts in a run, model evals and `generate`; the CoreLib tool keeps five
-minutes. The generation record names the answer treatment, every attempt and its stage times.
+120 seconds of its thread's CPU time across both attempts in a run, model evals and `generate`; the census run and the
+CoreLib tool keep five minutes. The generation record names the answer treatment, every attempt and its stage times.
 _Avoid_: model inference, AI generator (the generator runs no AI)
 
 **Generation refusal**:
@@ -577,14 +596,17 @@ engine and the **Model generator** together, as the plugin was built from its so
 generator's answers move with every part of the engine it reads. A file of generated models names
 one generator version; for a run of another version the file holds no answers, the run generates
 what it reaches, and its first write replaces the file whole. The built-in models need no generator
-version: their owner decides when to generate them again.
+version: their owner decides when to generate them again. A **Census** names instead the engine
+fingerprint it was generated with, the generator version without the built-in models, and a release
+refuses a census whose engine fingerprint is not the tree's.
 _Avoid_: plugin version, release (a release changes it, but so does every change between two)
 
 **Generation budget**:
 The time a run may spend in the **Model generator**: one limit for the whole run and one for each
 member, counted in the CPU time of the thread that generates it, with a wall-clock backstop of four
 member limits for a member that waits. The run that records a repository's committed generated models has a larger limit for the whole
-run, the recording limit, so that one run answers every target; that run also generates four members at once. Every other run has the run limit. A member that reaches its own limit gets a **Generation refusal**; the members the run's
+run, the recording limit, so that one run answers every target; that run also generates four members at once. The owner's
+run that regenerates a **Census** has a run limit of its own, twelve hours, four workers too, and a member limit of five minutes. Every other run has the run limit. A member that reaches its own limit gets a **Generation refusal**; the members the run's
 limit did not reach stay **Opaque calls** in that run. The budget never changes the **Terminal
 status**, and the scope's analyses between **Generation rounds** are no part of it.
 _Avoid_: deadline (the **Deadline** limits AI work), timeout (a member's limit is one part of it)

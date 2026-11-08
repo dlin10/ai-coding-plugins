@@ -60,7 +60,8 @@ public sealed class PollyRetryRecordTests
         Assert.Equal(LibraryMatchKind.OutOfRange, match?.Kind);
         var reference = Assert.Single(LibraryModels.BuiltIn.OutOfRangeReferences(compilation));
         Assert.Equal((POLLY, new Version(version)), (reference.Assembly.Name, reference.Assembly.Version));
-        Assert.Equal((new Version(7, 0, 0, 0), new Version(8, 0, 0, 0)), (reference.Range.Minimum, reference.Range.MaximumExclusive));
+        var range = Assert.Single(reference.Ranges);
+        Assert.Equal((new Version(7, 0, 0, 0), new Version(8, 0, 0, 0)), (range.Minimum, range.MaximumExclusive));
     }
 
     [Fact]

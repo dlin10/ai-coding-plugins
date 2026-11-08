@@ -3,7 +3,7 @@ using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Generation;
 
-/// <summary>The built-in 129-entry LINQ family as a whole-entry oracle.</summary>
+/// <summary>The built-in 126-entry LINQ family as a whole-entry oracle.</summary>
 [Collection(ModelEvalTests.COLLECTION)]
 public sealed class LinqOracleTests
 {

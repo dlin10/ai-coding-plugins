@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Mvc.Abstractions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Mvc.Abstractions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Formatters.FormatterCollection\u00601.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_ContainerType~System.Type",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_MetadataKind~Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataKind",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_ModelType~System.Type",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_Name~System.String",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.get_IsValid~System.Boolean",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo.get_Order~System.Int32",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo.get_SuppressLinkGeneration~System.Boolean",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo.get_SuppressPathMatching~System.Boolean",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Values(System.Object)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.set_Values(System.Object)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Mvc.Abstractions"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_ActionConstraints~System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.ActionConstraints.IActionConstraintMetadata}",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_AttributeRouteInfo~Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_DisplayName~System.String",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_EndpointMetadata~System.Collections.Generic.IList{System.Object}",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_FilterDescriptors~System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.Filters.FilterDescriptor}",
+    "M:Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor.get_RouteValues~System.Collections.Generic.IDictionary{System.String,System.String}",
+    "M:Microsoft.AspNetCore.Mvc.ActionContext.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.ActionContext.get_ActionDescriptor~Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor",
+    "M:Microsoft.AspNetCore.Mvc.ActionContext.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Mvc.ActionContext.get_ModelState~Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary",
+    "M:Microsoft.AspNetCore.Mvc.ActionContext.get_RouteData~Microsoft.AspNetCore.Routing.RouteData",
+    "M:Microsoft.AspNetCore.Mvc.ApiExplorer.IApiDescriptionProvider.get_Order~System.Int32",
+    "M:Microsoft.AspNetCore.Mvc.Filters.ActionExecutedContext.#ctor(Microsoft.AspNetCore.Mvc.ActionContext,System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata},System.Object)",
+    "M:Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext.#ctor(Microsoft.AspNetCore.Mvc.ActionContext,System.Collections.Generic.IList{Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata},System.Collections.Generic.IDictionary{System.String,System.Object},System.Object)",
+    "M:Microsoft.AspNetCore.Mvc.Filters.FilterDescriptor.get_Filter~Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata",
+    "M:Microsoft.AspNetCore.Mvc.IUrlHelper.Action(Microsoft.AspNetCore.Mvc.Routing.UrlActionContext)~System.String",
+    "M:Microsoft.AspNetCore.Mvc.IUrlHelper.IsLocalUrl(System.String)~System.Boolean",
+    "M:Microsoft.AspNetCore.Mvc.IUrlHelper.RouteUrl(Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext)~System.String",
+    "M:Microsoft.AspNetCore.Mvc.IUrlHelper.get_ActionContext~Microsoft.AspNetCore.Mvc.ActionContext",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.IModelMetadataProvider.GetMetadataForType(System.Type)~Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadata",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelBindingMessageProvider.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.ForParameter(System.Reflection.ParameterInfo)~Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.ForType(System.Type)~Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_ConstructorInfo~System.Reflection.ConstructorInfo",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity.get_ParameterInfo~System.Reflection.ParameterInfo",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadata.#ctor(Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataIdentity)",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadata.get_IsReferenceOrNullableType~System.Boolean",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadata.get_MetadataKind~Microsoft.AspNetCore.Mvc.ModelBinding.Metadata.ModelMetadataKind",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadata.get_ModelType~System.Type",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelMetadataProvider.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.AddModelError(System.String,System.String)",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.Enumerator.MoveNext~System.Boolean",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.Enumerator.get_Current~System.Collections.Generic.KeyValuePair{System.String,Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateEntry}",
+    "M:Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.GetEnumerator~Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary.Enumerator",
+    "M:Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo.get_Name~System.String",
+    "M:Microsoft.AspNetCore.Mvc.Routing.AttributeRouteInfo.get_Template~System.String",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Action(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Controller(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Fragment(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Host(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlActionContext.set_Protocol(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.set_Fragment(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.set_Host(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.set_Protocol(System.String)",
+    "M:Microsoft.AspNetCore.Mvc.Routing.UrlRouteContext.set_RouteName(System.String)"
+  ]
+}

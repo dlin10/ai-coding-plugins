@@ -43,17 +43,35 @@ internal sealed class RunGeneration
     /// <summary>One member's limit.</summary>
     internal static readonly TimeSpan MEMBER_LIMIT = GenerationLimits.MEMBER;
 
+    /// <summary>One member's limit in the run that regenerates or settles the shared frameworks' census: five minutes of the member thread's
+    /// CPU time, the CoreLib tool's limit, since a census member the run limit cut would ship as a failed member (ADR 0022).</summary>
+    internal static readonly TimeSpan CENSUS_MEMBER_LIMIT = TimeSpan.FromMinutes(5);
+
+    /// <summary>The census run's limit, summed over its members like the recording's: twelve hours. With the census members' entries left out
+    /// and five minutes for each member, the demo alone spent about 8,700 s, past the recording's two hours, and its second scope was cut;
+    /// the limit still ends a regeneration that does not converge.</summary>
+    internal static readonly TimeSpan CENSUS_LIMIT = TimeSpan.FromHours(12);
+
     /// <summary>The recording's worker threads: the members of its round it generates at once (ADR 0033). Every other run generates one at
     /// a time.</summary>
     private const int RECORDING_WORKERS = 4;
 
-    /// <summary>The run limit a budget names.</summary>
+    /// <summary>The run limit a budget names: the recording's, the census's, or the run's.</summary>
     /// <param name="budget">The budget.</param>
-    internal static TimeSpan RunLimitOf(GenerationBudget budget) => budget == GenerationBudget.Recording ? RECORDING_LIMIT : RUN_LIMIT;
+    internal static TimeSpan RunLimitOf(GenerationBudget budget) => budget switch
+    {
+        GenerationBudget.Recording => RECORDING_LIMIT,
+        GenerationBudget.Census => CENSUS_LIMIT,
+        _ => RUN_LIMIT
+    };
 
-    /// <summary>The worker threads a budget names: <see cref="RECORDING_WORKERS"/> for the recording, one otherwise.</summary>
+    /// <summary>The worker threads a budget names: <see cref="RECORDING_WORKERS"/> for the recording and the census, one otherwise.</summary>
     /// <param name="budget">The budget.</param>
-    internal static int WorkersOf(GenerationBudget budget) => budget == GenerationBudget.Recording ? RECORDING_WORKERS : 1;
+    internal static int WorkersOf(GenerationBudget budget) => budget is GenerationBudget.Recording or GenerationBudget.Census ? RECORDING_WORKERS : 1;
+
+    /// <summary>The member limit a budget names: <see cref="CENSUS_MEMBER_LIMIT"/> for the census, <see cref="MEMBER_LIMIT"/> otherwise.</summary>
+    /// <param name="budget">The budget.</param>
+    internal static TimeSpan MemberLimitOf(GenerationBudget budget) => budget == GenerationBudget.Census ? CENSUS_MEMBER_LIMIT : MEMBER_LIMIT;
 
     private readonly string _repositoryRoot;
     private readonly CancellationToken _runToken;

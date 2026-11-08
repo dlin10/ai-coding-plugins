@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Cors: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Cors"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.CorsMiddlewareExtensions.UseCors(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.String)~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy(System.String,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder})",
+    "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.AllowAnyHeader~Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder",
+    "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.AllowAnyMethod~Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder",
+    "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.AllowCredentials~Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder",
+    "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(System.Func{System.String,System.Boolean})~Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions})~Microsoft.Extensions.DependencyInjection.IServiceCollection"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.DependencyInjection: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.DependencyInjection"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.DefaultServiceProviderFactory.#ctor(Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)",
+      "assemblies": [
+        "Microsoft.Extensions.DependencyInjection"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:options"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.#ctor",
+      "assemblies": [
+        "Microsoft.Extensions.DependencyInjection"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.Extensions.DependencyInjection.DefaultServiceProviderFactory.#ctor",
+    "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.ServiceProvider",
+    "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)~Microsoft.Extensions.DependencyInjection.ServiceProvider",
+    "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.set_ValidateOnBuild(System.Boolean)",
+    "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.set_ValidateScopes(System.Boolean)"
+  ]
+}

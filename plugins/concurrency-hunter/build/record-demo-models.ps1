@@ -6,9 +6,10 @@ Writes the demo's committed generated models, demo/.concurrency-hunter/models/ge
 Builds the executable in Release, then runs `metrics --target demo/Demo.slnx --generation on --recording`, which answers the targets of the
 demo's scope calls from every generation round, plus the dependency members generation reaches, and writes final answers below the repository
 root. `--recording` gives the run the recording's limit instead of the run's, so that one run generates everything.
-The project entries named in $STRIPPED_MEMBERS are taken out of demo/.concurrency-hunter/models/demo.json for that run, because a project entry
-that makes a member opaque keeps the member from being a generation target; the file is put back byte for byte in a `finally`, whatever
-the run does, from a copy kept in scratch/.
+The members of the shared frameworks Microsoft.NETCore.App and Microsoft.AspNetCore.App 10.0 that the demo reaches are the frameworks'
+census, which ships in the built-in models (ADR 0012, amendment of 2026-11-07), so the committed files hold package members only. The
+framework folders below the generated folder are removed before the run, and the run is refused when it writes one again: then the census
+does not answer a framework member the demo reaches, and build/generate-frameworks.ps1 regenerates it.
 
 The run is refused when coverage left a target of a scope call at `budget`: such a member was cut by the recording's limit, its answer
 depends on the machine and would not be written. Dependency members do not appear in scope coverage. A second run, `--generation read`, then
@@ -32,15 +33,11 @@ $TARGET = 'demo/Demo.slnx'
 $GENERATED_DIR = 'demo/.concurrency-hunter/models/generated'
 $BUDGET = 'budget'
 $NOT_GENERATED = 'not-generated'
-# Project entries that keep a member from being generated, by member id; the demo cases that need the member's generated model beside
-# them (project-opaque-switches-off-generated) are the reason each is here.
-$STRIPPED_MEMBERS = @('M:Microsoft.Extensions.Options.Options.Create``1(``0)')
+$FRAMEWORKS = @('Microsoft.NETCore.App', 'Microsoft.AspNetCore.App')
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $scratch = Join-Path $root 'scratch'
 New-Item -ItemType Directory -Force -Path $scratch | Out-Null
-$projectModels = Join-Path $root 'demo/.concurrency-hunter/models/demo.json'
-$aside = Join-Path $scratch 'demo-models.demo.json.aside'
 $generatedRoot = Join-Path $root $GENERATED_DIR
 
 function Show-Tail([string]$Log) { Get-Content -LiteralPath $Log -Tail 40 -Encoding utf8 | ForEach-Object { Write-Host $_ } }
@@ -78,28 +75,18 @@ try {
     # 1. Build.
     Invoke-Dotnet 'build' @('build', $CLI_PROJECT, '-c', 'Release', '--disable-build-servers', '-nodeReuse:false')
 
-    # 2. Generate, with the stripped project entries out of demo.json.
-    $original = [IO.File]::ReadAllBytes($projectModels)
-    [IO.File]::WriteAllBytes($aside, $original)
-    $generating = $null
-    try {
-        $node = [Text.Json.Nodes.JsonNode]::Parse([Text.Encoding]::UTF8.GetString($original).TrimStart([char]0xFEFF))
-        $models = $node['models'].AsArray()
-        $before = $models.Count
-        for ($index = $models.Count - 1; $index -ge 0; $index--) {
-            if ($STRIPPED_MEMBERS -contains $models[$index]['member'].GetValue[string]()) { $models.RemoveAt($index) }
-        }
-        if ($before - $models.Count -ne $STRIPPED_MEMBERS.Count) { throw "$projectModels does not hold exactly the entries to strip." }
-        [IO.File]::WriteAllText($projectModels, $node.ToJsonString(), [Text.UTF8Encoding]::new($false))
-        $generating = Invoke-Metrics 'models' 'on' @('--recording')
+    # 2. Generate, without the framework folders, which the census answers.
+    foreach ($framework in $FRAMEWORKS) {
+        Remove-Item -LiteralPath (Join-Path $generatedRoot $framework) -Recurse -Force -ErrorAction Ignore
     }
-    finally {
-        [IO.File]::WriteAllBytes($projectModels, $original)
+    $generating = Invoke-Metrics 'models' 'on' @('--recording')
+    $frameworkFiles = @($FRAMEWORKS | ForEach-Object { Join-Path $generatedRoot $_ } | Where-Object { Test-Path -LiteralPath $_ } |
+                        ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Filter '*.json' -File })
+    if ($frameworkFiles.Count -gt 0) {
+        Write-Host "The run generated members of the shared frameworks, which the census should answer; regenerate it with build/generate-frameworks.ps1:"
+        $frameworkFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+        exit 1
     }
-    if ((Get-FileHash -LiteralPath $projectModels).Hash -ne (Get-FileHash -LiteralPath $aside).Hash) {
-        throw "$projectModels was not restored; the copy is $aside."
-    }
-    Remove-Item -LiteralPath $aside
 
     # 3. Nothing the recording's limit cut.
     $cut = @(Get-Refusals $generating $BUDGET)

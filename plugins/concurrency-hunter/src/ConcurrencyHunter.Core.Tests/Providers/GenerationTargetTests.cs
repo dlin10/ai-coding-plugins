@@ -232,6 +232,22 @@ public sealed class GenerationTargetTests : IDisposable
     }
 
     [Fact]
+    public void Member_of_a_type_a_recognizer_owns_is_no_target_beside_a_neighbour_that_is_one()
+    {
+        // The recognizer describes the type itself, so asking the generator would only buy an engine-recognized refusal, and no built-in
+        // record may name the member to stop it.
+        _install.SharedFramework("8.0.5");
+        const string RECOGNIZED = "namespace System.Collections.Concurrent { public sealed class ConcurrentBag<T> { public void Add(T item) { } } }";
+        var image = EmittedAssemblies.Image(PACKAGE, ReferenceScopes.VERSION_ATTRIBUTE + API + "\n" + RECOGNIZED);
+        ReferenceScopes.AddAsset(_install, PACKAGE, "1.0.0", "net8.0", PACKAGE, image);
+        var (compilation, run) = Scope(8, "1.0.0", "net8.0", image, "Acme.Api");
+        var add = run.ContainingAssembly.GetTypeByMetadataName("System.Collections.Concurrent.ConcurrentBag`1")!.GetMembers("Add").OfType<IMethodSymbol>().Single();
+
+        Assert.Equal(new NoGenerationTarget(NoTargetReason.Recognized), GenerationTargets.Of(add, compilation, _install.Resolver(), CancellationToken.None));
+        Assert.IsType<GenerationTarget>(GenerationTargets.Of(run, compilation, _install.Resolver(), CancellationToken.None));
+    }
+
+    [Fact]
     public void Id_that_resolves_to_another_member_names_no_target()
     {
         // Roslyn writes nothing for a function-pointer type, so F(delegate*<void>) has the id of "F()", which finds the parameterless F.

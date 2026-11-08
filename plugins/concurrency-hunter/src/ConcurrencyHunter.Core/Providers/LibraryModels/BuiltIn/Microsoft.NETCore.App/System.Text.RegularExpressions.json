@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Text.RegularExpressions: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Text.RegularExpressions"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Text.RegularExpressions.Capture.get_Value~System.String",
+    "M:System.Text.RegularExpressions.Group.get_Success~System.Boolean",
+    "M:System.Text.RegularExpressions.GroupCollection.get_Item(System.Int32)~System.Text.RegularExpressions.Group",
+    "M:System.Text.RegularExpressions.GroupCollection.get_Item(System.String)~System.Text.RegularExpressions.Group",
+    "M:System.Text.RegularExpressions.Match.get_Groups~System.Text.RegularExpressions.GroupCollection",
+    "M:System.Text.RegularExpressions.MatchCollection.GetEnumerator~System.Collections.IEnumerator",
+    "M:System.Text.RegularExpressions.MatchCollection.get_Count~System.Int32",
+    "M:System.Text.RegularExpressions.Regex.#ctor",
+    "M:System.Text.RegularExpressions.Regex.#ctor(System.String)",
+    "M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions)",
+    "M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions,System.TimeSpan)",
+    "M:System.Text.RegularExpressions.Regex.Escape(System.String)~System.String",
+    "M:System.Text.RegularExpressions.Regex.IsMatch(System.String)~System.Boolean",
+    "M:System.Text.RegularExpressions.Regex.IsMatch(System.String,System.String,System.Text.RegularExpressions.RegexOptions)~System.Boolean",
+    "M:System.Text.RegularExpressions.Regex.Match(System.String)~System.Text.RegularExpressions.Match",
+    "M:System.Text.RegularExpressions.Regex.Matches(System.String)~System.Text.RegularExpressions.MatchCollection",
+    "M:System.Text.RegularExpressions.Regex.Replace(System.String,System.String,System.Text.RegularExpressions.MatchEvaluator,System.Text.RegularExpressions.RegexOptions)~System.String",
+    "M:System.Text.RegularExpressions.Regex.Replace(System.String,System.Text.RegularExpressions.MatchEvaluator)~System.String",
+    "M:System.Text.RegularExpressions.Regex.Split(System.String,System.String)~System.String[]",
+    "M:System.Text.RegularExpressions.Regex.ValidateMatchTimeout(System.TimeSpan)",
+    "M:System.Text.RegularExpressions.RegexRunnerFactory.#ctor"
+  ]
+}

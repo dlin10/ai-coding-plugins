@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.Sockets: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.Sockets"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.Sockets.SafeSocketHandle.#ctor",
+      "assemblies": [
+        "System.Net.Sockets"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Net.Sockets.NetworkStream.#ctor(System.Net.Sockets.Socket,System.Boolean)",
+    "M:System.Net.Sockets.NetworkStream.get_Socket~System.Net.Sockets.Socket",
+    "M:System.Net.Sockets.Socket.#ctor(System.Net.Sockets.AddressFamily,System.Net.Sockets.SocketType,System.Net.Sockets.ProtocolType)",
+    "M:System.Net.Sockets.Socket.#ctor(System.Net.Sockets.SafeSocketHandle)",
+    "M:System.Net.Sockets.Socket.#ctor(System.Net.Sockets.SocketType,System.Net.Sockets.ProtocolType)",
+    "M:System.Net.Sockets.Socket.Connect(System.Net.EndPoint)",
+    "M:System.Net.Sockets.Socket.ConnectAsync(System.Net.EndPoint,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask",
+    "M:System.Net.Sockets.Socket.Dispose",
+    "M:System.Net.Sockets.Socket.Poll(System.Int32,System.Net.Sockets.SelectMode)~System.Boolean",
+    "M:System.Net.Sockets.Socket.get_LocalEndPoint~System.Net.EndPoint",
+    "M:System.Net.Sockets.Socket.get_OSSupportsIPv4~System.Boolean",
+    "M:System.Net.Sockets.Socket.get_OSSupportsIPv6~System.Boolean",
+    "M:System.Net.Sockets.Socket.get_RemoteEndPoint~System.Net.EndPoint",
+    "M:System.Net.Sockets.Socket.get_SafeHandle~System.Net.Sockets.SafeSocketHandle",
+    "M:System.Net.Sockets.Socket.set_Blocking(System.Boolean)",
+    "M:System.Net.Sockets.Socket.set_NoDelay(System.Boolean)",
+    "M:System.Net.Sockets.UnixDomainSocketEndPoint.#ctor(System.String)"
+  ]
+}

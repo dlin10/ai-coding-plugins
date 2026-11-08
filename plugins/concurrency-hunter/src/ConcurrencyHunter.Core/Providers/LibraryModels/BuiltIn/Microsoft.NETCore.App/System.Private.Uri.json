@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Private.Uri: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Private.Uri"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.UriBuilder.get_Port~System.Int32",
+      "assemblies": [
+        "System.Private.Uri"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.UriBuilder.set_Fragment(System.String)",
+      "assemblies": [
+        "System.Private.Uri"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.UriBuilder.set_Password(System.String)",
+      "assemblies": [
+        "System.Private.Uri"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.UriBuilder.set_UserName(System.String)",
+      "assemblies": [
+        "System.Private.Uri"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:System.Uri.UnescapeDataString(System.ReadOnlySpan{System.Char})~System.String",
+    "M:System.UriBuilder.#ctor(System.String)",
+    "M:System.UriBuilder.#ctor(System.String,System.String)",
+    "M:System.UriBuilder.#ctor(System.String,System.String,System.Int32)",
+    "M:System.UriBuilder.#ctor(System.Uri)",
+    "M:System.UriBuilder.ToString~System.String",
+    "M:System.UriBuilder.get_Host~System.String",
+    "M:System.UriBuilder.get_Uri~System.Uri",
+    "M:System.UriBuilder.set_Port(System.Int32)"
+  ]
+}

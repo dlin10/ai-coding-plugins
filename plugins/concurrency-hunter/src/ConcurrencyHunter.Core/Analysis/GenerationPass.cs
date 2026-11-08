@@ -13,9 +13,12 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="BeforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
 /// <param name="Time">The clock generation budgets use, or <c>null</c> for the system clock.</param>
 /// <param name="Budget">Which run limit the run's generations spend: the run's unless the caller records.</param>
+/// <param name="BuiltIn">The built-in models the run reads in place of the shipped ones, in its scopes and in its generations; <c>null</c> for
+/// the shipped ones. The run that regenerates the frameworks' census reads them without the census members' entries
+/// (<see cref="LibraryModels.ForCensus"/>), so that every census member is generated.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
                                        Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null,
-                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run);
+                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run, LibraryModels? BuiltIn = null);
 
 /// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's calls
 /// reach and which of them are generation targets, the generated layer each analysis reads, and what each target stands for
@@ -36,9 +39,10 @@ internal sealed class GenerationPass : IDisposable
     {
         Mode = setup.Mode;
         _install = setup.Install ?? ImplementationAssemblies.ForThisProcess();
-        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget), RunGeneration.MEMBER_LIMIT,
+        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget), RunGeneration.MemberLimitOf(setup.Budget),
                                         setup.Time ?? TimeProvider.System,
-                                        setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies)),
+                                        setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies,
+                                                                                                                     setup.BuiltIn)),
                                         new AssemblyRanks(_install).Of, RunGeneration.WorkersOf(setup.Budget));
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;

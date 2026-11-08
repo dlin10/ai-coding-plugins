@@ -11,7 +11,16 @@ public static class GeneratorFingerprint
 {
     private static readonly CSharpParseOptions SourceOptions = new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.None);
 
-    public static IReadOnlyList<string> Inputs(string pluginsRoot)
+    /// <summary>
+    /// The inputs of the fingerprint, as paths relative to <paramref name="pluginsRoot"/> with forward slashes, in ordinal order: the shared
+    /// build properties, the project files and C# sources of Analysis and Core, and, unless <paramref name="builtIn"/> is false, every
+    /// built-in model file, the census files in the framework folders included.
+    /// </summary>
+    /// <param name="pluginsRoot">The repository's <c>plugins</c> folder.</param>
+    /// <param name="builtIn">Whether the built-in model files count: they do for the generator version, and not for the engine
+    /// fingerprint a census names, which writing the census would otherwise change.</param>
+    /// <returns>The inputs.</returns>
+    public static IReadOnlyList<string> Inputs(string pluginsRoot, bool builtIn = true)
     {
         var root = Path.GetFullPath(pluginsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var projects = new[] { "ConcurrencyHunter.Analysis", "ConcurrencyHunter.Core" };
@@ -24,9 +33,12 @@ public static class GeneratorFingerprint
                 .Select(path => path.Substring(root.Length + 1).Replace('\\', '/'))
                 .Where(path => !path.Split('/').Any(part => part == "bin" || part == "obj")));
         }
-        var builtIn = Path.Combine(root, "concurrency-hunter", "src", "ConcurrencyHunter.Core", "Providers", "LibraryModels", "BuiltIn");
-        inputs.AddRange(Directory.EnumerateFiles(builtIn, "*.json")
-            .Select(path => path.Substring(root.Length + 1).Replace('\\', '/')));
+        if (builtIn)
+        {
+            var folder = Path.Combine(root, "concurrency-hunter", "src", "ConcurrencyHunter.Core", "Providers", "LibraryModels", "BuiltIn");
+            inputs.AddRange(Directory.EnumerateFiles(folder, "*.json", SearchOption.AllDirectories)
+                .Select(path => path.Substring(root.Length + 1).Replace('\\', '/')));
+        }
         return inputs.OrderBy(path => path, StringComparer.Ordinal).ToArray();
     }
 
@@ -37,10 +49,12 @@ public static class GeneratorFingerprint
     /// </summary>
     /// <param name="pluginsRoot">The repository's <c>plugins</c> folder, which holds <c>concurrency-hunter</c> and the shared build
     /// properties.</param>
+    /// <param name="builtIn">Whether the built-in model files count (<see cref="Inputs"/>): true for the generator version, false for the
+    /// engine fingerprint.</param>
     /// <returns>The fingerprint as 64 lowercase hex digits.</returns>
-    public static string Compute(string pluginsRoot)
+    public static string Compute(string pluginsRoot, bool builtIn = true)
     {
-        var inputs = Inputs(pluginsRoot);
+        var inputs = Inputs(pluginsRoot, builtIn);
         var contents = inputs.AsParallel().AsOrdered()
                              .Select(path => Content(Path.Combine(pluginsRoot, path), path.EndsWith(".cs", StringComparison.Ordinal)))
                              .ToArray();
@@ -144,12 +158,15 @@ public sealed class ComputeGeneratorFingerprint : Microsoft.Build.Utilities.Task
     [Microsoft.Build.Framework.Required]
     public string PluginsRoot { get; set; } = "";
 
+    /// <summary>Leaves the built-in model files out, for the engine fingerprint a census names.</summary>
+    public bool LeaveOutBuiltIn { get; set; }
+
     [Microsoft.Build.Framework.Output]
     public string Fingerprint { get; set; } = "";
 
     public override bool Execute()
     {
-        Fingerprint = GeneratorFingerprint.Compute(PluginsRoot);
+        Fingerprint = GeneratorFingerprint.Compute(PluginsRoot, !LeaveOutBuiltIn);
         return true;
     }
 }

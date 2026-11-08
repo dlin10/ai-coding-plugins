@@ -558,6 +558,26 @@ public sealed partial class RunGenerationPassTests : IDisposable
     }
 
     [Fact]
+    public async Task Failed_member_of_a_census_is_an_opaque_call_neither_generated_nor_listed()
+    {
+        // A failed member ships as a built-in record that declares its member opaque in its file's assemblies and range.
+        var failed = new LibraryModel("M:Acme.Api.Touch(System.Object)", [Range()], [], DeclaredOpaque: true);
+        var builtIn = new LibraryModels(LibraryModels.BuiltIn.Members.Append(failed), LibraryModels.BuiltIn.ImmutableTypes);
+        // The fixture's framework stubs are at the census's version, so the shipped census declares some of their members opaque too.
+        var baseline = Counter(await Run(Solution("_state.Total++;"), ModelGeneration.Generate, builtIn: builtIn), CoverageCounters.OPAQUE_BY_BUILT_IN);
+
+        var result = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, builtIn: builtIn);
+
+        // The built-in layer describes the member, so the run never generates it and lists no refusal; the call is opaque, counted apart.
+        Assert.Empty(_requested);
+        Assert.Equal((baseline + 1, 0), (Counter(result, CoverageCounters.OPAQUE_BY_BUILT_IN), Counter(result, CoverageCounters.OPAQUE_BY_PROJECT)));
+        Assert.Equal((0, 0), (Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.GENERATED_IN_RUN)));
+        Assert.True(Counter(result, CoverageCounters.OPAQUE_CALL) >= 1);
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.False(Directory.Exists(Path.Combine(_repository, ".concurrency-hunter", "models", "generated")));
+    }
+
+    [Fact]
     public async Task Generated_in_run_counts_a_target_once_for_repeated_calls()
     {
         var result = await Run(Solution("Acme.Api.Touch(_state); Acme.Api.Touch(_state); Acme.Api.Touch(_state);"), ModelGeneration.Generate);
@@ -629,9 +649,10 @@ public sealed partial class RunGenerationPassTests : IDisposable
     /// <param name="install">The install target resolution reads, or the fixture's.</param>
     /// <param name="time">The clock generation budgets use, or the system clock.</param>
     /// <param name="budget">Which run limit the run's generations spend.</param>
+    /// <param name="builtIn">The built-in models the run reads in place of the shipped ones, or <c>null</c> for those.</param>
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null,
                                      CancellationToken token = default, ImplementationAssemblies? install = null, TimeProvider? time = null,
-                                     GenerationBudget budget = GenerationBudget.Run)
+                                     GenerationBudget budget = GenerationBudget.Run, LibraryModels? builtIn = null)
     {
         generator ??= (request, _, _) => Model(request);
         return PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, ProviderRegistry.BuiltIn, Counted, AnalysisLimits.Default,
@@ -640,7 +661,7 @@ public sealed partial class RunGenerationPassTests : IDisposable
                                              {
                                                  _requested.Add(request.MemberId);
                                                  return generator(request, dependencies, cancellation);
-                                             }, Time: time, Budget: budget), token);
+                                             }, Time: time, Budget: budget, BuiltIn: builtIn), token);
     }
 
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, GeneratedAnswer> generator) =>

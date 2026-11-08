@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Validation: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Validation"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.Extensions.Validation.IValidatableInfo.ValidateAsync(System.Object,Microsoft.Extensions.Validation.ValidateContext,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+    "M:Microsoft.Extensions.Validation.ValidateContext.#ctor",
+    "M:Microsoft.Extensions.Validation.ValidateContext.get_ValidationErrors~System.Collections.Generic.Dictionary{System.String,System.String[]}",
+    "M:Microsoft.Extensions.Validation.ValidateContext.set_ValidationContext(System.ComponentModel.DataAnnotations.ValidationContext)",
+    "M:Microsoft.Extensions.Validation.ValidateContext.set_ValidationOptions(Microsoft.Extensions.Validation.ValidationOptions)",
+    "M:Microsoft.Extensions.Validation.ValidationOptions.TryGetValidatableParameterInfo(System.Reflection.ParameterInfo,Microsoft.Extensions.Validation.IValidatableInfo@)~System.Boolean",
+    "M:Microsoft.Extensions.Validation.ValidationOptions.get_Resolvers~System.Collections.Generic.IList{Microsoft.Extensions.Validation.IValidatableInfoResolver}"
+  ]
+}

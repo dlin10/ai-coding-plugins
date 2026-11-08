@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Runtime.Numerics: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Runtime.Numerics"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Numerics.BigInteger.get_IsZero~System.Boolean",
+      "assemblies": [
+        "System.Runtime.Numerics"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Numerics.BigInteger.CompareTo(System.Numerics.BigInteger)~System.Int32",
+    "M:System.Numerics.BigInteger.Parse(System.String,System.IFormatProvider)~System.Numerics.BigInteger",
+    "M:System.Numerics.BigInteger.ToString(System.String,System.IFormatProvider)~System.String",
+    "M:System.Numerics.BigInteger.get_Zero~System.Numerics.BigInteger"
+  ]
+}

@@ -62,6 +62,19 @@ public sealed partial class RunGenerationTests : IDisposable
     }
 
     [Fact]
+    public void Census_budget_has_a_run_limit_of_its_own_the_recording_workers_and_a_member_limit_of_five_minutes()
+    {
+        // A census member the member limit cut would ship as a failed member, so the census keeps the CoreLib tool's five minutes (ADR 0022);
+        // a member the run limit cut ships nothing, so the census has twelve hours, past what the demo alone spends.
+        Assert.Equal(TimeSpan.FromHours(12), RunGeneration.RunLimitOf(GenerationBudget.Census));
+        Assert.True(RunGeneration.CENSUS_LIMIT > RunGeneration.RECORDING_LIMIT);
+        Assert.Equal(RunGeneration.WorkersOf(GenerationBudget.Recording), RunGeneration.WorkersOf(GenerationBudget.Census));
+        Assert.Equal(TimeSpan.FromMinutes(5), RunGeneration.MemberLimitOf(GenerationBudget.Census));
+        Assert.Equal(RunGeneration.MEMBER_LIMIT, RunGeneration.MemberLimitOf(GenerationBudget.Recording));
+        Assert.Equal(RunGeneration.MEMBER_LIMIT, RunGeneration.MemberLimitOf(GenerationBudget.Run));
+    }
+
+    [Fact]
     public void Undescribed_member_is_generated()
     {
         var alpha = Candidate(Project(), "Alpha");

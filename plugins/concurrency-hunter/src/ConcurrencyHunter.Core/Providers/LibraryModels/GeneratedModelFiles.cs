@@ -345,13 +345,15 @@ internal static class GeneratedModelFiles
     /// <param name="key">The key the file answers for.</param>
     /// <param name="displayPath">The file's path as a diagnostic writes it.</param>
     /// <param name="bytes">The file.</param>
-    internal static GeneratedModelFile Valid(GeneratedFileKey key, string displayPath, byte[] bytes)
+    /// <param name="anyGenerator">Whether a file of another generator version is read as well: only the census tool reads so, since the
+    /// runs that settle a census are built after it wrote the census, and so name another version than the run that regenerated it.</param>
+    internal static GeneratedModelFile Valid(GeneratedFileKey key, string displayPath, byte[] bytes, bool anyGenerator = false)
     {
         IReadOnlyList<RawEntry> raw;
         bool isOtherVersion;
         try
         {
-            raw = Structure(key, bytes, out isOtherVersion);
+            raw = Structure(key, bytes, anyGenerator, out isOtherVersion);
         }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or FormatException)
         {
@@ -592,7 +594,7 @@ internal static class GeneratedModelFiles
         {
             try
             {
-                existing = Structure(file.Key, original, out _);
+                existing = Structure(file.Key, original, false, out _);
             }
             catch (Exception error) when (error is JsonException or DecoderFallbackException or FormatException)
             {
@@ -693,9 +695,10 @@ internal static class GeneratedModelFiles
     /// <see cref="Check"/>'s.</summary>
     /// <param name="key">The key the file answers for.</param>
     /// <param name="bytes">The file.</param>
+    /// <param name="anyGenerator">Whether a file naming another generator version is read as the current one is.</param>
     /// <param name="isOtherVersion">Whether the file names another schema or generator version, or names none.</param>
     /// <exception cref="FormatException">The file's shape or header breaks the rule.</exception>
-    private static IReadOnlyList<RawEntry> Structure(GeneratedFileKey key, byte[] bytes, out bool isOtherVersion)
+    private static IReadOnlyList<RawEntry> Structure(GeneratedFileKey key, byte[] bytes, bool anyGenerator, out bool isOtherVersion)
     {
         isOtherVersion = false;
         var text = new UTF8Encoding(false, true).GetString(bytes);
@@ -711,7 +714,7 @@ internal static class GeneratedModelFiles
         if (!root.TryGetProperty("schemaVersion", out var schema) || schema.ValueKind != JsonValueKind.Number ||
             !schema.TryGetInt32(out var version) || version != SCHEMA_VERSION ||
             !root.TryGetProperty("generator", out var generator) || generator.ValueKind != JsonValueKind.String ||
-            !string.Equals(generator.GetString(), GeneratorVersion.Fingerprint, StringComparison.Ordinal))
+            !anyGenerator && !string.Equals(generator.GetString(), GeneratorVersion.Fingerprint, StringComparison.Ordinal))
         {
             isOtherVersion = true;
             return [];

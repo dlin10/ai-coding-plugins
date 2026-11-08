@@ -30,7 +30,11 @@ internal enum NoTargetReason
     Forwarded,
 
     /// <summary>The member's declaration id does not resolve to exactly this member of its assembly.</summary>
-    AmbiguousId
+    AmbiguousId,
+
+    /// <summary>A member of a type a recognizer of the engine owns (<see cref="LibraryModels.IsRecognizedType"/>): the engine describes it
+    /// itself, as built-in semantics, so the generator would only refuse it <c>engine-recognized</c>, and no built-in record may name it.</summary>
+    Recognized
 }
 
 /// <summary>What a call's member comes to as a generation target: <see cref="NoGenerationTarget"/>, <see cref="UnavailableGenerationTarget"/>
@@ -80,7 +84,7 @@ internal static class GenerationTargets
     private const string ASPNETCORE_FRAMEWORK = "Microsoft.AspNetCore.App";
 
     /// <summary>What a call's member comes to. The checks that need no disk come first, the function-pointer rule before anything is
-    /// resolved; then the implementation is found, and the member's declaring type is read from its exported types. A package member is
+    /// resolved, a member of a type a recognizer owns before the implementation is looked for; then the implementation is found, and the member's declaring type is read from its exported types. A package member is
     /// requested with the compilation's target framework, the <c>net&lt;major&gt;.0</c> folder of its <c>Microsoft.NETCore.App.Ref</c>
     /// references, or the request's major in a generator compilation, so the resolver picks that framework's asset and not the host's.
     /// A generator compilation also recognizes the shared frameworks' implementation folders as framework origins.</summary>
@@ -116,6 +120,8 @@ internal static class GenerationTargets
         if (definition.GetDocumentationCommentId() is not { } memberId || DocumentationCommentId.CreateDeclarationId(definition) is not { } lookupId ||
             !NamesOnly(definition, memberId, compilation))
             return new NoGenerationTarget(NoTargetReason.AmbiguousId);
+        if (LibraryModels.IsRecognizedType(LibraryModels.TypeOf(memberId)))
+            return new NoGenerationTarget(NoTargetReason.Recognized);
 
         var declaring = definition.ContainingType.OriginalDefinition;
         if (typeOrigins is not null && typeOrigins.Answers.TryGetValue((compilation, declaring), out var cached))

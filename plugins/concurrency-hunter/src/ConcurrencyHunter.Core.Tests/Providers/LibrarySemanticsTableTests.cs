@@ -350,7 +350,7 @@ public sealed class LibrarySemanticsTableTests
     {
         Assert.All(Table.Members, member =>
         {
-            var method = Assert.IsAssignableFrom<IMethodSymbol>(Assert.Single(DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value)));
+            var method = Assert.IsAssignableFrom<IMethodSymbol>(Assert.Single(BuiltInCensus.Lookup(member, Real.Value).Symbols));
             Assert.Contains(member.Assemblies, range => range.AssemblyName == method.ContainingAssembly.Identity.Name &&
                                                         range.Contains(method.ContainingAssembly.Identity.Version));
         });
@@ -372,7 +372,7 @@ public sealed class LibrarySemanticsTableTests
     {
         Assert.All(Table.Members.Where(member => member.Effects.Count != 0), member =>
         {
-            var method = (IMethodSymbol)DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value).Single();
+            var method = (IMethodSymbol)BuiltInCensus.Lookup(member, Real.Value).Symbols.Single();
             Assert.All(member.Effects, effect =>
             {
                 if (effect.Parameter == "this") Assert.False(method.IsStatic);
@@ -384,9 +384,10 @@ public sealed class LibrarySemanticsTableTests
     [Fact]
     public void No_member_takes_a_delegate_without_a_fate()
     {
-        Assert.All(Table.Members, member =>
+        // A failed member of the census declares its member opaque, and a delegate handed to an opaque call runs in an unknown execution.
+        Assert.All(Table.Members.Where(member => !member.DeclaredOpaque), member =>
         {
-            var method = (IMethodSymbol)DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value).Single();
+            var method = (IMethodSymbol)BuiltInCensus.Lookup(member, Real.Value).Symbols.Single();
             // A delegate a member takes has its fate since phase 5c run B.
             Assert.DoesNotContain(method.Parameters, parameter => parameter.Type.TypeKind == TypeKind.Delegate &&
                                                                   member.Fates.All(fate => fate.Parameter != parameter.Name));
@@ -399,37 +400,40 @@ public sealed class LibrarySemanticsTableTests
         // Phase 5c run B adds Comparer<T>.Create, every Enumerable operator taking a delegate and no comparer, only ExceptBy and
         // IntersectBy with an effect, and the System.Array statics R7 names, and gives the phase 5a LINQ members R6 names a result
         // without changing their effects. Phase 5d run A4 gives the HttpClient members whose task carries a response or a string the
-        // result task(new), without changing their effects.
+        // result task(new), without changing their effects. A census model replaces the owner's entry for its member, so the table is the
+        // owner's records and the lists without the members the census holds.
         var runB = RunBFamilies();
-        var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
+        var owner = Table.Members.Where(member => !BuiltInCensus.Ids.Contains(member.Id)).ToArray();
+        var table = owner.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
                          .ToHashSet();
         var list = Phase5aList.Concat(runB).Concat(ArrayCellWriters).Concat(PollyRetryFamily.Select(id => (id, ""))).ToHashSet();
         var resultOnly = Phase5aList.Select(entry => entry.Id)
                                     .Where(id => R6Phase5aNames.Any(name => id.StartsWith($"M:System.Linq.Enumerable.{name}``", StringComparison.Ordinal)))
                                     .ToArray();
-        var described = Table.Members.Where(member => member.Fates.Count != 0 || member.Result is not null).Select(member => member.Id);
+        var described = owner.Where(member => member.Fates.Count != 0 || member.Result is not null).Select(member => member.Id);
         var deserializers = Phase5aList.Select(entry => entry.Id).Where(id =>
             id.StartsWith("M:System.Text.Json.JsonSerializer.Deserialize", StringComparison.Ordinal) ||
             id.StartsWith("M:Newtonsoft.Json.JsonConvert.DeserializeObject", StringComparison.Ordinal)).ToArray();
 
         Assert.Equal(Phase5aList.Length + runB.Length + ArrayCellWriters.Length + PollyRetryFamily.Length, list.Count);
         Assert.Empty(table.Except(list));
-        Assert.Empty(list.Except(table));
+        Assert.Empty(list.Where(entry => !BuiltInCensus.Ids.Contains(entry.Item1)).Except(table));
         Assert.Equal(15, resultOnly.Length);
         Assert.Equal(10, deserializers.Length);
         Assert.All(Table.Members.Where(member => deserializers.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("new", member.Result?.ToString()));
         Assert.Equal(26, HttpClientTaskResults.Length);
         Assert.All(Table.Members.Where(member => HttpClientTaskResults.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("task(new)", member.Result?.ToString()));
         Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Concat(HttpClientTaskResults).Concat(PollyRetryFamily)
-                         .Order(StringComparer.Ordinal),
+                         .Where(id => !BuiltInCensus.Ids.Contains(id)).Order(StringComparer.Ordinal),
                      described.Order(StringComparer.Ordinal));
     }
 
     [Fact]
     public void Every_overload_of_an_all_overloads_member_is_listed_or_excluded()
     {
-        var listed = Table.Members.Select(member => member.Id).ToHashSet(StringComparer.Ordinal);
+        // A failed member of the census declares its member opaque: it is not listed. A census model is.
+        var listed = Table.Members.Where(member => !member.DeclaredOpaque).Select(member => member.Id).ToHashSet(StringComparer.Ordinal);
         var violations = new List<string>();
         var checkedOverloads = 0;
         foreach (var (typeName, names, excluded) in AllOverloads)
@@ -591,20 +595,67 @@ public sealed class LibrarySemanticsTableTests
                                      [CSharpSyntaxTree.ParseText($$"""[assembly: System.Reflection.AssemblyVersion("12.0.0.0")] {{source}}""")],
                                      StubAssemblies.PlatformWithout([name]),
                                      new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).ToMetadataReference();
-        var converter = Framework("System.ComponentModel.TypeConverter",
-                                  "namespace System.ComponentModel { public class WarningException : System.SystemException { public WarningException(string message) { } } }");
-        var memory = Framework("System.Memory", "namespace System.Buffers { public sealed class Pool { } }");
+        // Two System assemblies no record names, the census's included, so the rule for derived types decides for both.
+        var widgets = Framework("System.Widgets",
+                                "namespace System.Widgets { public class WidgetException : System.SystemException { public WidgetException(string message) { } } }");
+        var gadgets = Framework("System.Gadgets", "namespace System.Gadgets { public sealed class Pool { } }");
         var calls = Calls("""
-            class C { void M(string s) { new System.ComponentModel.WarningException(s); new System.Buffers.Pool(); } }
+            class C { void M(string s) { new System.Widgets.WidgetException(s); new System.Gadgets.Pool(); } }
             """,
-            StubAssemblies.PlatformWithout(["System.ComponentModel.TypeConverter", "System.Memory"]).Append(converter).Append(memory));
-        var compilation = CSharpCompilation.Create("LibraryTable", [], StubAssemblies.PlatformWithout(["System.ComponentModel.TypeConverter", "System.Memory"])
-                                                                           .Append(converter).Append(memory));
+            StubAssemblies.PlatformWithout([]).Append(widgets).Append(gadgets));
+        var compilation = CSharpCompilation.Create("LibraryTable", [], StubAssemblies.PlatformWithout([]).Append(widgets).Append(gadgets));
 
         Assert.Equal(LibraryMatchKind.OutOfRange, Table.Find(calls[0])?.Kind);
         var reference = Assert.Single(Table.OutOfRangeReferences(compilation));
-        Assert.Equal(("System.ComponentModel.TypeConverter", new Version(12, 0, 0, 0)), (reference.Assembly.Name, reference.Assembly.Version));
-        Assert.Equal((new Version(8, 0, 0, 0), new Version(11, 0, 0, 0)), (reference.Range.Minimum, reference.Range.MaximumExclusive));
+        Assert.Equal(("System.Widgets", new Version(12, 0, 0, 0)), (reference.Assembly.Name, reference.Assembly.Version));
+        var range = Assert.Single(reference.Ranges);
+        Assert.Equal((new Version(8, 0, 0, 0), new Version(11, 0, 0, 0)), (range.Minimum, range.MaximumExclusive));
+    }
+
+    [Theory]
+    [InlineData("8.0.0.0", false)]
+    [InlineData("10.0.0.0", false)]
+    [InlineData("12.0.0.0", true)]
+    public void Assembly_two_ranges_name_is_an_out_of_range_reference_only_outside_both(string version, bool reported)
+    {
+        var compilation = Referencing(CompiledAssembly("Library", version,"namespace Library { public static class Api { } }"));
+
+        var references = CensusModels("Library", owner: true).OutOfRangeReferences(compilation)
+                                                             .Select(reference => reference.Assembly.Name)
+                                                             .Where(name => name == "Library");
+
+        Assert.Equal(reported ? new[] { "Library" } : [], references);
+    }
+
+    [Fact]
+    public void Out_of_range_reference_names_the_versions_its_ranges_hold_together()
+    {
+        var compilation = Referencing(CompiledAssembly("Library", "12.0.0.0", "namespace Library { public static class Api { } }"));
+
+        var reference = Assert.Single(CensusModels("Library", owner: true).OutOfRangeReferences(compilation),
+                                      reference => reference.Assembly.Name == "Library");
+
+        var range = Assert.Single(reference.Ranges);
+        Assert.Equal(("Library", new Version(8, 0, 0, 0), new Version(11, 0, 0, 0)), (range.AssemblyName, range.Minimum, range.MaximumExclusive));
+    }
+
+    [Theory]
+    [InlineData("9.0.0.0", true, true, true)]
+    [InlineData("9.0.0.0", false, true, false)]
+    [InlineData("12.0.0.0", false, true, true)]
+    [InlineData("12.0.0.0", false, false, false)]
+    public void Rule_for_derived_types_decides_only_for_a_System_assembly_no_record_names(string version, bool named, bool declaresException,
+                                                                                          bool reported)
+    {
+        var source = declaresException ? "namespace System.Widgets { public class WidgetException : System.Exception { } }"
+                                       : "namespace System.Widgets { public static class Api { } }";
+        var compilation = Referencing(CompiledAssembly("System.Widgets", version, source));
+
+        var references = CensusModels(named ? "System.Widgets" : "Library", owner: false).OutOfRangeReferences(compilation)
+                                                                                          .Select(reference => reference.Assembly.Name)
+                                                                                          .Where(name => name == "System.Widgets");
+
+        Assert.Equal(reported ? new[] { "System.Widgets" } : [], references);
     }
 
     // ---- the self-check ----
@@ -902,6 +953,35 @@ public sealed class LibrarySemanticsTableTests
 
     private static LibraryModel Member() =>
         new("M:Library.Api.Read(System.Object)", [new SupportedAssemblyVersion("Library", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], []);
+
+    /// <summary>Models of one assembly as the shared frameworks' census leaves them: a census record at 10.0.0.0 up to 10.0.0.1, which
+    /// comes first as the census files load before the topical ones, an owner's record at the framework range when <paramref name="owner"/>,
+    /// and the rule covering the types that derive from <c>System.Exception</c>.</summary>
+    /// <param name="assembly">The assembly the records name.</param>
+    /// <param name="owner">Whether an owner's record at 8.0.0.0 up to 11.0.0.0 names the assembly too.</param>
+    private static LibraryModels CensusModels(string assembly, bool owner)
+    {
+        var census = new LibraryModel($"M:{assembly}.Api.Write(System.Object)",
+                                      [new SupportedAssemblyVersion(assembly, new Version(10, 0, 0, 0), new Version(10, 0, 0, 1))], []);
+        var ownerRecord = new LibraryModel($"M:{assembly}.Api.Read(System.Object)", [SupportedAssemblyVersion.Framework(assembly)], []);
+        var exception = new ImmutableLibraryType("T:System.Exception", [SupportedAssemblyVersion.Framework(typeof(Exception).Assembly.GetName().Name!)],
+                                                 IncludesDerived: true);
+        return new LibraryModels(owner ? [census, ownerRecord] : [census], [exception]);
+    }
+
+    /// <summary>A reference to an assembly compiled from <paramref name="source"/> against the platform at <paramref name="version"/>.</summary>
+    /// <param name="name">The assembly's name.</param>
+    /// <param name="version">Its assembly version.</param>
+    /// <param name="source">The C# source it declares.</param>
+    private static MetadataReference CompiledAssembly(string name,string version, string source) =>
+        CSharpCompilation.Create(name, [Parse($$"""[assembly: System.Reflection.AssemblyVersion("{{version}}")] {{source}}""")],
+                                 StubAssemblies.PlatformWithout([]),
+                                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)).ToMetadataReference();
+
+    /// <summary>An empty compilation that references the platform and <paramref name="reference"/>.</summary>
+    /// <param name="reference">The extra reference.</param>
+    private static CSharpCompilation Referencing(MetadataReference reference) =>
+        CSharpCompilation.Create("LibraryTable", [], StubAssemblies.PlatformWithout([]).Append(reference));
 
     /// <summary>Every public or protected method of the listed immutable types, derived types of <c>Exception</c> left out.</summary>
     private static IEnumerable<IMethodSymbol> ImmutableTypeMembers() =>

@@ -8,10 +8,12 @@
     <InternalsVisibleTo Include="ConcurrencyHunter.Core.Tests" />
     <InternalsVisibleTo Include="ConcurrencyHunter.Cli.Tests" />
     <InternalsVisibleTo Include="ConcurrencyHunter.CoreLibGeneration" />
+    <InternalsVisibleTo Include="ConcurrencyHunter.FrameworkGeneration" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Providers\LibraryModels\BuiltIn\*.json" LogicalName="LibraryModels.BuiltIn.%(Filename)%(Extension)" />
+    <!-- The topical files sit at the top of BuiltIn, a framework's census files in a folder named after the framework. -->
+    <EmbeddedResource Include="Providers\LibraryModels\BuiltIn\**\*.json" LogicalName="LibraryModels.BuiltIn.%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,6 +54,15 @@
       <Compile Include="$(IntermediateOutputPath)GeneratorVersion.g.cs" />
       <FileWrites Include="$(IntermediateOutputPath)GeneratorVersion.g.cs" />
     </ItemGroup>
+  </Target>
+
+  <!-- The engine fingerprint a framework census names (docs/adr/0022): the generator version without the built-in models. The census
+       tool and `build/package.ps1 -Release` read it with
+       `dotnet msbuild <this project> -restore -t:ComputeEngineFingerprint -getProperty:EngineFingerprint`. -->
+  <Target Name="ComputeEngineFingerprint">
+    <ComputeGeneratorFingerprint PluginsRoot="$(MSBuildThisFileDirectory)../../../" LeaveOutBuiltIn="true">
+      <Output TaskParameter="Fingerprint" PropertyName="EngineFingerprint" />
+    </ComputeGeneratorFingerprint>
   </Target>
 
 </Project>

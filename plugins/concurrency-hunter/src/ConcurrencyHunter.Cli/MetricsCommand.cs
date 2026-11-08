@@ -23,8 +23,10 @@ internal sealed record LoadedTarget(Solution Solution, int ProjectsExpected, int
 internal static class MetricsCommand
 {
     private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] " +
-                                 "[--recording]";
+                                 "[--recording | --census <folder> [--settle]]";
     private const string RECORDING = "--recording";
+    private const string CENSUS = "--census";
+    private const string SETTLE = "--settle";
 
     /// <summary>What a revision reads as when git could not produce one.</summary>
     internal const string UNKNOWN_REVISION = "unknown";
@@ -59,7 +61,7 @@ internal static class MetricsCommand
         try
         {
             var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, options.Generation, CancellationToken.None,
-                                                      options.Budget)
+                                                      options.Budget, options.Census, options.Settle)
                                        .ConfigureAwait(false);
             var path = Path.GetFullPath(options.Out);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -81,10 +83,14 @@ internal static class MetricsCommand
     /// <param name="generation">What the analysis does with the generated model layer: the caller chooses, so that a snapshot says what it measured.</param>
     /// <param name="cancellationToken">Cancels the load and the analysis.</param>
     /// <param name="budget">Which run limit a run that generates spends: the recording's only when the command line asks for it.</param>
+    /// <param name="censusFolder">The scratch folder of the owner's census run, which stands for the repository root, or <c>null</c> for any
+    /// other run (<see cref="PhaseOneAnalyzer.AnalyzeCensusAsync"/>).</param>
+    /// <param name="settle">Whether the census run settles the census written before rather than regenerating it.</param>
     internal static async Task<(Measurement Measurement, AnalysisResult Analysis)> MeasureAsync(string target, AnalysisLimits limits, TargetLoad load,
                                                                                                  ModelGeneration generation,
                                                                                                  CancellationToken cancellationToken,
-                                                                                                 GenerationBudget budget = GenerationBudget.Run)
+                                                                                                 GenerationBudget budget = GenerationBudget.Run,
+                                                                                                 string? censusFolder = null, bool settle = false)
     {
         var total = Stopwatch.StartNew();
         var step = Stopwatch.StartNew();
@@ -94,7 +100,9 @@ internal static class MetricsCommand
         var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
         var startedAt = DateTimeOffset.UtcNow;
         step.Restart();
-        var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation, budget).ConfigureAwait(false);
+        var analysis = censusFolder is null
+            ? await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation, budget).ConfigureAwait(false)
+            : await PhaseOneAnalyzer.AnalyzeCensusAsync(loaded.Solution, rootDirectory, censusFolder, limits, settle, cancellationToken).ConfigureAwait(false);
         var analysisSeconds = step.Elapsed.TotalSeconds;
 
         step.Restart();
@@ -241,22 +249,28 @@ internal static class MetricsCommand
     /// <param name="Generation">What the analysis does with the generated model layer: <c>--generation on</c> generates (the default),
     /// <c>read</c> only reads the generated files, <c>off</c> leaves the layer out.</param>
     /// <param name="Budget">Which run limit the generations spend: <c>--recording</c>, which only <c>build/record-demo-models.ps1</c> passes,
-    /// selects the recording's; without it the run's.</param>
-    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget Budget)
+    /// selects the recording's, <c>--census</c> the census budget; without either the run's.</param>
+    /// <param name="Census">The scratch folder of the owner's census run, which only <c>build/generate-frameworks.ps1</c> passes, or <c>null</c>.</param>
+    /// <param name="Settle">Whether the census run settles the census written before (<c>--settle</c>) rather than regenerating it.</param>
+    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget Budget,
+                                   string? Census = null, bool Settle = false)
     {
         /// <summary>The options of a command line.</summary>
         /// <param name="args">The arguments after the command's name.</param>
         /// <exception cref="ArgumentException">An argument is unexpected, repeated or without a value, a required option is missing, a value
-        /// is not one the option takes, or <c>--recording</c> comes with a run that does not generate.</exception>
+        /// is not one the option takes, <c>--recording</c> or <c>--census</c> comes with a run that does not generate, the two come together,
+        /// or <c>--settle</c> comes without <c>--census</c>.</exception>
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
-            var recording = false;
+            var (recording, settle) = (false, false);
             for (var index = 0; index < args.Length; index++)
             {
                 if (args[index] == RECORDING && !recording)
                     recording = true;
-                else if (args[index] is not ("--target" or "--out" or "--limits" or "--generation") || index + 1 >= args.Length ||
+                else if (args[index] == SETTLE && !settle)
+                    settle = true;
+                else if (args[index] is not ("--target" or "--out" or "--limits" or "--generation" or CENSUS) || index + 1 >= args.Length ||
                          !values.TryAdd(args[index], args[++index]))
                     throw new ArgumentException($"Unexpected argument '{args[index]}'.");
             }
@@ -268,8 +282,13 @@ internal static class MetricsCommand
             var mode = values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.Generate;
             if (recording && mode != ModelGeneration.Generate)
                 throw new ArgumentException("--recording needs --generation on.");
+            var census = values.GetValueOrDefault(CENSUS);
+            if (census is not null && (string.IsNullOrWhiteSpace(census) || mode != ModelGeneration.Generate || recording))
+                throw new ArgumentException("--census needs a folder and --generation on, and does not go with --recording.");
+            if (settle && census is null)
+                throw new ArgumentException("--settle needs --census.");
             return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default, mode,
-                               recording ? GenerationBudget.Recording : GenerationBudget.Run);
+                               recording ? GenerationBudget.Recording : census is not null ? GenerationBudget.Census : GenerationBudget.Run, census, settle);
         }
 
         private static ModelGeneration ParseGeneration(string text) => text switch

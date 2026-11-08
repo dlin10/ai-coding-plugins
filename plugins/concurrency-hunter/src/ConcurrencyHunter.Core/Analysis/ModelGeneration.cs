@@ -24,5 +24,10 @@ public enum GenerationBudget
     Run,
 
     /// <summary>The recording's limit: the run that writes a repository's committed generated models.</summary>
-    Recording
+    Recording,
+
+    /// <summary>The census budget: the run that regenerates the shared frameworks' census, or settles it, for the owner. It has a run limit
+    /// and a member limit of its own (<see cref="RunGeneration.CENSUS_LIMIT"/>, <see cref="RunGeneration.CENSUS_MEMBER_LIMIT"/>) and the
+    /// recording's workers.</summary>
+    Census
 }

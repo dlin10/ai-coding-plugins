@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Text.Json: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Text.Json"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.#ctor",
+      "assemblies": [
+        "System.Text.Json"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)~System.Text.Json.JsonDocument",
+    "M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte},System.Text.Json.JsonDocumentOptions)~System.Text.Json.JsonDocument",
+    "M:System.Text.Json.JsonEncodedText.Encode(System.String,System.Text.Encodings.Web.JavaScriptEncoder)~System.Text.Json.JsonEncodedText",
+    "M:System.Text.Json.JsonNamingPolicy.#ctor",
+    "M:System.Text.Json.JsonSerializer.Deserialize\u0060\u00601(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{\u0060\u00600})~\u0060\u00600",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync\u0060\u00601(System.IO.Pipelines.PipeWriter,\u0060\u00600,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+    "M:System.Text.Json.JsonSerializer.get_IsReflectionEnabledByDefault~System.Boolean",
+    "M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializerOptions.GetTypeInfo(System.Type)~System.Text.Json.Serialization.Metadata.JsonTypeInfo",
+    "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly",
+    "M:System.Text.Json.JsonSerializerOptions.get_Converters~System.Collections.Generic.IList{System.Text.Json.Serialization.JsonConverter}",
+    "M:System.Text.Json.JsonSerializerOptions.set_Encoder(System.Text.Encodings.Web.JavaScriptEncoder)",
+    "M:System.Text.Json.JsonSerializerOptions.set_MaxDepth(System.Int32)",
+    "M:System.Text.Json.JsonSerializerOptions.set_PropertyNameCaseInsensitive(System.Boolean)",
+    "M:System.Text.Json.JsonSerializerOptions.set_TypeInfoResolver(System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver)",
+    "M:System.Text.Json.JsonSerializerOptions.set_WriteIndented(System.Boolean)",
+    "M:System.Text.Json.Serialization.JsonConverter\u00601.#ctor",
+    "M:System.Text.Json.Serialization.JsonSerializerContext.#ctor(System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.Serialization.JsonSerializerContext.get_Options~System.Text.Json.JsonSerializerOptions",
+    "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_Options~System.Text.Json.JsonSerializerOptions",
+    "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_PolymorphismOptions~System.Text.Json.Serialization.Metadata.JsonPolymorphismOptions",
+    "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_Type~System.Type",
+    "M:System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine(System.ReadOnlySpan{System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver})~System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver"
+  ]
+}

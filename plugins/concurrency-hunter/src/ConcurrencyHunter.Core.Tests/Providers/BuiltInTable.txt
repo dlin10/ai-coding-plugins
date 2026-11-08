@@ -201,7 +201,6 @@ M M:System.Linq.Enumerable.Aggregate``1(System.Collections.Generic.IEnumerable{`
 M M:System.Linq.Enumerable.Aggregate``2(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1})~``1 |  | System.Linq@8.0.0.0-11.0.0.0 | result=[arg:seed,returns:func] | fates=func:invoke-now[arg:seed,returns:func][elements(arg:source)]
 M M:System.Linq.Enumerable.Aggregate``3(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1},System.Func{``1,``2})~``2 |  | System.Linq@8.0.0.0-11.0.0.0 | result=[returns:resultSelector] | fates=func:invoke-now[arg:seed,returns:func][elements(arg:source)];resultSelector:invoke-now[arg:seed,returns:func]
 M M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean |  | System.Linq@8.0.0.0-11.0.0.0 | fates=predicate:invoke-now[elements(arg:source)]
-M M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
 M M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean |  | System.Linq@8.0.0.0-11.0.0.0 | fates=predicate:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.AsEnumerable``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0 | result=[arg:source]
 M M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
@@ -216,7 +215,6 @@ M M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0
 M M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.Cast``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0 | result=sequence(elements(arg:source))
 M M:System.Linq.Enumerable.Contains``1(System.Collections.Generic.IEnumerable{``0},``0)~System.Boolean | reads-deep:source,reads-deep:value | System.Linq@8.0.0.0-11.0.0.0
-M M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})~System.Int32 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
 M M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int32 |  | System.Linq@8.0.0.0-11.0.0.0 | fates=predicate:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.DistinctBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0} |  | System.Linq@8.0.0.0-11.0.0.0 | result=sequence(elements(arg:source)) | fates=keySelector:iterator[elements(arg:source)]
 M M:System.Linq.Enumerable.Empty``1~System.Collections.Generic.IEnumerable{``0} |  | System.Linq@8.0.0.0-11.0.0.0
@@ -286,7 +284,6 @@ M M:System.Linq.Enumerable.SkipWhile``1(System.Collections.Generic.IEnumerable{`
 M M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0 | result=sequence(elements(arg:source))
 M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
-M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32 |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64 |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal} |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
 M M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double} |  | System.Linq@8.0.0.0-11.0.0.0 | fates=selector:invoke-now[elements(arg:source)]
@@ -379,10 +376,8 @@ M M:System.Net.Http.HttpRequestMessage.get_RequestUri~System.Uri |  | System.Net
 M M:System.Net.Http.HttpResponseMessage.EnsureSuccessStatusCode~System.Net.Http.HttpResponseMessage |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.HttpResponseMessage.get_Content~System.Net.Http.HttpContent |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.HttpResponseMessage.get_Headers~System.Net.Http.Headers.HttpResponseHeaders |  | System.Net.Http@8.0.0.0-11.0.0.0
-M M:System.Net.Http.HttpResponseMessage.get_IsSuccessStatusCode~System.Boolean |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.HttpResponseMessage.get_ReasonPhrase~System.String |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.HttpResponseMessage.get_RequestMessage~System.Net.Http.HttpRequestMessage |  | System.Net.Http@8.0.0.0-11.0.0.0
-M M:System.Net.Http.HttpResponseMessage.get_StatusCode~System.Net.HttpStatusCode |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.IHttpClientFactory.CreateClient(System.String)~System.Net.Http.HttpClient |  | Microsoft.Extensions.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.StringContent.#ctor(System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
 M M:System.Net.Http.StringContent.#ctor(System.String,System.Net.Http.Headers.MediaTypeHeaderValue) |  | System.Net.Http@8.0.0.0-11.0.0.0

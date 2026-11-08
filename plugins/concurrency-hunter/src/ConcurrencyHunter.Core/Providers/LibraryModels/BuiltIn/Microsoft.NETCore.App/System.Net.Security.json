@@ -1,0 +1,272 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.Security: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.Security"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_Binding(System.Security.Authentication.ExtendedProtection.ChannelBinding)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_Credential(System.Net.NetworkCredential)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.#ctor",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_AllowRenegotiation~System.Boolean",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_AllowRsaPkcs1Padding~System.Boolean",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_AllowRsaPssPadding~System.Boolean",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_AllowTlsResume~System.Boolean",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_CertificateRevocationCheckMode~System.Security.Cryptography.X509Certificates.X509RevocationMode",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_EnabledSslProtocols~System.Security.Authentication.SslProtocols",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.get_EncryptionPolicy~System.Net.Security.EncryptionPolicy",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_ApplicationProtocols(System.Collections.Generic.List{System.Net.Security.SslApplicationProtocol})",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_CertificateChainPolicy(System.Security.Cryptography.X509Certificates.X509ChainPolicy)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_CipherSuitesPolicy(System.Net.Security.CipherSuitesPolicy)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_ClientCertificateContext(System.Net.Security.SslStreamCertificateContext)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_ClientCertificates(System.Security.Cryptography.X509Certificates.X509CertificateCollection)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_EnabledSslProtocols(System.Security.Authentication.SslProtocols)",
+      "assemblies": [
+        "System.Net.Security"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:System.Net.Security.CipherSuitesPolicy.#ctor(System.Collections.Generic.IEnumerable{System.Net.Security.TlsCipherSuite})",
+    "M:System.Net.Security.NegotiateAuthentication.#ctor(System.Net.Security.NegotiateAuthenticationClientOptions)",
+    "M:System.Net.Security.NegotiateAuthentication.GetOutgoingBlob(System.String,System.Net.Security.NegotiateAuthenticationStatusCode@)~System.String",
+    "M:System.Net.Security.NegotiateAuthentication.get_IsAuthenticated~System.Boolean",
+    "M:System.Net.Security.NegotiateAuthenticationClientOptions.#ctor",
+    "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_AllowedImpersonationLevel(System.Security.Principal.TokenImpersonationLevel)",
+    "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_Package(System.String)",
+    "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_RequiredProtectionLevel(System.Net.Security.ProtectionLevel)",
+    "M:System.Net.Security.NegotiateAuthenticationClientOptions.set_TargetName(System.String)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_ApplicationProtocols~System.Collections.Generic.List{System.Net.Security.SslApplicationProtocol}",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_CertificateChainPolicy~System.Security.Cryptography.X509Certificates.X509ChainPolicy",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_CipherSuitesPolicy~System.Net.Security.CipherSuitesPolicy",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_ClientCertificateContext~System.Net.Security.SslStreamCertificateContext",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_ClientCertificates~System.Security.Cryptography.X509Certificates.X509CertificateCollection",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_LocalCertificateSelectionCallback~System.Net.Security.LocalCertificateSelectionCallback",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_RemoteCertificateValidationCallback~System.Net.Security.RemoteCertificateValidationCallback",
+    "M:System.Net.Security.SslClientAuthenticationOptions.get_TargetHost~System.String",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_AllowRenegotiation(System.Boolean)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_AllowRsaPkcs1Padding(System.Boolean)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_AllowRsaPssPadding(System.Boolean)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_AllowTlsResume(System.Boolean)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_CertificateRevocationCheckMode(System.Security.Cryptography.X509Certificates.X509RevocationMode)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_EncryptionPolicy(System.Net.Security.EncryptionPolicy)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_LocalCertificateSelectionCallback(System.Net.Security.LocalCertificateSelectionCallback)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_RemoteCertificateValidationCallback(System.Net.Security.RemoteCertificateValidationCallback)",
+    "M:System.Net.Security.SslClientAuthenticationOptions.set_TargetHost(System.String)",
+    "M:System.Net.Security.SslStream.#ctor(System.IO.Stream)",
+    "M:System.Net.Security.SslStream.AuthenticateAsClient(System.Net.Security.SslClientAuthenticationOptions)",
+    "M:System.Net.Security.SslStream.AuthenticateAsClientAsync(System.Net.Security.SslClientAuthenticationOptions,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+    "M:System.Net.Security.SslStream.get_CipherAlgorithm~System.Security.Authentication.CipherAlgorithmType",
+    "M:System.Net.Security.SslStream.get_CipherStrength~System.Int32",
+    "M:System.Net.Security.SslStream.get_HashAlgorithm~System.Security.Authentication.HashAlgorithmType",
+    "M:System.Net.Security.SslStream.get_HashStrength~System.Int32",
+    "M:System.Net.Security.SslStream.get_KeyExchangeAlgorithm~System.Security.Authentication.ExchangeAlgorithmType",
+    "M:System.Net.Security.SslStream.get_KeyExchangeStrength~System.Int32",
+    "M:System.Net.Security.SslStream.get_LocalCertificate~System.Security.Cryptography.X509Certificates.X509Certificate",
+    "M:System.Net.Security.SslStream.get_NegotiatedApplicationProtocol~System.Net.Security.SslApplicationProtocol",
+    "M:System.Net.Security.SslStream.get_NegotiatedCipherSuite~System.Net.Security.TlsCipherSuite",
+    "M:System.Net.Security.SslStream.get_RemoteCertificate~System.Security.Cryptography.X509Certificates.X509Certificate",
+    "M:System.Net.Security.SslStream.get_SslProtocol~System.Security.Authentication.SslProtocols",
+    "M:System.Net.Security.SslStream.get_TransportContext~System.Net.TransportContext"
+  ]
+}

@@ -338,6 +338,7 @@
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
+        "opaque-by-built-in": 811,
         "opaque-by-project": 3,
         "opaque-call": 1387,
         "out-of-range-call": 0,
@@ -399,159 +400,14 @@
           "cause": "unknown-touch"
         },
         {
-          "member": "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
           "member": "M:Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService\u0060\u00601(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
           "file": "Grpc.AspNetCore.Server/2.71.0/d97c8a76-b299-4045-a880-e98791e0722a.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(System.String[])",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.Run(System.String)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.get_Services",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.Build",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.get_Services",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
-          "cause": "incomplete"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestAborted",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Http.Abstractions.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,System.Threading.Tasks.Task{\u0060\u00600}})",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Abstractions.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,\u0060\u00600})",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Abstractions.json",
           "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
           "file": "Grpc.AspNetCore.Server/2.71.0/d97c8a76-b299-4045-a880-e98791e0722a.json",
           "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScope.get_ServiceProvider",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScopeFactory.CreateScope",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.MemoryCacheServiceCollectionExtensions.AddMemoryCache(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Memory.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,\u0060\u00600})",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,\u0060\u00600})",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,\u0060\u00600)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00602(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddTransient\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService\u0060\u00601(System.IServiceProvider)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService\u0060\u00601(System.IServiceProvider)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.#ctor",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.StopAsync(System.Threading.CancellationToken)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
         },
         {
           "member": "M:Polly.AsyncRetrySyntax.RetryAsync(Polly.PolicyBuilder,System.Int32)",
@@ -612,156 +468,6 @@
           "member": "M:Polly.RetrySyntax.Retry(Polly.PolicyBuilder,System.Int32)",
           "file": "Polly/7.2.3/6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb.json",
           "cause": "vocabulary"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.#ctor",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.Add(\u00600)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.get_Count",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.#ctor",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.#ctor(System.Collections.Generic.IEqualityComparer{\u00600})",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.AddOrUpdate(\u00600,\u00601,System.Func{\u00600,\u00601,\u00601})",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.ContainsKey(\u00600)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.GetEnumerator",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.GetOrAdd(\u00600,\u00601)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.TryGetValue(\u00600,\u00601@)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.TryUpdate(\u00600,\u00601,\u00601)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.get_Item(\u00600)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.set_Item(\u00600,\u00601)",
-          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.ComponentModel.TypeDescriptor.GetClassName(System.Object)",
-          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Console.Write(System.Object)",
-          "file": "Microsoft.NETCore.App/10.0/System.Console.json",
-          "cause": "library-state"
-        },
-        {
-          "member": "M:System.Console.WriteLine(System.Object)",
-          "file": "Microsoft.NETCore.App/10.0/System.Console.json",
-          "cause": "library-state"
-        },
-        {
-          "member": "M:System.Linq.IGrouping\u00602.get_Key",
-          "file": "Microsoft.NETCore.App/10.0/System.Linq.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:System.Net.Http.HttpClient.#ctor",
-          "file": "Microsoft.NETCore.App/10.0/System.Net.Http.json",
-          "cause": "library-state"
-        },
-        {
-          "member": "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:System.Threading.Channels.ChannelReader\u00601.ReadAsync(System.Threading.CancellationToken)",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "overridable"
-        },
-        {
-          "member": "M:System.Threading.Channels.ChannelWriter\u00601.TryWrite(\u00600)",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:System.Threading.Channels.Channel\u00602.get_Reader",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "vocabulary"
-        },
-        {
-          "member": "M:System.Threading.Channels.Channel\u00602.get_Writer",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "vocabulary"
-        },
-        {
-          "member": "M:System.Threading.Tasks.Parallel.For(System.Int32,System.Int32,System.Action{System.Int32})",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Threading.Tasks.Parallel.ForEachAsync\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Threading.CancellationToken,System.Func{\u0060\u00600,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask})",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Threading.Tasks.Parallel.ForEach\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Action{\u0060\u00600})",
-          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Timers.Timer.#ctor",
-          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Timers.Timer.#ctor(System.Double)",
-          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Timers.Timer.Start",
-          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:System.Timers.Timer.set_AutoReset(System.Boolean)",
-          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
-          "cause": "engine-recognized"
         }
       ],
       "decidingGaps": [
@@ -1042,6 +748,7 @@
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 0,
+        "opaque-by-built-in": 6,
         "opaque-by-project": 0,
         "opaque-call": 7,
         "out-of-range-call": 0,
@@ -1065,38 +772,7 @@
         "unproven-joins": 0
       },
       "semanticGaps": [],
-      "generationRefusals": [
-        {
-          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.#ctor",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(System.String[])",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.Build",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.get_Services",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
-          "cause": "unknown-touch"
-        },
-        {
-          "member": "M:Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions.Run(Microsoft.Extensions.Hosting.IHost)",
-          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
-          "cause": "engine-recognized"
-        }
-      ],
+      "generationRefusals": [],
       "decidingGaps": []
     }
   ]

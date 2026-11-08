@@ -234,3 +234,72 @@ generator changed, or to the build, which would regenerate every model on every 
 The consequence to hold. Until the generator describes more members, the layer moves few findings: it would
 describe one member the demo calls and six that eShop calls. The demo commits its generated files, and a test fails
 rather than let a demo run generate.
+
+## Amendment, 2026-11-07: a built-in model is one kind of entry, and the shared frameworks' census ships with the members it failed on
+
+A run generates every member of a shared framework that it reaches and no layer describes. The generator version
+changes with every change of the engine (ADR 0023), so after each one every run generates those members again.
+Almost every member a run generates is one of them:
+
+- **The demo.** At `470b257d`, 607 of the 632 generated entries are framework members: 228 of
+  `Microsoft.NETCore.App` and 379 of `Microsoft.AspNetCore.App`. The other 25 are package members.
+- **The timeouts.** All 9 are framework members, 4 of `System.Text.Json` and 5 of `System.Text.RegularExpressions`. A
+  timeout is an opaque call for the user's code and for every member that reads it as a dependency, so its 120 s buy
+  nothing.
+- **A user's hunt.** The first hunt after each plugin update pays the same: 9 × 120 s exceed its 900 s on their own,
+  and every other member stays opaque in that run.
+- **The built-in layer** describes entry points only: 420 models in eight files, which name the overloads they leave
+  unknown.
+
+The decision:
+
+- **One kind of entry.** A built-in model is a model that ships with the plugin, whoever produced it: the owner by
+  hand, the owner's regeneration (ADR 0022) or AI working for the owner. Its file does not record which. The
+  hand-written built-in entries of the amendment of 2026-10-17 are built-in models like any other.
+- **The census of the two shared frameworks.** The built-in models of `Microsoft.NETCore.App` and
+  `Microsoft.AspNetCore.App` 10.0 describe a census. It is made of the members of the two frameworks, other than
+  `System.Private.CoreLib`'s, that runs of the demo and of eShop reach, and of the members their generation reads.
+  It is not the frameworks' public surface.
+- **What stays as it was.** Other major versions of the two frameworks and NuGet packages are generated in the run.
+  CoreLib keeps the amendment of 2026-10-17.
+- **Recognized types are no targets.** A member of a type a recognizer of the engine owns — the collections of ADR 0010,
+  `Parallel`, the timers, the DI locator — is described by the engine itself, its built-in semantics. No run asks the
+  generator for it, which could only answer `engine-recognized`, and no built-in record names it, since that would describe
+  the call twice. A run neither writes it to a generated file nor lists it in coverage.
+- **Models and failed members.** A built-in file holds the census's models. By declaration id alone, it also holds
+  the census's failed members: those the regeneration gave no model and no other entry describes. It keeps no reason
+  and no detail; the owner's regeneration reports them.
+- **What a run does.** A built-in model applies. A failed member is an **Opaque call** that the run never generates;
+  coverage counts it under `opaque-by-built-in` and does not list it among the **Generation refusals**. A member with
+  neither is generated in the run, as before.
+- **Ids in the run's form.** Models and failed members carry the id the run looks a call up by, the return type
+  included (question 179).
+- **The demo's committed generated files** hold package members only. A demo run that would generate a framework
+  member fails as any generation does.
+
+The consequences to hold:
+
+- **Other majors lose a replaced entry.** An owner-written entry covers 8.0 to 11.0; the census model that replaces it covers 10.0
+  only. A call of the member in a project of .NET 8 or 9 is then out of range for the built-in layer and is generated in the
+  run.
+- **A failed member waits for the owner.** It stays opaque until the owner regenerates, even after the engine has
+  learned to model it. Between regenerations the census describes the engine of its recorded commit (ADR 0022).
+- **Uncounted narrowing.** A census model is a built-in model, so the pairs it removes are not counted:
+  `pairs-removed-generated` counts the generated layer only, and the demo's count falls by the pairs its framework
+  models removed.
+- **Order.** Only a run relation of a built-in or project entry proves order. The generator infers none, so a census
+  model proves none.
+- **Size.** The executable carries the census; the regeneration reports its size.
+
+Rejected:
+
+- **The census as generated files that ship with the plugin, read as a layer of their own.** Two kinds of shipped
+  model with one meaning.
+- **Owner-written and generated entries in separate files, the generated one winning at load.** Two entries for one
+  member and a rule between them, for a distinction the files no longer make.
+- **A reason with each failed member.** A run reads only whether to generate. A reason would move the shipped files
+  whenever a cause is renamed, and the owner's report already gives it.
+- **The frameworks' whole public surface**, as CoreLib's measuring run takes. Tens of thousands of members, of which
+  programs reach hundreds.
+- **Generating the framework members in every run, as before.** The cost measured above, paid after every change of
+  the engine.

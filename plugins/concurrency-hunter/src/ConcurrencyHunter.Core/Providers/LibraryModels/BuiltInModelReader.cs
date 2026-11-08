@@ -11,6 +11,12 @@ internal static class BuiltInModelReader
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private static readonly Regex VersionText = new(@"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", RegexOptions.CultureInvariant);
 
+    /// <summary>The members, immutable types and failed members of one built-in file. A failed member — a census member the owner's
+    /// regeneration gave no model — is read as a record that declares the member opaque, with no effect, in the file's assemblies and
+    /// range, so a call of it is an opaque call the run never generates, and a model of the same member anywhere else is a member
+    /// described twice.</summary>
+    /// <param name="bytes">The file's UTF-8 bytes.</param>
+    /// <exception cref="LibraryModelException">The file is not a valid built-in model file.</exception>
     internal static (IReadOnlyList<LibraryModel> Members, IReadOnlyList<ImmutableLibraryType> ImmutableTypes) Read(byte[] bytes)
     {
         try
@@ -79,6 +85,18 @@ internal static class BuiltInModelReader
                     throw new LibraryModelException($"{entry.Type} needs an assembly and a version range.");
                 types.Add(new ImmutableLibraryType(entry.Type, assemblies.Select(name => new SupportedAssemblyVersion(name, version.Value.Minimum,
                                                                                                                version.Value.Maximum)).ToArray(), entry.IncludesDerived ?? false));
+            }
+            var failed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var member in file.Failed ?? [])
+            {
+                WorkCancellation.Check();
+                if (member is null || !IsMemberId(member) || !failed.Add(member))
+                    throw new LibraryModelException("A failed member needs an exact member id, named once.");
+                if (defaults is null || defaultVersion is null)
+                    throw new LibraryModelException($"{member} is failed in a file that names no assembly and version range.");
+                members.Add(new LibraryModel(member, defaults.Select(name => new SupportedAssemblyVersion(name, defaultVersion.Value.Minimum,
+                                                                                                      defaultVersion.Value.Maximum)).ToArray(), [],
+                                             DeclaredOpaque: true));
             }
             return (members, types);
         }
@@ -153,6 +171,9 @@ internal sealed class ModelFile
     public ModelVersionRange? Versions { get; set; }
     public ModelEntry[]? Models { get; set; }
     public ImmutableTypeEntry[]? ImmutableTypes { get; set; }
+
+    /// <summary>The census members the owner's regeneration gave no model, by declaration id alone, in the file's assemblies and range.</summary>
+    public string[]? Failed { get; set; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

@@ -144,6 +144,8 @@ public sealed class LibraryModels
     private readonly Dictionary<string, ImmutableLibraryType> _types = new(StringComparer.Ordinal);
     private readonly GeneratedModelTable? _generated;
     private readonly DependencyModels? _dependencies;
+    // The ranges naming each assembly never change, so OutOfRangeReferences builds them on its first call; a race builds them twice.
+    private Dictionary<string, SupportedAssemblyVersion[]>? _namedRanges;
 
     public LibraryModels(IEnumerable<LibraryModel> members, IEnumerable<ImmutableLibraryType> immutableTypes)
     {
@@ -207,6 +209,14 @@ public sealed class LibraryModels
 
     internal static LibraryModels WithProject(IEnumerable<LibraryModel> project) => new(BuiltIn, project);
 
+    /// <summary>The built-in models the run that regenerates the shared frameworks' census reads (TD-034c): every built-in record but the
+    /// census's (<see cref="FrameworkAssemblies.IsCensusEntry"/>), models and failed members alike, so that the run generates every census
+    /// member, one the owner wrote included, while a record of a member the run cannot generate, CoreLib's or one a facade forwards, still
+    /// applies. The immutable types stay.</summary>
+    /// <param name="frameworks">The frameworks' assemblies the census describes.</param>
+    internal static LibraryModels ForCensus(FrameworkAssemblies frameworks) =>
+        new(BuiltIn.Members.Where(member => !frameworks.IsCensusEntry(member)), BuiltIn.ImmutableTypes);
+
     /// <summary>These models with the generated layer of a scope behind the project and built-in layers (R1): a call is described by a
     /// generated model only when no project entry and no built-in entry in range describes it. The result is another instance, so a body
     /// lowered with it is not one lowered without.</summary>
@@ -225,7 +235,11 @@ public sealed class LibraryModels
         _dependencies = dependencies;
     }
 
-    /// <summary>The built-in library models, read from the eight embedded files once per process.</summary>
+    /// <summary>The embedded name of every built-in model file starts with this: the topical files at the top of the folder and the census
+    /// files of a framework in a folder of its own.</summary>
+    internal const string BUILT_IN_RESOURCE_PREFIX = "LibraryModels.BuiltIn.";
+
+    /// <summary>The built-in library models, read from every embedded built-in file once per process.</summary>
     public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
 
     internal static LibraryModels LoadBuiltIn()
@@ -234,11 +248,17 @@ public sealed class LibraryModels
         var assembly = typeof(LibraryModels).Assembly;
         var members = new List<LibraryModel>();
         var types = new List<ImmutableLibraryType>();
-        foreach (var file in new[] { "system.json", "system-text-json.json", "newtonsoft-json.json", "logging.json",
-                                     "http-client.json", "entity-framework.json", "linq.json", "polly.json" })
+        var files = assembly.GetManifestResourceNames()
+                            .Where(name => name.StartsWith(BUILT_IN_RESOURCE_PREFIX, StringComparison.Ordinal) &&
+                                           name.EndsWith(".json", StringComparison.Ordinal))
+                            .Order(StringComparer.Ordinal)
+                            .ToArray();
+        if (files.Length == 0)
+            throw new LibraryModelException("No built-in library model is embedded.");
+        foreach (var file in files)
         {
             WorkCancellation.Check();
-            using var stream = assembly.GetManifestResourceStream("LibraryModels.BuiltIn." + file) ??
+            using var stream = assembly.GetManifestResourceStream(file) ??
                                throw new LibraryModelException($"Missing built-in library model {file}.");
             using var bytes = new MemoryStream();
             stream.CopyTo(bytes);
@@ -368,28 +388,70 @@ public sealed class LibraryModels
         }
     }
 
-    /// <summary>The assemblies of built-in models that <paramref name="compilation"/> references at a version outside their range, one per
-    /// assembly name: every call of theirs those models describe is an opaque call there (R5). They are the assemblies the models
-    /// names, and any other <c>System</c> assembly declaring a type a rule for derived types covers.</summary>
+    /// <summary>The assemblies of built-in models that <paramref name="compilation"/> references at a version no range naming them holds,
+    /// one per assembly name, each with the versions those ranges hold together: every call of theirs those models describe is an opaque
+    /// call there (R5). The ranges naming an assembly are those of every record and immutable type that names it. A <c>System</c>
+    /// assembly no record names is one too where it declares a type a rule for derived types covers, at a version outside the
+    /// framework's range; a rule for derived types does not widen the ranges of an assembly a record names, whose records stay out of
+    /// range.</summary>
     /// <param name="compilation">The compilation whose referenced assemblies are checked.</param>
-    public IEnumerable<(AssemblyIdentity Assembly, SupportedAssemblyVersion Range)> OutOfRangeReferences(Compilation compilation)
+    public IEnumerable<(AssemblyIdentity Assembly, IReadOnlyList<SupportedAssemblyVersion> Ranges)> OutOfRangeReferences(Compilation compilation)
     {
-        var named = _members.Values.SelectMany(members => members).SelectMany(member => member.Assemblies)
-                           .Concat(ImmutableTypes.SelectMany(type => type.Assemblies))
-                           .DistinctBy(range => range.AssemblyName, StringComparer.Ordinal)
-                           .ToArray();
-        var derived = compilation.SourceModule.ReferencedAssemblySymbols
-                                 .Where(assembly => named.All(range => range.AssemblyName != assembly.Identity.Name))
-                                 .SelectMany(assembly => ImmutableTypes.Where(type => type.IncludesDerived)
-                                                                       .Select(type => (Type: type, Assembly: assembly, Range: RangeOf(type, assembly))))
-                                 .Where(entry => entry.Range is { } range && !range.Contains(entry.Assembly.Identity.Version) &&
-                                                 Declares(entry.Assembly.GlobalNamespace, entry.Type.Id))
-                                 .Select(entry => (entry.Assembly.Identity, entry.Range!));
-        return named.Select(range => (Assembly: ExactSymbols.FindReferencedAssembly(compilation, range.AssemblyName), Range: range))
-                    .Where(pair => pair.Assembly is not null && !pair.Range.Contains(pair.Assembly.Identity.Version))
-                    .Select(pair => (pair.Assembly!.Identity, pair.Range))
-                    .Concat(derived)
-                    .DistinctBy(pair => pair.Item1.Name, StringComparer.Ordinal);
+        var named = _namedRanges ??= NamedRanges();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
+        {
+            WorkCancellation.Check();
+            var identity = assembly.Identity;
+            if (!seen.Add(identity.Name))
+                continue;
+            if (named.TryGetValue(identity.Name, out var ranges))
+            {
+                if (!ranges.Any(range => range.Contains(identity.Version)))
+                    yield return (identity, ranges);
+                continue;
+            }
+            // The declarations are walked only where they decide: at a version the framework's range holds, the assembly is in range
+            // whatever it declares.
+            if (DerivedRange(assembly) is { } framework && !framework.Contains(identity.Version) && DeclaresDerived(assembly))
+                yield return (identity, [framework]);
+        }
+    }
+
+    /// <summary>The versions each assembly name's ranges hold together, over every record of the built-in layer and every immutable type.</summary>
+    private Dictionary<string, SupportedAssemblyVersion[]> NamedRanges() =>
+        _members.Values.SelectMany(members => members).SelectMany(member => member.Assemblies)
+                .Concat(ImmutableTypes.SelectMany(type => type.Assemblies))
+                .GroupBy(range => range.AssemblyName, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, Union, StringComparer.Ordinal);
+
+    /// <summary>The range a rule for derived types holds for in <paramref name="assembly"/>, an assembly no record names, if it declares
+    /// a type the rule covers: the framework's, for a <c>System</c> assembly when such a rule exists; otherwise null.</summary>
+    /// <param name="assembly">The referenced assembly.</param>
+    private SupportedAssemblyVersion? DerivedRange(IAssemblySymbol assembly) =>
+        ImmutableTypes.FirstOrDefault(type => type.IncludesDerived) is { } rule ? RangeOf(rule, assembly) : null;
+
+    /// <summary>Whether <paramref name="assembly"/> declares a type deriving from the type of a rule for derived types.</summary>
+    /// <param name="assembly">The referenced assembly.</param>
+    private bool DeclaresDerived(IAssemblySymbol assembly) =>
+        ImmutableTypes.Any(type => type.IncludesDerived && Declares(assembly.GlobalNamespace, type.Id));
+
+    /// <summary>The versions <paramref name="ranges"/> of one assembly hold together, as disjoint ranges in ascending order: overlapping
+    /// and adjacent ranges merge into one.</summary>
+    /// <param name="ranges">The ranges of one assembly name.</param>
+    private static SupportedAssemblyVersion[] Union(IEnumerable<SupportedAssemblyVersion> ranges)
+    {
+        var merged = new List<SupportedAssemblyVersion>();
+        foreach (var range in ranges.OrderBy(range => range.Minimum))
+        {
+            WorkCancellation.Check();
+            if (merged.Count == 0 || range.Minimum > merged[^1].MaximumExclusive)
+                merged.Add(range);
+            else if (range.MaximumExclusive > merged[^1].MaximumExclusive)
+                merged[^1] = merged[^1] with { MaximumExclusive = range.MaximumExclusive };
+        }
+
+        return merged.ToArray();
     }
 
     /// <summary>Whether a namespace of an assembly declares a type deriving from the type with the documentation id
@@ -535,7 +597,7 @@ public sealed class LibraryModels
     /// <summary>The metadata name of the type an id names or declares a member of: <c>T:System.String</c> names
     /// <c>System.String</c>, <c>M:System.Linq.Enumerable.ToList``1(...)</c> is declared by <c>System.Linq.Enumerable</c>.</summary>
     /// <param name="id">The type or member documentation id.</param>
-    private static string TypeOf(string id)
+    internal static string TypeOf(string id)
     {
         var name = id[2..];
         if (id.StartsWith("T:", StringComparison.Ordinal))

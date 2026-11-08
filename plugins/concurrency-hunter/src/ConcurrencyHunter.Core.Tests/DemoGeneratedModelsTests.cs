@@ -15,6 +15,7 @@ public sealed class DemoGeneratedModelsTests
 {
     private const string CHECK_NOT_NULL = "M:Google.Protobuf.ProtoPreconditions.CheckNotNull``1(``0,System.String)";
     private const string OPTIONS_CREATE = "M:Microsoft.Extensions.Options.Options.Create``1(``0)";
+    private const string OPTIONS_CREATE_LOOKUP = OPTIONS_CREATE + "~Microsoft.Extensions.Options.IOptions{``0}";
 
     /// <summary>Every committed generated file names the generator built from the current sources.</summary>
     [Fact]
@@ -71,9 +72,10 @@ public sealed class DemoGeneratedModelsTests
         Assert.Equal(before, Snapshot(folder));
     }
 
-    /// <summary>The generated-model case needs the model of <c>ProtoPreconditions.CheckNotNull</c> and the project-opaque case needs the one
-    /// of <c>Options.Create</c> to stand over, so both are in the committed files as models, not as refusals; and the project's
-    /// <c>opaque</c> entry that stands over the second is in the project model file.</summary>
+    /// <summary>The generated-model case needs the model of <c>ProtoPreconditions.CheckNotNull</c>, a package member, in the committed files
+    /// as a model, not as a refusal. The project-opaque case needs a model of <c>Options.Create</c> to stand over: a member of
+    /// <c>Microsoft.AspNetCore.App</c> 10.0, so the frameworks' census ships it as a built-in model and the committed files hold no framework
+    /// member. The project's <c>opaque</c> entry that stands over it is in the project model file.</summary>
     [Fact]
     public void The_cases_rest_on_committed_models()
     {
@@ -83,7 +85,9 @@ public sealed class DemoGeneratedModelsTests
                               .ToArray();
 
         Assert.Contains(CHECK_NOT_NULL, models);
-        Assert.Contains(OPTIONS_CREATE, models);
+        Assert.DoesNotContain(OPTIONS_CREATE, models);
+        Assert.Contains(LibraryModels.BuiltIn.Members, model => model.Id == OPTIONS_CREATE_LOOKUP && !model.DeclaredOpaque);
+        Assert.DoesNotContain(new[] { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" }, framework => Directory.Exists(Path.Combine(generated, framework)));
         using var project = JsonDocument.Parse(File.ReadAllText(Path.Combine(DemoModels(), "demo.json")));
         var entry = Assert.Single(project.RootElement.GetProperty("models").EnumerateArray(),
                                   item => item.GetProperty("member").GetString() == OPTIONS_CREATE);
@@ -129,13 +133,15 @@ public sealed class DemoGeneratedModelsTests
                      entry.GetRawText());
     }
 
-    /// <summary>The demo's target auto-property accessors have answers that do not refuse a call for never reaching its body.</summary>
+    /// <summary>The demo's target auto-property accessors have answers that do not refuse a call for never reaching its body: a package
+    /// member's answer in the committed files, a framework member's in the frameworks' census record. The record keeps no refusal's detail,
+    /// so a framework member's answer is no analysis failure at all.</summary>
     [Fact]
     public void Demo_auto_property_accessors_reach_their_bodies()
     {
-        string[] members = ["M:System.Threading.Channels.Channel`2.get_Reader",
-                            "M:System.Threading.Channels.Channel`2.get_Writer",
-                            "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
+        string[] census = ["M:System.Threading.Channels.Channel`2.get_Reader~System.Threading.Channels.ChannelReader{`1}",
+                           "M:System.Threading.Channels.Channel`2.get_Writer~System.Threading.Channels.ChannelWriter{`0}"];
+        string[] members = ["M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
                             "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
                             "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})"];
         var entries = Directory.EnumerateFiles(Path.Combine(DemoModels(), "generated"), "*.json", SearchOption.AllDirectories)
@@ -154,6 +160,12 @@ public sealed class DemoGeneratedModelsTests
                          refusal.GetProperty("detail").GetString()!.Contains("the call never reached body", StringComparison.Ordinal),
                          entry.GetRawText());
         }
+
+        var tsv = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "skills", "hunt", "evals", "models", "framework-census.tsv");
+        var record = CensusRecord.Parse(File.ReadAllLines(tsv));
+        // bounded: the fixed list of census members above.
+        foreach (var member in census)
+            Assert.NotEqual(GenerationReasons.ANALYSIS_FAILED, Assert.Single(record.Rows, row => row.LookupId == member).Outcome);
     }
 
     private static string DemoModels() =>

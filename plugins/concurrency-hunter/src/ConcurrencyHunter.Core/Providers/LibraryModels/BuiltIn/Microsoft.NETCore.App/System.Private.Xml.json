@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Private.Xml: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Private.Xml"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Xml.XmlReaderSettings.#ctor",
+      "assemblies": [
+        "System.Private.Xml"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Xml.XmlWriterSettings.#ctor",
+      "assemblies": [
+        "System.Private.Xml"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Xml.XmlWriterSettings.get_NamespaceHandling~System.Xml.NamespaceHandling",
+      "assemblies": [
+        "System.Private.Xml"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Xml.IXmlLineInfo.HasLineInfo~System.Boolean",
+    "M:System.Xml.IXmlLineInfo.get_LineNumber~System.Int32",
+    "M:System.Xml.IXmlLineInfo.get_LinePosition~System.Int32",
+    "M:System.Xml.Serialization.XmlSerializerFactory.#ctor",
+    "M:System.Xml.XmlConvert.ToGuid(System.String)~System.Guid",
+    "M:System.Xml.XmlConvert.ToString(System.Boolean)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.DateTime,System.Xml.XmlDateTimeSerializationMode)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.DateTimeOffset)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Decimal)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Double)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Guid)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Int16)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Int32)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Int64)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.SByte)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.Single)~System.String",
+    "M:System.Xml.XmlConvert.ToString(System.TimeSpan)~System.String",
+    "M:System.Xml.XmlConvert.ToTimeSpan(System.String)~System.TimeSpan",
+    "M:System.Xml.XmlConvert.VerifyNCName(System.String)~System.String",
+    "M:System.Xml.XmlConvert.VerifyName(System.String)~System.String",
+    "M:System.Xml.XmlDocument.#ctor",
+    "M:System.Xml.XmlDocument.LoadXml(System.String)",
+    "M:System.Xml.XmlNode.get_OuterXml~System.String",
+    "M:System.Xml.XmlQualifiedName.#ctor",
+    "M:System.Xml.XmlReader.Create(System.IO.TextReader,System.Xml.XmlReaderSettings)~System.Xml.XmlReader",
+    "M:System.Xml.XmlReader.GetAttribute(System.String)~System.String",
+    "M:System.Xml.XmlReader.MoveToContent~System.Xml.XmlNodeType",
+    "M:System.Xml.XmlReader.MoveToElement~System.Boolean",
+    "M:System.Xml.XmlReader.MoveToFirstAttribute~System.Boolean",
+    "M:System.Xml.XmlReader.MoveToNextAttribute~System.Boolean",
+    "M:System.Xml.XmlReader.Read~System.Boolean",
+    "M:System.Xml.XmlReader.ResolveEntity",
+    "M:System.Xml.XmlReader.get_BaseURI~System.String",
+    "M:System.Xml.XmlReader.get_CanResolveEntity~System.Boolean",
+    "M:System.Xml.XmlReader.get_EOF~System.Boolean",
+    "M:System.Xml.XmlReader.get_IsEmptyElement~System.Boolean",
+    "M:System.Xml.XmlReader.get_LocalName~System.String",
+    "M:System.Xml.XmlReader.get_NamespaceURI~System.String",
+    "M:System.Xml.XmlReader.get_Name~System.String",
+    "M:System.Xml.XmlReader.get_NodeType~System.Xml.XmlNodeType",
+    "M:System.Xml.XmlReader.get_Prefix~System.String",
+    "M:System.Xml.XmlReader.get_ReadState~System.Xml.ReadState",
+    "M:System.Xml.XmlReader.get_Value~System.String",
+    "M:System.Xml.XmlReaderSettings.set_DtdProcessing(System.Xml.DtdProcessing)",
+    "M:System.Xml.XmlReaderSettings.set_IgnoreWhitespace(System.Boolean)",
+    "M:System.Xml.XmlReaderSettings.set_MaxCharactersFromEntities(System.Int64)",
+    "M:System.Xml.XmlWriter.#ctor",
+    "M:System.Xml.XmlWriter.Create(System.IO.TextWriter,System.Xml.XmlWriterSettings)~System.Xml.XmlWriter",
+    "M:System.Xml.XmlWriter.WriteAttributeString(System.String,System.String,System.String,System.String)",
+    "M:System.Xml.XmlWriter.WriteCData(System.String)",
+    "M:System.Xml.XmlWriter.WriteComment(System.String)",
+    "M:System.Xml.XmlWriter.WriteDocType(System.String,System.String,System.String,System.String)",
+    "M:System.Xml.XmlWriter.WriteEndDocument",
+    "M:System.Xml.XmlWriter.WriteEndElement",
+    "M:System.Xml.XmlWriter.WriteFullEndElement",
+    "M:System.Xml.XmlWriter.WriteProcessingInstruction(System.String,System.String)",
+    "M:System.Xml.XmlWriter.WriteStartDocument",
+    "M:System.Xml.XmlWriter.WriteStartDocument(System.Boolean)",
+    "M:System.Xml.XmlWriter.WriteStartElement(System.String,System.String,System.String)",
+    "M:System.Xml.XmlWriter.WriteString(System.String)",
+    "M:System.Xml.XmlWriter.WriteWhitespace(System.String)",
+    "M:System.Xml.XmlWriterSettings.set_ConformanceLevel(System.Xml.ConformanceLevel)",
+    "M:System.Xml.XmlWriterSettings.set_Indent(System.Boolean)",
+    "M:System.Xml.XmlWriterSettings.set_NamespaceHandling(System.Xml.NamespaceHandling)",
+    "M:System.Xml.XmlWriterSettings.set_OmitXmlDeclaration(System.Boolean)"
+  ]
+}

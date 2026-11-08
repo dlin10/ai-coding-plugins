@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Authentication: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Authentication"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions.set_Events(System.Object)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Authentication"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Authentication.BaseContext\u00601.get_HttpContext~Microsoft.AspNetCore.Http.HttpContext",
+    "M:Microsoft.AspNetCore.Authentication.BaseContext\u00601.get_Request~Microsoft.AspNetCore.Http.HttpRequest",
+    "M:Microsoft.AspNetCore.Authentication.PropertiesContext\u00601.#ctor(Microsoft.AspNetCore.Http.HttpContext,Microsoft.AspNetCore.Authentication.AuthenticationScheme,\u00600,Microsoft.AspNetCore.Authentication.AuthenticationProperties)",
+    "M:Microsoft.AspNetCore.Authentication.ResultContext\u00601.#ctor(Microsoft.AspNetCore.Http.HttpContext,Microsoft.AspNetCore.Authentication.AuthenticationScheme,\u00600)",
+    "M:Microsoft.AspNetCore.Builder.AuthAppBuilderExtensions.UseAuthentication(Microsoft.AspNetCore.Builder.IApplicationBuilder)~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.AuthenticationServiceCollectionExtensions.AddAuthentication(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.AspNetCore.Authentication.AuthenticationBuilder",
+    "M:Microsoft.Extensions.DependencyInjection.AuthenticationServiceCollectionExtensions.AddAuthentication(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.String)~Microsoft.AspNetCore.Authentication.AuthenticationBuilder"
+  ]
+}

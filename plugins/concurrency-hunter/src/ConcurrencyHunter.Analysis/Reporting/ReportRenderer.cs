@@ -40,6 +40,8 @@ public static class ReportRenderer
         [CoverageCounters.PAIRS_REMOVED_GENERATED] = "candidate pairs the analysis without the generated models has and this one has not, a pair " +
                                                      "being the same two sites on the same resource however many executions meet there",
         [CoverageCounters.OPAQUE_BY_PROJECT] = "opaque calls whose member a project model declares opaque",
+        [CoverageCounters.OPAQUE_BY_BUILT_IN] = "opaque calls the built-in models leave opaque: a member of a census the owner's regeneration gave " +
+                                                "no model, which no run generates, or one whose built-in records name receiver types that do not compare",
         [CoverageCounters.MODEL_ENTRY_REJECTED] = "project model files, entries and pattern overloads that were rejected; the library-models diagnostics name each and why",
         [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member a built-in library model describes, in an assembly version outside its supported range",
         [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs and DI factories, minimal API " +

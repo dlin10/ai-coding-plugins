@@ -37,7 +37,7 @@ public sealed class GeneratorVersionTests
     [InlineData("nested-obj", false)]
     [InlineData("generated-version", false)]
     [InlineData("other-json", false)]
-    [InlineData("nested-json", false)]
+    [InlineData("nested-json", true)]
     [InlineData("other-project", false)]
     [InlineData("unchanged", false)]
     public void Fingerprint_moves_with_its_inputs_and_only_with_them(string change, bool moves)
@@ -47,7 +47,7 @@ public sealed class GeneratorVersionTests
         {
             Analysis + "First.cs", Analysis + "Nested/Second.cs", Analysis + "Nested/Third.cs",
             Core + "First.cs", Core + "Nested/Second.cs", Core + "Nested/Third.cs",
-            BuiltIn + "first.json", BuiltIn + "second.json", BuiltIn + "third.json",
+            BuiltIn + "first.json", BuiltIn + "second.json", BuiltIn + "third.json", BuiltIn + "Nested/third.json",
             Analysis + "ConcurrencyHunter.Analysis.csproj", Core + "ConcurrencyHunter.Core.csproj",
             "Directory.Build.props", "Directory.Packages.props"
         };
@@ -57,7 +57,7 @@ public sealed class GeneratorVersionTests
             Analysis + "obj/First.cs", Core + "obj/Second.cs", Core + "obj/Release/net10.0/GeneratorVersion.g.cs",
             Analysis + "Nested/bin/First.cs", Core + "Nested/bin/Second.cs",
             Analysis + "Nested/obj/First.cs", Core + "Nested/obj/Second.cs",
-            Core + "first.json", Core + "Providers/LibraryModels/second.json", BuiltIn + "Nested/third.json",
+            Core + "first.json", Core + "Providers/LibraryModels/second.json",
             "other/src/First.cs", "other/src/Second.cs"
         };
         foreach (var path in inputs.Concat(excluded))
@@ -95,6 +95,28 @@ public sealed class GeneratorVersionTests
 
         var after = GeneratorFingerprint.Compute(tree.Root);
         Assert.Equal(moves, before != after);
+    }
+
+    [Fact]
+    public void Engine_fingerprint_leaves_out_every_built_in_model_and_nothing_else()
+    {
+        // A census names the engine it was generated with; writing the census changes the built-in files, so they cannot count (ADR 0022).
+        using var tree = new Tree();
+        var engine = new[]
+        {
+            Analysis + "First.cs", Core + "First.cs", Analysis + "ConcurrencyHunter.Analysis.csproj", Core + "ConcurrencyHunter.Core.csproj",
+            "Directory.Build.props", "Directory.Packages.props"
+        };
+        foreach (var path in engine.Concat([BuiltIn + "first.json", BuiltIn + "Microsoft.NETCore.App/System.Linq.json"]))
+            tree.Write(path, "first");
+
+        Assert.Equal(engine.Order(StringComparer.Ordinal), GeneratorFingerprint.Inputs(tree.Root, builtIn: false));
+        var before = GeneratorFingerprint.Compute(tree.Root, builtIn: false);
+        tree.Write(BuiltIn + "Microsoft.NETCore.App/System.Linq.json", "changed");
+        tree.Write(BuiltIn + "first.json", "changed");
+        Assert.Equal(before, GeneratorFingerprint.Compute(tree.Root, builtIn: false));
+        tree.Write(Core + "First.cs", "changed");
+        Assert.NotEqual(before, GeneratorFingerprint.Compute(tree.Root, builtIn: false));
     }
 
     private const string SOURCE = """

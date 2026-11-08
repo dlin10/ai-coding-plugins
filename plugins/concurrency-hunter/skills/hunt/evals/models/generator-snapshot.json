@@ -795,12 +795,12 @@
         "mvid": "2ddc75da-7a95-4826-8729-839cc65f9eea"
       },
       "classified": null,
-      "reason": "timeout",
+      "reason": "closure-bound",
       "model": null,
       "modelReason": null,
-      "detail": "the generation reached its 120.0 s member limit",
+      "detail": "the reachable set reached 1585 bodies, over 1500",
       "causes": [],
-      "reachedBodies": 0,
+      "reachedBodies": 1585,
       "mode": "off"
     },
     {
@@ -920,36 +920,6 @@
         "value-unobserved"
       ],
       "reachedBodies": 10,
-      "mode": "inert"
-    },
-    {
-      "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean",
-      "implementation": {
-        "assemblyVersion": "10.0.0.0",
-        "fileVersion": "10.0.1426.52326",
-        "mvid": "e5daf6e7-4973-4531-99c1-3f950014ce78"
-      },
-      "classified": {},
-      "reason": null,
-      "model": {
-        "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})",
-        "assemblies": [
-          "System.Linq"
-        ],
-        "versions": {
-          "minimum": "10.0.0.0",
-          "maximumExclusive": "10.0.0.1"
-        },
-        "effects": {
-          "source": [
-            "reads-deep"
-          ]
-        }
-      },
-      "modelReason": null,
-      "detail": "",
-      "causes": [],
-      "reachedBodies": 7,
       "mode": "inert"
     },
     {
@@ -1278,36 +1248,6 @@
         "probe-handed-to-unseen"
       ],
       "reachedBodies": 8,
-      "mode": "inert"
-    },
-    {
-      "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})~System.Int32",
-      "implementation": {
-        "assemblyVersion": "10.0.0.0",
-        "fileVersion": "10.0.1426.52326",
-        "mvid": "e5daf6e7-4973-4531-99c1-3f950014ce78"
-      },
-      "classified": {},
-      "reason": null,
-      "model": {
-        "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})",
-        "assemblies": [
-          "System.Linq"
-        ],
-        "versions": {
-          "minimum": "10.0.0.0",
-          "maximumExclusive": "10.0.0.1"
-        },
-        "effects": {
-          "source": [
-            "reads-deep"
-          ]
-        }
-      },
-      "modelReason": null,
-      "detail": "",
-      "causes": [],
-      "reachedBodies": 7,
       "mode": "inert"
     },
     {
@@ -3190,47 +3130,6 @@
       "mode": "inert"
     },
     {
-      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
-      "implementation": {
-        "assemblyVersion": "10.0.0.0",
-        "fileVersion": "10.0.1426.52326",
-        "mvid": "e5daf6e7-4973-4531-99c1-3f950014ce78"
-      },
-      "classified": {
-        "selector": {
-          "fate": "invoke-now",
-          "holder": null
-        }
-      },
-      "reason": null,
-      "model": {
-        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
-        "assemblies": [
-          "System.Linq"
-        ],
-        "versions": {
-          "minimum": "10.0.0.0",
-          "maximumExclusive": "10.0.0.1"
-        },
-        "effects": {},
-        "fates": {
-          "selector": {
-            "fate": "invoke-now",
-            "inputs": [
-              [
-                "elements(arg:source)"
-              ]
-            ]
-          }
-        }
-      },
-      "modelReason": null,
-      "detail": "",
-      "causes": [],
-      "reachedBodies": 10,
-      "mode": "inert"
-    },
-    {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
       "implementation": {
         "assemblyVersion": "10.0.0.0",
@@ -4704,8 +4603,8 @@
       "implementationVersion": "10.0.14",
       "bodies": 989,
       "externBodies": 6,
-      "members": 114,
-      "driversSynthesized": 114
+      "members": 111,
+      "driversSynthesized": 111
     },
     {
       "assembly": "System.Linq",
@@ -4775,7 +4674,7 @@
   "fateGoldEntries": 3,
   "effectsExact": 8,
   "linqExact": {
-    "System.Linq": 17,
+    "System.Linq": 14,
     "System.Linq.Queryable": 0
   },
   "accessorsExact": 8

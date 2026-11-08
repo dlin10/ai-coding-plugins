@@ -181,11 +181,11 @@ internal static class EffectEvals
     }
 }
 
-/// <summary>The 129-entry built-in LINQ oracle, generated against the installed .NET 10 implementation assemblies.</summary>
+/// <summary>The 126-entry built-in LINQ oracle, generated against the installed .NET 10 implementation assemblies.</summary>
 internal static class LinqEvals
 {
-    internal const int MEMBERS = 129;
-    internal const int ENUMERABLE_MEMBERS = 114;
+    internal const int MEMBERS = 126;
+    internal const int ENUMERABLE_MEMBERS = 111;
     internal const int QUERYABLE_MEMBERS = 15;
 
     private static readonly Lazy<WholeEntryRun> Installed = new(() => WholeEntryEvals.Run(ImplementationAssemblies.ForThisProcess(), ReadGold()),

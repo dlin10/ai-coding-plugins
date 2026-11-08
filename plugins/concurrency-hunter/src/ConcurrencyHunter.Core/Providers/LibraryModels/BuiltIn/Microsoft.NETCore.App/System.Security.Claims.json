@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Security.Claims: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Security.Claims"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Security.Claims.Claim.#ctor(System.String,System.String)",
+      "assemblies": [
+        "System.Security.Claims"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Security.Claims.ClaimsPrincipal.#ctor",
+      "assemblies": [
+        "System.Security.Claims"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Security.Claims.Claim.#ctor(System.IO.BinaryReader)",
+    "M:System.Security.Claims.Claim.get_Type~System.String",
+    "M:System.Security.Claims.Claim.get_Value~System.String",
+    "M:System.Security.Claims.ClaimsIdentity.#ctor",
+    "M:System.Security.Claims.ClaimsIdentity.#ctor(System.Collections.Generic.IEnumerable{System.Security.Claims.Claim},System.String,System.String,System.String)",
+    "M:System.Security.Claims.ClaimsIdentity.#ctor(System.Security.Principal.IIdentity,System.Collections.Generic.IEnumerable{System.Security.Claims.Claim},System.String,System.String,System.String)",
+    "M:System.Security.Claims.ClaimsIdentity.FindFirst(System.String)~System.Security.Claims.Claim",
+    "M:System.Security.Claims.ClaimsPrincipal.#ctor(System.Security.Principal.IIdentity)",
+    "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})~System.Security.Claims.Claim",
+    "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.String)~System.Security.Claims.Claim",
+    "M:System.Security.Claims.ClaimsPrincipal.HasClaim(System.String,System.String)~System.Boolean",
+    "M:System.Security.Claims.ClaimsPrincipal.get_Claims~System.Collections.Generic.IEnumerable{System.Security.Claims.Claim}",
+    "M:System.Security.Claims.ClaimsPrincipal.get_Identity~System.Security.Principal.IIdentity"
+  ]
+}

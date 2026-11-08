@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Routing: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Routing"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.DataTokensMetadata.#ctor(System.Collections.Generic.IReadOnlyDictionary{System.String,System.Object})",
+      "assemblies": [
+        "Microsoft.AspNetCore.Routing"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:dataTokens"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteCreationException.#ctor(System.String,System.Exception)",
+      "assemblies": [
+        "Microsoft.AspNetCore.Routing"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.SuppressLinkGenerationMetadata.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Routing"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.SuppressMatchingMetadata.#ctor",
+      "assemblies": [
+        "Microsoft.AspNetCore.Routing"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.Map(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,Microsoft.AspNetCore.Http.RequestDelegate)~Microsoft.AspNetCore.Builder.IEndpointConventionBuilder",
+    "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)~Microsoft.AspNetCore.Builder.RouteHandlerBuilder",
+    "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)~Microsoft.AspNetCore.Builder.RouteHandlerBuilder",
+    "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseEndpoints(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Action{Microsoft.AspNetCore.Routing.IEndpointRouteBuilder})~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseRouting(Microsoft.AspNetCore.Builder.IApplicationBuilder)~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Builder.RoutingEndpointConventionBuilderExtensions.WithDisplayName\u0060\u00601(\u0060\u00600,System.String)~\u0060\u00600",
+    "M:Microsoft.AspNetCore.Routing.EndpointDataSource.#ctor",
+    "M:Microsoft.AspNetCore.Routing.EndpointNameMetadata.#ctor(System.String)",
+    "M:Microsoft.AspNetCore.Routing.HttpMethodMetadata.#ctor(System.Collections.Generic.IEnumerable{System.String})",
+    "M:Microsoft.AspNetCore.Routing.HttpMethodMetadata.get_HttpMethods~System.Collections.Generic.IReadOnlyList{System.String}",
+    "M:Microsoft.AspNetCore.Routing.IEndpointNameMetadata.get_EndpointName~System.String",
+    "M:Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.CreateApplicationBuilder~Microsoft.AspNetCore.Builder.IApplicationBuilder",
+    "M:Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.get_DataSources~System.Collections.Generic.ICollection{Microsoft.AspNetCore.Routing.EndpointDataSource}",
+    "M:Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.get_ServiceProvider~System.IServiceProvider",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePattern.GetParameter(System.String)~Microsoft.AspNetCore.Routing.Patterns.RoutePatternParameterPart",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePattern.get_Defaults~System.Collections.Generic.IReadOnlyDictionary{System.String,System.Object}",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePattern.get_RawText~System.String",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse(System.String)~Microsoft.AspNetCore.Routing.Patterns.RoutePattern",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse(System.String,Microsoft.AspNetCore.Routing.RouteValueDictionary,Microsoft.AspNetCore.Routing.RouteValueDictionary)~Microsoft.AspNetCore.Routing.Patterns.RoutePattern",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePatternFactory.Parse(System.String,System.Object,System.Object)~Microsoft.AspNetCore.Routing.Patterns.RoutePattern",
+    "M:Microsoft.AspNetCore.Routing.Patterns.RoutePatternParameterPart.get_Name~System.String",
+    "M:Microsoft.AspNetCore.Routing.RouteEndpointBuilder.Build~Microsoft.AspNetCore.Http.Endpoint",
+    "M:Microsoft.AspNetCore.Routing.RouteNameMetadata.#ctor(System.String)",
+    "M:Microsoft.AspNetCore.Routing.RouteOptions.SetParameterPolicy\u0060\u00601(System.String)",
+    "M:Microsoft.AspNetCore.Routing.RouteValueEqualityComparer.Equals(System.Object,System.Object)~System.Boolean",
+    "M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRouting(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRoutingCore(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IServiceCollection"
+  ]
+}

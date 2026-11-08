@@ -21,6 +21,7 @@ public static class CoverageCounters
     public const string GENERATED_IN_RUN = "generated-in-run";
     public const string PAIRS_REMOVED_GENERATED = "pairs-removed-generated";
     public const string OPAQUE_BY_PROJECT = "opaque-by-project";
+    public const string OPAQUE_BY_BUILT_IN = "opaque-by-built-in";
     public const string MODEL_ENTRY_REJECTED = "model-entry-rejected";
     public const string OUT_OF_RANGE_CALL = "out-of-range-call";
     public const string DELEGATE_TO_OPAQUE = "delegate-to-opaque";
@@ -261,6 +262,7 @@ public static partial class InterproceduralAccesses
             [CoverageCounters.GENERATED_IN_RUN] = 0,
             [CoverageCounters.PAIRS_REMOVED_GENERATED] = 0,
             [CoverageCounters.OPAQUE_BY_PROJECT] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.Project }) + decided.OpaqueByProject,
+            [CoverageCounters.OPAQUE_BY_BUILT_IN] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.BuiltIn }) + decided.OpaqueByBuiltIn,
             [CoverageCounters.MODEL_ENTRY_REJECTED] = 0,
             [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false, DeclaredOpaque: false }) + decided.OutOfRange,
             // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate. A factory
@@ -335,7 +337,7 @@ public static partial class InterproceduralAccesses
         var heap = input.Heap;
         var (opaque, element) = (0, 0);
         var (knownBuiltIn, knownProject, opaqueByProject, outOfRange) = (0, 0, 0, 0);
-        var knownGenerated = 0;
+        var (knownGenerated, opaqueByBuiltIn) = (0, 0);
         foreach (var group in heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal))
         {
             WorkCancellation.Check();
@@ -371,7 +373,7 @@ public static partial class InterproceduralAccesses
                                        .ToArray();
                 var (table, elements, other) = (false, false, regions.Length == 0);
                 var (projectedBuiltIn, projectedProject, projectedOpaque, projectedOutOfRange) = (false, false, false, false);
-                var projectedGenerated = false;
+                var (projectedGenerated, projectedBuiltInOpaque) = (false, false);
                 foreach (var region in regions)
                 {
                     WorkCancellation.Check();
@@ -389,6 +391,7 @@ public static partial class InterproceduralAccesses
                         {
                             other = true;
                             projectedOpaque |= library is { DeclaredOpaque: true, Layer: IrModelLayer.Project };
+                            projectedBuiltInOpaque |= library is { DeclaredOpaque: true, Layer: IrModelLayer.BuiltIn };
                             projectedOutOfRange |= library is { InRange: false, DeclaredOpaque: false };
                         }
                         continue;
@@ -411,12 +414,13 @@ public static partial class InterproceduralAccesses
                 knownProject += projectedProject ? 1 : 0;
                 knownGenerated += projectedGenerated ? 1 : 0;
                 opaqueByProject += projectedOpaque ? 1 : 0;
+                opaqueByBuiltIn += projectedBuiltInOpaque ? 1 : 0;
                 outOfRange += projectedOutOfRange ? 1 : 0;
                 return (table, elements, other);
             }
         }
 
-        return new DecidedCount(opaque, element, knownBuiltIn, knownProject, knownGenerated, opaqueByProject, outOfRange);
+        return new DecidedCount(opaque, element, knownBuiltIn, knownProject, knownGenerated, opaqueByProject, opaqueByBuiltIn, outOfRange);
     }
 
     /// <summary>What calls through an interface add to the coverage counters (<see cref="DecidedCounts"/>).</summary>
@@ -426,9 +430,10 @@ public static partial class InterproceduralAccesses
     /// <param name="KnownProject">The known calls a project library model describes.</param>
     /// <param name="KnownGenerated">The known calls a generated library model describes.</param>
     /// <param name="OpaqueByProject">The opaque calls whose member a project model declares opaque.</param>
+    /// <param name="OpaqueByBuiltIn">The opaque calls the built-in layer leaves opaque: a failed member of a census.</param>
     /// <param name="OutOfRange">The opaque calls of a member a built-in model describes at a version outside its range.</param>
     private readonly record struct DecidedCount(int Opaque, int Element, int KnownBuiltIn, int KnownProject, int KnownGenerated, int OpaqueByProject,
-                                                int OutOfRange);
+                                                int OpaqueByBuiltIn, int OutOfRange);
 
     /// <summary>What a path of the walk reaches: an instance and the segment of its body it runs. Whether an object is under construction
     /// there is the construction analysis's to say, not the path's (ADR 0018).</summary>

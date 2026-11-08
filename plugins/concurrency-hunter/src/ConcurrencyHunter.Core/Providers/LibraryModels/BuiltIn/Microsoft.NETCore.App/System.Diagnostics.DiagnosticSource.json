@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Diagnostics.DiagnosticSource: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Diagnostics.DiagnosticSource"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Diagnostics.Activity.SetStatus(System.Diagnostics.ActivityStatusCode,System.String)~System.Diagnostics.Activity",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "result": "[this]",
+      "keeps": {
+        "this": [
+          "arg:description"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.Activity.get_Duration~System.TimeSpan",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.Activity.get_IsAllDataRequested~System.Boolean",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.Activity.get_StartTimeUtc~System.DateTime",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.Activity.set_DisplayName(System.String)",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "keeps": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.ActivitySource.HasListeners~System.Boolean",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.DiagnosticListener.IsEnabled~System.Boolean",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {
+        "this": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.Metrics.MeterOptions.#ctor(System.String)",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.TagList.#ctor",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Diagnostics.TagList.get_Count~System.Int32",
+      "assemblies": [
+        "System.Diagnostics.DiagnosticSource"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Diagnostics.Activity.#ctor(System.String)",
+    "M:System.Diagnostics.Activity.AddException(System.Exception,System.Diagnostics.TagList@,System.DateTimeOffset)~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.AddLink(System.Diagnostics.ActivityLink)~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.SetEndTime(System.DateTime)~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.SetTag(System.String,System.Object)~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.Start~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.Stop",
+    "M:System.Diagnostics.Activity.get_Context~System.Diagnostics.ActivityContext",
+    "M:System.Diagnostics.Activity.get_Current~System.Diagnostics.Activity",
+    "M:System.Diagnostics.Activity.get_ForceDefaultIdFormat~System.Boolean",
+    "M:System.Diagnostics.Activity.get_Source~System.Diagnostics.ActivitySource",
+    "M:System.Diagnostics.Activity.set_Current(System.Diagnostics.Activity)",
+    "M:System.Diagnostics.Activity.set_DefaultIdFormat(System.Diagnostics.ActivityIdFormat)",
+    "M:System.Diagnostics.Activity.set_ForceDefaultIdFormat(System.Boolean)",
+    "M:System.Diagnostics.ActivityLink.#ctor(System.Diagnostics.ActivityContext,System.Diagnostics.ActivityTagsCollection)",
+    "M:System.Diagnostics.ActivitySource.#ctor(System.String)",
+    "M:System.Diagnostics.ActivitySource.#ctor(System.String,System.String)",
+    "M:System.Diagnostics.ActivitySource.StartActivity(System.String,System.Diagnostics.ActivityKind)~System.Diagnostics.Activity",
+    "M:System.Diagnostics.DiagnosticListener.#ctor(System.String)",
+    "M:System.Diagnostics.DiagnosticListener.IsEnabled(System.String)~System.Boolean",
+    "M:System.Diagnostics.DiagnosticListener.IsEnabled(System.String,System.Object,System.Object)~System.Boolean",
+    "M:System.Diagnostics.DiagnosticListener.Subscribe(System.IObserver{System.Collections.Generic.KeyValuePair{System.String,System.Object}},System.Predicate{System.String})~System.IDisposable",
+    "M:System.Diagnostics.DiagnosticListener.Write(System.String,System.Object)",
+    "M:System.Diagnostics.DiagnosticSource.#ctor",
+    "M:System.Diagnostics.DiagnosticSource.IsEnabled(System.String)~System.Boolean",
+    "M:System.Diagnostics.DiagnosticSource.Write(System.String,System.Object)",
+    "M:System.Diagnostics.DiagnosticSource.Write\u0060\u00601(System.String,\u0060\u00600)",
+    "M:System.Diagnostics.DistributedContextPropagator.#ctor",
+    "M:System.Diagnostics.DistributedContextPropagator.Inject(System.Diagnostics.Activity,System.Object,System.Diagnostics.DistributedContextPropagator.PropagatorSetterCallback)",
+    "M:System.Diagnostics.DistributedContextPropagator.get_Current~System.Diagnostics.DistributedContextPropagator",
+    "M:System.Diagnostics.DistributedContextPropagator.get_Fields~System.Collections.Generic.IReadOnlyCollection{System.String}",
+    "M:System.Diagnostics.Metrics.Histogram\u00601.Record(\u00600,System.Collections.Generic.KeyValuePair{System.String,System.Object})",
+    "M:System.Diagnostics.Metrics.Histogram\u00601.Record(\u00600,System.Collections.Generic.KeyValuePair{System.String,System.Object},System.Collections.Generic.KeyValuePair{System.String,System.Object})",
+    "M:System.Diagnostics.Metrics.Histogram\u00601.Record(\u00600,System.Diagnostics.TagList@)",
+    "M:System.Diagnostics.Metrics.Instrument.get_Enabled~System.Boolean",
+    "M:System.Diagnostics.Metrics.InstrumentAdvice\u00601.#ctor",
+    "M:System.Diagnostics.Metrics.InstrumentAdvice\u00601.set_HistogramBucketBoundaries(System.Collections.Generic.IReadOnlyList{\u00600})",
+    "M:System.Diagnostics.Metrics.Meter.#ctor(System.Diagnostics.Metrics.MeterOptions)",
+    "M:System.Diagnostics.Metrics.Meter.#ctor(System.String)",
+    "M:System.Diagnostics.Metrics.Meter.CreateHistogram\u0060\u00601(System.String,System.String,System.String,System.Collections.Generic.IEnumerable{System.Collections.Generic.KeyValuePair{System.String,System.Object}},System.Diagnostics.Metrics.InstrumentAdvice{\u0060\u00600})~System.Diagnostics.Metrics.Histogram{\u0060\u00600}",
+    "M:System.Diagnostics.Metrics.Meter.CreateObservableCounter\u0060\u00601(System.String,System.Func{\u0060\u00600},System.String,System.String)~System.Diagnostics.Metrics.ObservableCounter{\u0060\u00600}",
+    "M:System.Diagnostics.Metrics.Meter.CreateObservableGauge\u0060\u00601(System.String,System.Func{\u0060\u00600},System.String,System.String)~System.Diagnostics.Metrics.ObservableGauge{\u0060\u00600}",
+    "M:System.Diagnostics.Metrics.Meter.CreateUpDownCounter\u0060\u00601(System.String,System.String,System.String)~System.Diagnostics.Metrics.UpDownCounter{\u0060\u00600}",
+    "M:System.Diagnostics.Metrics.MeterFactoryExtensions.Create(System.Diagnostics.Metrics.IMeterFactory,System.String,System.String,System.Collections.Generic.IEnumerable{System.Collections.Generic.KeyValuePair{System.String,System.Object}})~System.Diagnostics.Metrics.Meter",
+    "M:System.Diagnostics.Metrics.UpDownCounter\u00601.Add(\u00600,System.Diagnostics.TagList@)",
+    "M:System.Diagnostics.TagList.Add(System.Collections.Generic.KeyValuePair{System.String,System.Object})",
+    "M:System.Diagnostics.TagList.Add(System.String,System.Object)",
+    "M:System.Diagnostics.TagList.set_Item(System.Int32,System.Collections.Generic.KeyValuePair{System.String,System.Object})"
+  ]
+}

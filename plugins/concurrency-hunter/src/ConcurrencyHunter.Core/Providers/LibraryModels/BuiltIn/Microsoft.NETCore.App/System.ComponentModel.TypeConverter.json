@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.ComponentModel.TypeConverter: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.ComponentModel.TypeConverter"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.ComponentModel.AttributeCollection.#ctor(System.Attribute[])",
+    "M:System.ComponentModel.AttributeCollection.GetEnumerator~System.Collections.IEnumerator",
+    "M:System.ComponentModel.AttributeCollection.get_Count~System.Int32",
+    "M:System.ComponentModel.CollectionChangeEventArgs.#ctor(System.ComponentModel.CollectionChangeAction,System.Object)",
+    "M:System.ComponentModel.ListChangedEventArgs.#ctor(System.ComponentModel.ListChangedType,System.Int32)",
+    "M:System.ComponentModel.ListChangedEventArgs.#ctor(System.ComponentModel.ListChangedType,System.Int32,System.ComponentModel.PropertyDescriptor)",
+    "M:System.ComponentModel.ListChangedEventArgs.#ctor(System.ComponentModel.ListChangedType,System.Int32,System.Int32)",
+    "M:System.ComponentModel.ListChangedEventArgs.get_ListChangedType~System.ComponentModel.ListChangedType",
+    "M:System.ComponentModel.ListChangedEventArgs.get_NewIndex~System.Int32",
+    "M:System.ComponentModel.ListChangedEventArgs.get_OldIndex~System.Int32",
+    "M:System.ComponentModel.ListChangedEventHandler.Invoke(System.Object,System.ComponentModel.ListChangedEventArgs)",
+    "M:System.ComponentModel.MarshalByValueComponent.#ctor",
+    "M:System.ComponentModel.MemberDescriptor.get_Attributes~System.ComponentModel.AttributeCollection",
+    "M:System.ComponentModel.MemberDescriptor.get_Name~System.String",
+    "M:System.ComponentModel.PropertyDescriptor.#ctor(System.String,System.Attribute[])",
+    "M:System.ComponentModel.PropertyDescriptor.GetValue(System.Object)~System.Object",
+    "M:System.ComponentModel.PropertyDescriptor.get_PropertyType~System.Type",
+    "M:System.ComponentModel.PropertyDescriptorCollection.#ctor(System.ComponentModel.PropertyDescriptor[])",
+    "M:System.ComponentModel.PropertyDescriptorCollection.GetEnumerator~System.Collections.IEnumerator",
+    "M:System.ComponentModel.PropertyDescriptorCollection.get_Count~System.Int32",
+    "M:System.ComponentModel.TypeConverter.CanConvertFrom(System.Type)~System.Boolean",
+    "M:System.ComponentModel.TypeConverter.ConvertFromInvariantString(System.String)~System.Object",
+    "M:System.ComponentModel.TypeDescriptor.GetAttributes(System.Type)~System.ComponentModel.AttributeCollection",
+    "M:System.ComponentModel.TypeDescriptor.GetClassName(System.Object)~System.String",
+    "M:System.ComponentModel.TypeDescriptor.GetConverter(System.Type)~System.ComponentModel.TypeConverter",
+    "M:System.ComponentModel.TypeDescriptor.GetProperties(System.Type)~System.ComponentModel.PropertyDescriptorCollection"
+  ]
+}

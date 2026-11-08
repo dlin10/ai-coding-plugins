@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in Microsoft.Win32.Registry: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Win32.Registry"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.Win32.RegistryKey.Dispose",
+    "M:Microsoft.Win32.RegistryKey.GetValue(System.String)~System.Object",
+    "M:Microsoft.Win32.RegistryKey.OpenRemoteBaseKey(Microsoft.Win32.RegistryHive,System.String)~Microsoft.Win32.RegistryKey",
+    "M:Microsoft.Win32.RegistryKey.OpenSubKey(System.String)~Microsoft.Win32.RegistryKey",
+    "M:Microsoft.Win32.RegistryKey.ToString~System.String",
+    "M:Microsoft.Win32.RegistryKey.get_Handle~Microsoft.Win32.SafeHandles.SafeRegistryHandle"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.Extensions.Logging: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.Extensions.Logging"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(Microsoft.Extensions.DependencyInjection.IServiceCollection)~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.Extensions.Logging.ILoggingBuilder})~Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "M:Microsoft.Extensions.Logging.FilterLoggingBuilderExtensions.AddFilter\u0060\u00601(Microsoft.Extensions.Logging.ILoggingBuilder,System.Func{Microsoft.Extensions.Logging.LogLevel,System.Boolean})~Microsoft.Extensions.Logging.ILoggingBuilder",
+    "M:Microsoft.Extensions.Logging.LoggerFactoryOptions.set_ActivityTrackingOptions(Microsoft.Extensions.Logging.ActivityTrackingOptions)",
+    "M:Microsoft.Extensions.Logging.LoggerFilterRule.#ctor(System.String,System.String,System.Nullable{Microsoft.Extensions.Logging.LogLevel},System.Func{System.String,System.String,Microsoft.Extensions.Logging.LogLevel,System.Boolean})",
+    "M:Microsoft.Extensions.Logging.LoggingBuilderExtensions.Configure(Microsoft.Extensions.Logging.ILoggingBuilder,System.Action{Microsoft.Extensions.Logging.LoggerFactoryOptions})~Microsoft.Extensions.Logging.ILoggingBuilder"
+  ]
+}

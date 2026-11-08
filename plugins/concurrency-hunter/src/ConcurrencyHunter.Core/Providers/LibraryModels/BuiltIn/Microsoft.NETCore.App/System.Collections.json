@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Collections: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Collections"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Collections.Generic.LinkedList\u00601.Enumerator.MoveNext~System.Boolean",
+    "M:System.Collections.Generic.LinkedList\u00601.Enumerator.get_Current~\u00600",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.#ctor(System.Int32,System.Collections.Generic.IEqualityComparer{\u00600})",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.Add(\u00600,\u00601)",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.Enumerator.MoveNext~System.Boolean",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.Enumerator.get_Current~System.Collections.Generic.KeyValuePair{\u00600,\u00601}",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.GetEnumerator~System.Collections.Generic.OrderedDictionary\u00602.Enumerator\u00600",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.GetEnumerator~System.Collections.Generic.OrderedDictionary{\u00600,\u00601}.Enumerator",
+    "M:System.Collections.Generic.OrderedDictionary\u00602.get_Count~System.Int32",
+    "M:System.Collections.Generic.Stack\u00601.Enumerator.MoveNext~System.Boolean",
+    "M:System.Collections.Generic.Stack\u00601.Enumerator.get_Current~\u00600"
+  ]
+}

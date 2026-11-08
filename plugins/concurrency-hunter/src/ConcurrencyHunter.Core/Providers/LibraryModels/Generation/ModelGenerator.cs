@@ -173,12 +173,14 @@ public static class ModelGenerator
     /// <param name="resolver">Finds the implementation assembly.</param>
     /// <param name="cancellationToken">Cancels the generation.</param>
     /// <param name="dependencyAnswers">The run's dependency source, or null for built-in models only.</param>
+    /// <param name="builtIn">The built-in models the generation reads outside its own assembly in place of the shipped ones, or <c>null</c>
+    /// for the shipped ones: the census run's (<see cref="LibraryModels.ForCensus"/>), so that it reads a census member as a dependency.</param>
     internal static GeneratedAnswer Generate(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken,
-                                             DependencyAnswers? dependencyAnswers)
+                                             DependencyAnswers? dependencyAnswers, LibraryModels? builtIn = null)
     {
         using var work = WorkCancellation.Enter(cancellationToken);
         GenerationChecks checks = new(WorkCancellation.Token);
-        var facts = new Facts(request, checks);
+        var facts = new Facts(request, checks) { BuiltIn = builtIn };
         return Resolve(facts, resolver, checks, dependencyAnswers).Answer;
     }
 
@@ -375,7 +377,7 @@ public static class ModelGenerator
         var rejectedRecipes = new HashSet<string>(StringComparer.Ordinal);
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         var dropped = new SortedSet<string>(StringComparer.Ordinal);
-        models ??= ModelsOutside(library.Compilation!.AssemblyName!);
+        models ??= ModelsOutside(facts.BuiltIn ?? LibraryModels.BuiltIn, library.Compilation!.AssemblyName!);
         if (facts.Dependencies is { } dependencies)
             models = models.WithDependencies(dependencies);
         while (true)
@@ -893,10 +895,11 @@ public static class ModelGenerator
 
     /// <summary>The built-in models without those whose assembly ranges name the implementation assembly: the built-in layer serves only
     /// calls that leave the decompiled assembly, so a member of it made <c>extern</c> stays an opaque call.</summary>
+    /// <param name="builtIn">The built-in models the generation reads: the shipped ones, or the census run's.</param>
     /// <param name="assemblyName">The implementation assembly's name.</param>
-    private static LibraryModels ModelsOutside(string assemblyName) =>
-        new(LibraryModels.BuiltIn.Members.Where(model => model.Assemblies.All(range => range.AssemblyName != assemblyName)),
-            LibraryModels.BuiltIn.ImmutableTypes.Where(type => type.Assemblies.All(range => range.AssemblyName != assemblyName)));
+    private static LibraryModels ModelsOutside(LibraryModels builtIn, string assemblyName) =>
+        new(builtIn.Members.Where(model => model.Assemblies.All(range => range.AssemblyName != assemblyName)),
+            builtIn.ImmutableTypes.Where(type => type.Assemblies.All(range => range.AssemblyName != assemblyName)));
 
     /// <summary>What one generation has found so far.</summary>
     /// <param name="request">The member asked for.</param>
@@ -920,6 +923,9 @@ public static class ModelGenerator
 
         public GenerationRequest Request { get; } = request;
         public DependencyModels? Dependencies { get; set; }
+
+        /// <summary>The built-in models the generation reads in place of the shipped ones, or <c>null</c> for the shipped ones.</summary>
+        public LibraryModels? BuiltIn { get; init; }
         public Driver? Driver { get; set; }
         public GenerationImplementation? Implementation { get; set; }
         public string? Framework { get; set; }

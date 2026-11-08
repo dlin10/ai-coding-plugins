@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.Primitives: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.Primitives"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.CookieContainer.#ctor",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.DnsEndPoint.get_Port~System.Int32",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPAddress.#ctor(System.Int64)",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPAddress.get_AddressFamily~System.Net.Sockets.AddressFamily",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPAddress.get_Address~System.Int64",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPAddress.get_IsIPv4MappedToIPv6~System.Boolean",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPAddress.get_ScopeId~System.Int64",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPEndPoint.#ctor(System.Int64,System.Int32)",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.IPEndPoint.get_Port~System.Int32",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.SocketAddress.get_Item(System.Int32)~System.Byte",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.SocketAddress.get_Size~System.Int32",
+      "assemblies": [
+        "System.Net.Primitives"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Net.CookieContainer.GetCookieHeader(System.Uri)~System.String",
+    "M:System.Net.CookieContainer.SetCookies(System.Uri,System.String)",
+    "M:System.Net.CredentialCache.get_DefaultCredentials~System.Net.ICredentials",
+    "M:System.Net.CredentialCache.get_DefaultNetworkCredentials~System.Net.NetworkCredential",
+    "M:System.Net.DnsEndPoint.#ctor(System.String,System.Int32)",
+    "M:System.Net.DnsEndPoint.get_AddressFamily~System.Net.Sockets.AddressFamily",
+    "M:System.Net.DnsEndPoint.get_Host~System.String",
+    "M:System.Net.EndPoint.#ctor",
+    "M:System.Net.EndPoint.Create(System.Net.SocketAddress)~System.Net.EndPoint",
+    "M:System.Net.EndPoint.Serialize~System.Net.SocketAddress",
+    "M:System.Net.EndPoint.get_AddressFamily~System.Net.Sockets.AddressFamily",
+    "M:System.Net.ICredentials.GetCredential(System.Uri,System.String)~System.Net.NetworkCredential",
+    "M:System.Net.IPAddress.#ctor(System.Byte[])",
+    "M:System.Net.IPAddress.#ctor(System.ReadOnlySpan{System.Byte})",
+    "M:System.Net.IPAddress.#ctor(System.ReadOnlySpan{System.Byte},System.Int64)",
+    "M:System.Net.IPAddress.Equals(System.Object)~System.Boolean",
+    "M:System.Net.IPAddress.MapToIPv4~System.Net.IPAddress",
+    "M:System.Net.IPAddress.MapToIPv6~System.Net.IPAddress",
+    "M:System.Net.IPAddress.ToString~System.String",
+    "M:System.Net.IPAddress.TryParse(System.String,System.Net.IPAddress@)~System.Boolean",
+    "M:System.Net.IPAddress.TryWriteBytes(System.Span{System.Byte},System.Int32@)~System.Boolean",
+    "M:System.Net.IPEndPoint.#ctor(System.Net.IPAddress,System.Int32)",
+    "M:System.Net.IPEndPoint.Serialize~System.Net.SocketAddress",
+    "M:System.Net.IPEndPoint.get_AddressFamily~System.Net.Sockets.AddressFamily",
+    "M:System.Net.IPEndPoint.get_Address~System.Net.IPAddress",
+    "M:System.Net.IWebProxy.GetProxy(System.Uri)~System.Uri",
+    "M:System.Net.IWebProxy.IsBypassed(System.Uri)~System.Boolean",
+    "M:System.Net.IWebProxy.get_Credentials~System.Net.ICredentials",
+    "M:System.Net.NetworkCredential.#ctor",
+    "M:System.Net.NetworkCredential.#ctor(System.String,System.String,System.String)",
+    "M:System.Net.NetworkCredential.get_Domain~System.String",
+    "M:System.Net.NetworkCredential.get_Password~System.String",
+    "M:System.Net.NetworkCredential.get_UserName~System.String",
+    "M:System.Net.NetworkInformation.IPAddressCollection.#ctor",
+    "M:System.Net.NetworkInformation.IPAddressCollection.GetEnumerator~System.Collections.Generic.IEnumerator{System.Net.IPAddress}",
+    "M:System.Net.SocketAddress.#ctor(System.Net.Sockets.AddressFamily)",
+    "M:System.Net.SocketAddress.#ctor(System.Net.Sockets.AddressFamily,System.Int32)",
+    "M:System.Net.SocketAddress.GetMaximumAddressSize(System.Net.Sockets.AddressFamily)~System.Int32",
+    "M:System.Net.SocketAddress.ToString~System.String",
+    "M:System.Net.SocketAddress.get_Buffer~System.Memory{System.Byte}",
+    "M:System.Net.SocketAddress.get_Family~System.Net.Sockets.AddressFamily",
+    "M:System.Net.SocketAddress.set_Item(System.Int32,System.Byte)",
+    "M:System.Net.SocketAddress.set_Size(System.Int32)",
+    "M:System.Net.TransportContext.#ctor",
+    "M:System.Net.TransportContext.GetChannelBinding(System.Security.Authentication.ExtendedProtection.ChannelBindingKind)~System.Security.Authentication.ExtendedProtection.ChannelBinding",
+    "M:System.Security.Authentication.ExtendedProtection.ChannelBinding.#ctor",
+    "M:System.Security.Authentication.ExtendedProtection.ChannelBinding.get_Size~System.Int32"
+  ]
+}

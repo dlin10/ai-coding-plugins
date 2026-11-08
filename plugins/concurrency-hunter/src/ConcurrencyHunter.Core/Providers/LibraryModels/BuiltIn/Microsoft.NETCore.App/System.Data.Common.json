@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Data.Common: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Data.Common"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Data.Common.DbConnection.#ctor",
+    "M:System.Data.DataTable.get_ExtendedProperties~System.Data.PropertyCollection",
+    "M:System.Data.IDataParameter.get_DbType~System.Data.DbType",
+    "M:System.Data.IDataParameter.get_Direction~System.Data.ParameterDirection",
+    "M:System.Data.IDataParameter.get_ParameterName~System.String",
+    "M:System.Data.IDataParameter.get_Value~System.Object",
+    "M:System.Data.IDataParameter.set_DbType(System.Data.DbType)",
+    "M:System.Data.IDataParameter.set_Direction(System.Data.ParameterDirection)",
+    "M:System.Data.IDataParameter.set_ParameterName(System.String)",
+    "M:System.Data.IDataParameter.set_Value(System.Object)",
+    "M:System.Data.IDataParameterCollection.Contains(System.String)~System.Boolean",
+    "M:System.Data.IDataParameterCollection.get_Item(System.String)~System.Object",
+    "M:System.Data.IDataReader.NextResult~System.Boolean",
+    "M:System.Data.IDataReader.Read~System.Boolean",
+    "M:System.Data.IDataReader.get_IsClosed~System.Boolean",
+    "M:System.Data.IDataRecord.GetFieldType(System.Int32)~System.Type",
+    "M:System.Data.IDataRecord.GetName(System.Int32)~System.String",
+    "M:System.Data.IDataRecord.GetValue(System.Int32)~System.Object",
+    "M:System.Data.IDataRecord.get_FieldCount~System.Int32",
+    "M:System.Data.IDbCommand.Cancel",
+    "M:System.Data.IDbCommand.CreateParameter~System.Data.IDbDataParameter",
+    "M:System.Data.IDbCommand.ExecuteReader(System.Data.CommandBehavior)~System.Data.IDataReader",
+    "M:System.Data.IDbCommand.get_CommandText~System.String",
+    "M:System.Data.IDbCommand.get_Connection~System.Data.IDbConnection",
+    "M:System.Data.IDbCommand.get_Parameters~System.Data.IDataParameterCollection",
+    "M:System.Data.IDbCommand.set_CommandText(System.String)",
+    "M:System.Data.IDbCommand.set_CommandTimeout(System.Int32)",
+    "M:System.Data.IDbCommand.set_CommandType(System.Data.CommandType)",
+    "M:System.Data.IDbCommand.set_Transaction(System.Data.IDbTransaction)",
+    "M:System.Data.IDbConnection.Close",
+    "M:System.Data.IDbConnection.CreateCommand~System.Data.IDbCommand",
+    "M:System.Data.IDbConnection.Open",
+    "M:System.Data.IDbConnection.get_ConnectionString~System.String",
+    "M:System.Data.IDbConnection.get_State~System.Data.ConnectionState",
+    "M:System.Data.IDbDataParameter.get_Size~System.Int32",
+    "M:System.Data.IDbDataParameter.set_Precision(System.Byte)",
+    "M:System.Data.IDbDataParameter.set_Scale(System.Byte)",
+    "M:System.Data.IDbDataParameter.set_Size(System.Int32)"
+  ]
+}

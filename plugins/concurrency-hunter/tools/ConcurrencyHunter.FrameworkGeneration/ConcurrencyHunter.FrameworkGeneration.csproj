@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A developer's tool, never published: writes the shared frameworks' census into the built-in models from the census runs and
+       compares its record with the previous one (docs/adr/0022). build/generate-frameworks.ps1 drives it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ConcurrencyHunter.FrameworkGeneration</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ConcurrencyHunter.Core\ConcurrencyHunter.Core.csproj" />
+  </ItemGroup>
+
+</Project>

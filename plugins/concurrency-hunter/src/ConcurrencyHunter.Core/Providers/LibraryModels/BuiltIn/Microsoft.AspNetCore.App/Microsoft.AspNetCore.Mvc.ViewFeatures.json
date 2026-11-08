@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.AspNetCore.App 10.0 in Microsoft.AspNetCore.Mvc.ViewFeatures: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "Microsoft.AspNetCore.Mvc.ViewFeatures"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:Microsoft.AspNetCore.Mvc.Controller.#ctor",
+    "M:Microsoft.AspNetCore.Mvc.Controller.Json(System.Object)~Microsoft.AspNetCore.Mvc.JsonResult",
+    "M:Microsoft.AspNetCore.Mvc.Controller.View(System.Object)~Microsoft.AspNetCore.Mvc.ViewResult",
+    "M:Microsoft.AspNetCore.Mvc.Controller.View(System.String)~Microsoft.AspNetCore.Mvc.ViewResult",
+    "M:Microsoft.AspNetCore.Mvc.Controller.View(System.String,System.Object)~Microsoft.AspNetCore.Mvc.ViewResult",
+    "M:Microsoft.AspNetCore.Mvc.Controller.View~Microsoft.AspNetCore.Mvc.ViewResult",
+    "M:Microsoft.AspNetCore.Mvc.Controller.get_ViewBag~System.Object",
+    "M:Microsoft.AspNetCore.Mvc.Controller.get_ViewData~Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary",
+    "M:Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary.set_Item(System.String,System.Object)",
+    "M:Microsoft.Extensions.DependencyInjection.MvcViewFeaturesMvcCoreBuilderExtensions.AddViews(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder)~Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder"
+  ]
+}

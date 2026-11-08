@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Memory: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Memory"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Buffers.ArrayBufferWriter\u00601.get_WrittenCount~System.Int32",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Buffers.ArrayBufferWriter\u00601.get_WrittenSpan~System.ReadOnlySpan{\u00600}",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence\u00601.get_IsEmpty~System.Boolean",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence\u00601.get_IsSingleSegment~System.Boolean",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence\u00601.get_Length~System.Int64",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.SequencePosition.GetInteger~System.Int32",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.SequencePosition.GetObject~System.Object",
+      "assemblies": [
+        "System.Memory"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {},
+      "result": "[this]"
+    }
+  ],
+  "failed": [
+    "M:System.Buffers.ArrayBufferWriter\u00601.Advance(System.Int32)",
+    "M:System.Buffers.ArrayBufferWriter\u00601.Clear",
+    "M:System.Buffers.ArrayBufferWriter\u00601.GetMemory(System.Int32)~System.Memory{\u00600}",
+    "M:System.Buffers.ArrayBufferWriter\u00601.get_WrittenMemory~System.ReadOnlyMemory{\u00600}",
+    "M:System.Buffers.BuffersExtensions.CopyTo\u0060\u00601(System.Buffers.ReadOnlySequence{\u0060\u00600}@,System.Span{\u0060\u00600})",
+    "M:System.Buffers.BuffersExtensions.ToArray\u0060\u00601(System.Buffers.ReadOnlySequence{\u0060\u00600}@)~\u0060\u00600[]",
+    "M:System.Buffers.IBufferWriter\u00601.Advance(System.Int32)",
+    "M:System.Buffers.IBufferWriter\u00601.GetMemory(System.Int32)~System.Memory{\u00600}",
+    "M:System.Buffers.IBufferWriter\u00601.GetSpan(System.Int32)~System.Span{\u00600}",
+    "M:System.Buffers.MemoryPool\u00601.#ctor",
+    "M:System.Buffers.MemoryPool\u00601.get_Shared~System.Buffers.MemoryPool{\u00600}",
+    "M:System.Buffers.ReadOnlySequence\u00601.#ctor(\u00600[])",
+    "M:System.Buffers.ReadOnlySequence\u00601.Enumerator.MoveNext~System.Boolean",
+    "M:System.Buffers.ReadOnlySequence\u00601.Enumerator.get_Current~System.ReadOnlyMemory{\u00600}",
+    "M:System.Buffers.ReadOnlySequence\u00601.GetEnumerator~System.Buffers.ReadOnlySequence\u00601.Enumerator\u00600",
+    "M:System.Buffers.ReadOnlySequence\u00601.GetEnumerator~System.Buffers.ReadOnlySequence{\u00600}.Enumerator",
+    "M:System.Buffers.ReadOnlySequence\u00601.Slice(System.Int64,System.Int64)~System.Buffers.ReadOnlySequence{\u00600}",
+    "M:System.Buffers.ReadOnlySequence\u00601.Slice(System.SequencePosition,System.SequencePosition)~System.Buffers.ReadOnlySequence{\u00600}",
+    "M:System.Buffers.ReadOnlySequence\u00601.TryGet(System.SequencePosition@,System.ReadOnlyMemory{\u00600}@,System.Boolean)~System.Boolean",
+    "M:System.Buffers.ReadOnlySequence\u00601.get_First~System.ReadOnlyMemory{\u00600}",
+    "M:System.SequencePosition.#ctor(System.Object,System.Int32)"
+  ]
+}

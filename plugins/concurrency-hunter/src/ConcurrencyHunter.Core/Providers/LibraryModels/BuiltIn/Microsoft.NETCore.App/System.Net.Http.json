@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.Http: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.Http"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.#ctor",
+      "assemblies": [
+        "System.Net.Http"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_IsSuccessStatusCode~System.Boolean",
+      "assemblies": [
+        "System.Net.Http"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_StatusCode~System.Net.HttpStatusCode",
+      "assemblies": [
+        "System.Net.Http"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.SocketsHttpHandler.get_MaxConnectionsPerServer~System.Int32",
+      "assemblies": [
+        "System.Net.Http"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.SocketsHttpHandler.get_PooledConnectionLifetime~System.TimeSpan",
+      "assemblies": [
+        "System.Net.Http"
+      ],
+      "versions": {
+        "minimum": "10.0.0.0",
+        "maximumExclusive": "10.0.0.1"
+      },
+      "effects": {}
+    }
+  ],
+  "failed": [
+    "M:System.Net.Http.DelegatingHandler.get_InnerHandler~System.Net.Http.HttpMessageHandler",
+    "M:System.Net.Http.DelegatingHandler.set_InnerHandler(System.Net.Http.HttpMessageHandler)",
+    "M:System.Net.Http.Headers.HttpContentHeaders.set_ContentType(System.Net.Http.Headers.MediaTypeHeaderValue)",
+    "M:System.Net.Http.Headers.HttpHeaderValueCollection\u00601.Add(\u00600)",
+    "M:System.Net.Http.Headers.HttpHeaderValueCollection\u00601.Clear",
+    "M:System.Net.Http.Headers.HttpHeaders.Add(System.String,System.String)",
+    "M:System.Net.Http.Headers.HttpHeaders.TryAddWithoutValidation(System.String,System.String)~System.Boolean",
+    "M:System.Net.Http.Headers.HttpRequestHeaders.get_Accept~System.Net.Http.Headers.HttpHeaderValueCollection{System.Net.Http.Headers.MediaTypeWithQualityHeaderValue}",
+    "M:System.Net.Http.Headers.HttpResponseHeaders.get_RetryAfter~System.Net.Http.Headers.RetryConditionHeaderValue",
+    "M:System.Net.Http.Headers.MediaTypeHeaderValue.#ctor(System.String)",
+    "M:System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.#ctor(System.String)",
+    "M:System.Net.Http.Headers.ProductInfoHeaderValue.TryParse(System.String,System.Net.Http.Headers.ProductInfoHeaderValue@)~System.Boolean",
+    "M:System.Net.Http.Headers.RetryConditionHeaderValue.ToString~System.String",
+    "M:System.Net.Http.HttpClient.#ctor",
+    "M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler)",
+    "M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler,System.Boolean)",
+    "M:System.Net.Http.HttpClient.GetStreamAsync(System.Uri)~System.Threading.Tasks.Task{System.IO.Stream}",
+    "M:System.Net.Http.HttpClient.set_MaxResponseContentBufferSize(System.Int64)",
+    "M:System.Net.Http.HttpClient.set_Timeout(System.TimeSpan)",
+    "M:System.Net.Http.HttpClientHandler.#ctor",
+    "M:System.Net.Http.HttpClientHandler.get_MaxConnectionsPerServer~System.Int32",
+    "M:System.Net.Http.HttpClientHandler.set_AllowAutoRedirect(System.Boolean)",
+    "M:System.Net.Http.HttpClientHandler.set_Credentials(System.Net.ICredentials)",
+    "M:System.Net.Http.HttpClientHandler.set_MaxConnectionsPerServer(System.Int32)",
+    "M:System.Net.Http.HttpClientHandler.set_Proxy(System.Net.IWebProxy)",
+    "M:System.Net.Http.HttpClientHandler.set_UseDefaultCredentials(System.Boolean)",
+    "M:System.Net.Http.HttpContent.get_Headers~System.Net.Http.Headers.HttpContentHeaders",
+    "M:System.Net.Http.HttpMessageHandler.#ctor",
+    "M:System.Net.Http.HttpMessageInvoker.Dispose",
+    "M:System.Net.Http.HttpRequestMessage.get_Content~System.Net.Http.HttpContent",
+    "M:System.Net.Http.HttpRequestMessage.set_Content(System.Net.Http.HttpContent)",
+    "M:System.Net.Http.SocketsHttpHandler.#ctor",
+    "M:System.Net.Http.SocketsHttpHandler.get_SslOptions~System.Net.Security.SslClientAuthenticationOptions",
+    "M:System.Net.Http.SocketsHttpHandler.set_AllowAutoRedirect(System.Boolean)",
+    "M:System.Net.Http.SocketsHttpHandler.set_KeepAlivePingDelay(System.TimeSpan)",
+    "M:System.Net.Http.SocketsHttpHandler.set_KeepAlivePingPolicy(System.Net.Http.HttpKeepAlivePingPolicy)",
+    "M:System.Net.Http.SocketsHttpHandler.set_KeepAlivePingTimeout(System.TimeSpan)",
+    "M:System.Net.Http.SocketsHttpHandler.set_MaxConnectionsPerServer(System.Int32)",
+    "M:System.Net.Http.SocketsHttpHandler.set_PooledConnectionLifetime(System.TimeSpan)",
+    "M:System.Net.Http.SocketsHttpHandler.set_Proxy(System.Net.IWebProxy)",
+    "M:System.Net.Http.SocketsHttpHandler.set_SslOptions(System.Net.Security.SslClientAuthenticationOptions)",
+    "M:System.Net.Http.SocketsHttpHandler.set_UseCookies(System.Boolean)",
+    "M:System.Net.Http.StreamContent.#ctor(System.IO.Stream)"
+  ]
+}

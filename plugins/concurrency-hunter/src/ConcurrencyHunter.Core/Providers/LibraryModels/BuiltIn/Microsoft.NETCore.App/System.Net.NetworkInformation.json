@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "note": "The census of Microsoft.NETCore.App 10.0 in System.Net.NetworkInformation: the models and the failed members of the owner\u0027s regeneration (ADR 0022). Written by build/generate-frameworks.ps1; an entry edited here is replaced by the next regeneration when the generator gives the member a model.",
+  "assemblies": [
+    "System.Net.NetworkInformation"
+  ],
+  "versions": {
+    "minimum": "10.0.0.0",
+    "maximumExclusive": "10.0.0.1"
+  },
+  "models": [],
+  "failed": [
+    "M:System.Net.NetworkInformation.IPAddressInformation.get_Address~System.Net.IPAddress",
+    "M:System.Net.NetworkInformation.IPInterfaceProperties.get_UnicastAddresses~System.Net.NetworkInformation.UnicastIPAddressInformationCollection",
+    "M:System.Net.NetworkInformation.NetworkChange.add_NetworkAddressChanged(System.Net.NetworkInformation.NetworkAddressChangedEventHandler)",
+    "M:System.Net.NetworkInformation.NetworkChange.remove_NetworkAddressChanged(System.Net.NetworkInformation.NetworkAddressChangedEventHandler)",
+    "M:System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces~System.Net.NetworkInformation.NetworkInterface[]",
+    "M:System.Net.NetworkInformation.NetworkInterface.GetIPProperties~System.Net.NetworkInformation.IPInterfaceProperties",
+    "M:System.Net.NetworkInformation.UnicastIPAddressInformationCollection.GetEnumerator~System.Collections.Generic.IEnumerator{System.Net.NetworkInformation.UnicastIPAddressInformation}"
+  ]
+}

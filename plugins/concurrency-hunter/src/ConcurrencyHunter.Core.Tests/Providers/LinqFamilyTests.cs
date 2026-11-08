@@ -27,7 +27,9 @@ public sealed class LinqFamilyTests
         Assert.All(family, method =>
         {
             var model = Assert.Single(LibraryModels.BuiltIn.Members, member => member.Id == Id(method));
-            Assert.Equal(LINQ_RANGE, Ranges(model));
+            // A member the census took over is described in the census's range; the owner's records are in the framework's.
+            if (!BuiltInCensus.Ids.Contains(model.Id))
+                Assert.Equal(LINQ_RANGE, Ranges(model));
             Assert.Equal(method.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate).Select(parameter => parameter.Name)
                                .Order(StringComparer.Ordinal),
                          model.Fates.Select(fate => fate.Parameter).Order(StringComparer.Ordinal));
@@ -46,7 +48,10 @@ public sealed class LinqFamilyTests
     public void No_Enumerable_member_with_a_comparer_is_modelled()
     {
         var withComparer = Operators().Where(TakesAComparer).ToArray();
-        var ids = LibraryModels.BuiltIn.Members.Select(member => member.Id).ToHashSet(StringComparer.Ordinal);
+        // The rule is the owner's: the census records the generator's answers, a failed member declared opaque or a model.
+        var owner = new LibraryModels(LibraryModels.BuiltIn.Members.Where(member => !BuiltInCensus.Ids.Contains(member.Id)),
+                                      LibraryModels.BuiltIn.ImmutableTypes);
+        var ids = owner.Members.Select(member => member.Id).ToHashSet(StringComparer.Ordinal);
 
         Assert.Contains(withComparer, method => method.Name == "CountBy");
         Assert.Contains(withComparer, method => method.Name == "AggregateBy");
@@ -54,7 +59,7 @@ public sealed class LinqFamilyTests
         Assert.All(withComparer, method =>
         {
             Assert.DoesNotContain(Id(method), ids);
-            Assert.Null(LibraryModels.BuiltIn.Find(method));
+            Assert.Null(owner.Find(method));
         });
     }
 
@@ -64,7 +69,8 @@ public sealed class LinqFamilyTests
         var described = LibraryModels.BuiltIn.Members.Where(member => member.Id.StartsWith("M:System.Linq.Enumerable.", StringComparison.Ordinal) &&
                                                                       (member.Fates.Count != 0 || member.Result is not null)).ToArray();
 
-        Assert.Equal(93 + 15, described.Length);
+        // The owner's records: Sum<TSource>(source, Func<TSource, int>) moved to the census, which gives Except and Intersect a result too.
+        Assert.Equal(92 + 15, described.Count(member => !BuiltInCensus.Ids.Contains(member.Id)));
         Assert.All(described, member =>
         {
             var method = Resolve(member.Id);
@@ -209,7 +215,9 @@ public sealed class LinqFamilyTests
             Assert.Equal(expectedResult.Length == 0 ? null : expectedResult, member.Result?.ToString());
             Assert.Equal(string.Join(';', expectedFates), Fates(member));
             Assert.Equal(effects, Effects(member));
-            Assert.Equal(LINQ_RANGE, Ranges(member));
+            // A member the census took over is described in the census's range; the owner's records are in the framework's.
+            if (!BuiltInCensus.Ids.Contains(member.Id))
+                Assert.Equal(LINQ_RANGE, Ranges(member));
         });
     }
 
