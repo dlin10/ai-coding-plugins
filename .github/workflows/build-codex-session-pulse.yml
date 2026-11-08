@@ -1,0 +1,38 @@
+name: Build Codex Session Pulse
+
+# See the note in build-plan-forge-flow.yml: without `branches`, a tag push runs this again on
+# an already-checked commit, and the `paths` filter below does not hold it back on a tag.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/codex-session-pulse/**'
+      - '.github/workflows/build-codex-session-pulse.yml'
+  pull_request:
+    paths:
+      - 'plugins/codex-session-pulse/**'
+      - '.github/workflows/build-codex-session-pulse.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/codex-session-pulse
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build CodexSessionPulse.slnx -c Release --nologo
+      # The Win32 tests start the real exe and two plain windows; the Codex Desktop ones are opt-in and stay local.
+      - name: Test
+        run: dotnet test CodexSessionPulse.slnx -c Release --no-build --nologo
+      # What the release workflow uploads once this reaches main, so that a broken asset fails here first.
+      - name: Publish the release asset and smoke-test it
+        run: ./build/package.ps1
+      - name: Test the launcher against the published exe
+        run: ./build/test-launcher.ps1
