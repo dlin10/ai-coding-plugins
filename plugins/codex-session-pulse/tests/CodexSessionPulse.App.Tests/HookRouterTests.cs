@@ -28,6 +28,25 @@ public sealed class HookRouterTests
         Assert.Equal("A", second.Tick().ThreadId);
     }
 
+    /// <summary>
+    /// As in the overlay, the new engine has read no JSONL yet when the selection is replayed; the tail that follows
+    /// still leaves the hook-confirmed thread on display.
+    /// </summary>
+    [Fact]
+    public void Replay_IntoAnEngineThatHasReadNothingYet_KeepsTheSelection()
+    {
+        HookRouter router = new();
+        router.Route(null, new HookMessage("UserPromptSubmit", "A", null, T0.AddMinutes(2)), T0.AddMinutes(2));
+        PulseEngine engine = new(CacheTrackerOptions.Default, new FixedClock(T0.AddMinutes(5)));
+
+        router.Replay(engine);
+        engine.Observe(new ThreadObservation("A", ThreadKind.Main, null, "A", @"C:\r\a.jsonl", null, T0));
+        engine.Observe(new ThreadObservation("B", ThreadKind.Main, null, "B", @"C:\r\b.jsonl", null, T0.AddMinutes(1)));
+
+        Assert.Equal("A", engine.Tick().ThreadId);
+        Assert.Equal(SelectionConfidence.Confirmed, engine.Tick().Selection.Confidence);
+    }
+
     /// <summary>The thread's SessionEnd forgets it, and a hook without a thread id or of another event changes nothing.</summary>
     [Fact]
     public void Replay_AfterSessionEndOrForeignHooks_SelectsNothing()

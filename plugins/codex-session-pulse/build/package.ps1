@@ -23,7 +23,7 @@ if ($manifestText -notmatch "(?m)^  `"version`": `"$([regex]::Escape($version))`
     throw "The manifest's top-level version $version is not on a line of its own two spaces in, where the launcher reads it"
 }
 
-$ignored = git -C $pluginRoot check-ignore -q -- 'artifacts/publish/win-x64/CodexSessionPulse.exe' 2>$null
+git -C $pluginRoot check-ignore -q -- 'artifacts/publish/win-x64/CodexSessionPulse.exe'
 if ($LASTEXITCODE -ne 0) { throw 'artifacts/publish/ is not git-ignored; the exe must never be committed' }
 
 if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Recurse -Force }

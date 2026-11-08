@@ -48,18 +48,26 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
 
         lock (_gate)
         {
+            try
+            {
+                Directory.CreateDirectory(directory);
+                FileInfo current = new(CurrentFile);
+
+                if (current.Exists && current.Length + Utf8NoBom.GetByteCount(line) > maxBytes)
+                {
+                    Rotate();
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Another writer holds or rotates a file meanwhile: never retry a half-done rotation, which would delete a
+                // file it already moved; the line goes to the current file and a later line rotates.
+            }
+
             for (int attempt = 1; ; attempt++)
             {
                 try
                 {
-                    Directory.CreateDirectory(directory);
-                    FileInfo current = new(CurrentFile);
-
-                    if (current.Exists && current.Length + Utf8NoBom.GetByteCount(line) > maxBytes)
-                    {
-                        Rotate();
-                    }
-
                     File.AppendAllText(CurrentFile, line, Utf8NoBom);
 
                     return;

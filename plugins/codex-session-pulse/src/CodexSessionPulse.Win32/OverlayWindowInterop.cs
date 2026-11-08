@@ -62,7 +62,8 @@ public static class OverlayWindowInterop
         }
         else if (above != 0 && above != overlay && IsTopmost(above) == codexTopmost)
         {
-            // After the window right above Codex, in the same band: the overlay ends up right above Codex.
+            // After the window right above Codex, in the same band: the overlay ends up right above Codex. An insert after
+            // a topmost window makes the overlay topmost (OverlayZOrderTests).
             insertAfter = above;
         }
         else
