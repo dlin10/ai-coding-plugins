@@ -86,6 +86,8 @@ jobs:
           if ($start -lt 0) { throw "CHANGELOG.md has no entry for $env:PLUGIN_VERSION" }
           $end = [array]::FindIndex($lines, $start + 1, [Predicate[string]] { param($line) $line.StartsWith('## ') })
           if ($end -lt 0) { $end = $lines.Length }
+          # A descending range would return the headings themselves, so an empty section is refused rather than sliced.
+          if ($end - $start -lt 2) { throw "The CHANGELOG.md entry for $env:PLUGIN_VERSION is empty" }
           ($lines[($start + 1)..($end - 1)] -join "`n").Trim() | Set-Content -Path release-notes.md -Encoding utf8
           # @() keeps it an array: an if unrolls a one-item array to a string, and a splatted string passes its characters.
           $preview = @(if ($env:PLUGIN_VERSION.Contains('-')) { '--prerelease' })

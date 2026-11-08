@@ -53,8 +53,9 @@ Run both after any change to `bin/`, the App's start-up path or the publish sett
   when `main` carries a version no tag has yet; never push the tag by hand. A manifest naming an unreleased version
   makes every fresh hook fail to download, so the bump and the merge go together.
 - **Every update that changes the plugin's files needs Review hooks again** in Codex Desktop: Codex keys the trust to
-  the plugin's content, so a version bump does even with `hooks.json` unchanged, and so does a re-Upgrade of the same
-  version with changed files (`docs/compatibility.md` §5.3, §13.5). The README's "After every update" tells users.
+  the plugin's content, so a version bump does even with `hooks.json` unchanged, and so did a return to an earlier,
+  already trusted version number with changed files (`docs/compatibility.md` §5.3, §13.5). The README's "After every
+  update" tells users.
 - `build-codex-session-pulse.yml` builds, tests, packages and runs `test-launcher.ps1` on every PR that touches this
   folder.
 
