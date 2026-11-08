@@ -209,7 +209,8 @@ internal sealed class OverlayController : IDisposable
     }
 
     /// <summary>
-    /// The 1 s display clock: the view, the overlay's z-order band against a Codex window pinned or unpinned meanwhile,
+    /// The 1 s display clock: the view, the overlay's placement (minimized by another process, or in the wrong z-order band
+    /// after Codex was pinned or unpinned),
     /// the engine's time-based states, the source status, pruning and the exit check.
     /// </summary>
     private void OnClock()
@@ -218,7 +219,7 @@ internal sealed class OverlayController : IDisposable
         DateTimeOffset now = DateTimeOffset.UtcNow;
 
         if (_window is { IsVisible: true } && _anchor?.Current.Hwnd is { } codex && codex != 0
-            && !OverlayWindowInterop.IsInCodexBand(_window.Handle, codex))
+            && !OverlayWindowInterop.IsPlacedFor(_window.Handle, codex))
         {
             Reposition();
         }

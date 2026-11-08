@@ -29,15 +29,15 @@ public sealed class OverlayZOrderTests
         try
         {
             Assert.True(SetWindowPos(codex.Hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
-            Assert.False(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
+            Assert.False(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
             Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
 
             Assert.True(IsTopmost(overlay.Hwnd), "The overlay stayed below a topmost Codex.");
-            Assert.True(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
+            Assert.True(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
             Assert.Equal(overlay.Hwnd, GetWindow(codex.Hwnd, GwHwndPrev));
 
             Assert.True(SetWindowPos(codex.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
-            Assert.False(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
+            Assert.False(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
             Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
 
             Assert.False(IsTopmost(overlay.Hwnd), "The overlay stayed topmost after Codex was unpinned.");
@@ -50,6 +50,26 @@ public sealed class OverlayZOrderTests
         }
     }
 
+    /// <summary>
+    /// An overlay another process minimized is not placed (it shows as a minimized stub at the bottom left of the work
+    /// area, the "125 % glitch" of compatibility.md 12.4), and placing it restores it without activating it.
+    /// </summary>
+    [Fact]
+    public void PlaceAbove_RestoresAMinimizedOverlay()
+    {
+        using FakeCodexWindow codex = new("csp-zorder-codex");
+        using FakeCodexWindow overlay = new("csp-zorder-overlay");
+
+        overlay.Minimize();
+        Assert.True(SpinWait.SpinUntil(() => IsIconic(overlay.Hwnd), 2000));
+        Assert.False(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
+
+        Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
+
+        Assert.False(IsIconic(overlay.Hwnd));
+        Assert.True(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
+    }
+
     private static bool IsTopmost(nint hwnd) => (GetWindowLongPtr(hwnd, GwlExStyle) & WsExTopmost) != 0;
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -58,6 +78,10 @@ public sealed class OverlayZOrderTests
 
     [DllImport("user32.dll")]
     private static extern nint GetWindow(nint hwnd, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(nint hwnd);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern long GetWindowLongPtr(nint hwnd, int index);
