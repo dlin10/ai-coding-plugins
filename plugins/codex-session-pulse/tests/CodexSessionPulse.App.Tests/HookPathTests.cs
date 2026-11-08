@@ -36,6 +36,18 @@ public sealed class HookPathTests
         Assert.Equal(new HookPayload("SessionStart", "s-1", TranscriptPath, "resume"), payload);
     }
 
+    /// <summary>A UTF-8 BOM before the JSON, as a .NET Framework caller on a UTF-8 console writes it, is skipped, whole or byte by byte.</summary>
+    [Fact]
+    public void Reader_SkipsALeadingUtf8Bom()
+    {
+        byte[] json = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(SessionStart("resume"))];
+        HookPayload expected = new("SessionStart", "s-1", TranscriptPath, "resume");
+
+        Assert.Equal(expected, HookPayloadReader.Read(new MemoryStream(json)));
+        Assert.Equal(expected, HookPayloadReader.Read(new TrickleStream(json)));
+        Assert.Equal(new HookPayload(null, null, null, null), HookPayloadReader.Read(new MemoryStream([0xEF, 0xBB])));
+    }
+
     /// <summary>A prompt far larger than the first buffer is passed over; fields after it are still read.</summary>
     [Fact]
     public void Reader_LargePromptBeforeFields_StillFindsThem()

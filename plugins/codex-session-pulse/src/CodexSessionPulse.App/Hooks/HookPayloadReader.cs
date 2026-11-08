@@ -26,6 +26,8 @@ internal static class HookPayloadReader
 
     private const int InitialBufferBytes = 16 * 1024;
 
+    private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
+
     /// <summary>Reads the payload.</summary>
     /// <param name="stdin">The stream holding the payload.</param>
     /// <returns>The fields found; all <see langword="null"/> for input that is not a JSON object.</returns>
@@ -34,6 +36,7 @@ internal static class HookPayloadReader
         byte[] buffer = new byte[InitialBufferBytes];
         int buffered = 0;
         long total = 0;
+        bool atStart = true;
         Parser parser = new();
 
         while (!parser.Done)
@@ -49,6 +52,24 @@ internal static class HookPayloadReader
                 : 0;
             total += read;
             buffered += read;
+
+            if (atStart)
+            {
+                // A .NET Framework caller whose console runs UTF-8 writes a BOM before the JSON, which Utf8JsonReader
+                // refuses (measured in Windows Sandbox, docs/compatibility.md 13.4). Wait until it is whole, then drop it.
+                if (read > 0 && buffered < Utf8Bom.Length && Utf8Bom.StartsWith(buffer.AsSpan(0, buffered)))
+                {
+                    continue;
+                }
+
+                atStart = false;
+
+                if (buffer.AsSpan(0, buffered).StartsWith(Utf8Bom))
+                {
+                    Buffer.BlockCopy(buffer, Utf8Bom.Length, buffer, 0, buffered - Utf8Bom.Length);
+                    buffered -= Utf8Bom.Length;
+                }
+            }
 
             int consumed = parser.Feed(buffer.AsSpan(0, buffered), isFinalBlock: read == 0);
             Buffer.BlockCopy(buffer, consumed, buffer, 0, buffered - consumed);
