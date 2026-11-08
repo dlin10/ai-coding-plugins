@@ -734,3 +734,64 @@ home и `CODEX_HOME`:
 
 Удалено: плагин из Desktop (Uninstall, кэш плагина исчез), exe и папка `bin\`, процессы overlay.
 Окно Codex вернулось на прежний монитор.
+
+## 13. Пакет 0.1.0 (#254)
+
+Проверено 2026-11-08 на этой же машине (Windows 11 Enterprise 26300, два монитора: основной 125 %,
+второй 100 % слева, с отрицательными координатами), SDK 10.0.403, runtime 10.0.14. Пакет —
+`build/package.ps1`: framework-dependent win-x64 single-file, ReadyToRun, символы внутри exe, один файл
+около 0,94 МБ. Параллельно работали другие сессии.
+
+### 13.1 Тёплый `--hook` и цена launcher
+
+**Подтверждено**: порог 150 мс выполняется с запасом около 38 мс. Метод — `build/measure-hook.ps1`.
+Скрипт запускает `cmd.exe /d /c "<plugin>\bin\codex-session-pulse-launcher.cmd" --hook` с payload
+`UserPromptSubmit` в stdin. Overlay того же exe работает во временном home, поэтому каждый хук
+подключается и доставляет событие. Время — от `Process.Start` до выхода, n=25, первый прогон не
+считается. Все 26 событий доставлены в каждой строке. Два раунда:
+
+| Вариант | Медиана, мс | Минимум, мс |
+|---|---|---|
+| ReadyToRun, launcher 0.1.0 | 112,0 / 111,6 | 109,6 / 109,3 |
+| JIT, launcher 0.1.0 | 114,5 / 114,6 | 112,5 / 112,4 |
+| ReadyToRun, launcher до #254 (`4f71c503`, только быстрый путь) | 111,9 / 111,6 | 109,1 / 109,3 |
+
+- **ReadyToRun оставлен**: около 3 мс за 0,4 МБ (0,54 → 0,94 МБ). В 12.1 разница была около 8 мс.
+- **Медленный путь и проверка runtime на быстром пути ничего не стоят.** Первая версия разбора
+  манифеста вызывала `call :version` на каждую строку. Это стоило около 5,5 мс: 118,6 против
+  113,0 мс медианы с прежним разбором. Разбор переписан на локальный `EnableDelayedExpansion` без
+  `call`. Вариант без `DOTNET_DISABLE_GUI_ERRORS` и без проверки кода выхода оказался *медленнее*
+  (128,5–129,2 мс при прочих равных). Причина не найдена; это не довод против проверки.
+- Все числа — без pwsh. В Desktop к ним добавляется около 300 мс pwsh (3.5); `SessionStart` и
+  `UserPromptSubmit` асинхронны.
+
+### 13.2 Нет .NET 10 Desktop Runtime
+
+**Подтверждено** на этой машине подменой `DOTNET_ROOT`. Каталог с `host\` и
+`shared\Microsoft.NETCore.App\10.0.14` (junction-ы на настоящие), но без
+`Microsoft.WindowsDesktop.App`, — это «.NET есть, Desktop Runtime нет». Пустой каталог — «.NET нет
+совсем».
+
+| Случай | Без `DOTNET_DISABLE_GUI_ERRORS` | С `DOTNET_DISABLE_GUI_ERRORS=1` |
+|---|---|---|
+| Нет Desktop Runtime | Apphost показывает окно `CodexSessionPulse.exe` («You must install or update .NET…») и ждёт клика; через 6 с процесс ещё жив | Выход за 324 мс с кодом `0x80008096`, текст ошибки в stderr |
+| Нет .NET | — | Выход с кодом `0x80008083`, «You must install .NET…» в stderr |
+
+- Launcher задаёт `DOTNET_DISABLE_GUI_ERRORS=1` перед запуском exe. Код `0x80008000`–`0x800080FF`
+  (хост упал до приложения) он превращает в сообщение
+  `CodexSessionPulse.exe needs the .NET 10 Desktop Runtime x64…` со ссылкой на загрузку. Для `--hook`
+  выходит с 0, для ручного `--overlay` — с 1.
+- `build/test-launcher.ps1` повторяет оба случая. Против launcher до #254 оба висят до таймаута 60 с:
+  это и есть диалог.
+- В чистой Windows Sandbox — раздел 13.4.
+
+### 13.6 Холодный старт после перезагрузки
+
+**Не измерен**: машину не перезагружали. Воспроизводимая команда: перезагрузиться, войти, не
+запускать Codex и первым делом выполнить в pwsh строки ниже. Первый прогон — холодный, второй —
+тёплый для сравнения. `--no-start` не запускает overlay, поэтому замер не зависит от Codex.
+
+```powershell
+$launcher = "$env:USERPROFILE\.codex\plugins\cache\dlin10-ai-coding-plugins\codex-session-pulse\0.1.0\bin\codex-session-pulse-launcher.cmd"
+foreach ($run in 'cold', 'warm') { $ms = (Measure-Command { '{"hook_event_name":"SessionEnd"}' | cmd /d /c "`"$launcher`" --hook --no-start" }).TotalMilliseconds; "$run $([int]$ms) ms" }
+```
