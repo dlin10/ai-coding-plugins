@@ -106,6 +106,9 @@ The rollouts are read from `%CODEX_HOME%\sessions` (`%USERPROFILE%\.codex\sessio
 - **No exact TTL**: the time left is an estimate from a setting; the `cached_input_tokens` of the next request is the
   only proof that the cache was warm.
 - **No output speed** in this release (`Avg speed —`).
+- **Not under 80 MB of working set yet**: measured at rest with a Codex window open, the overlay's working set is
+  113–118 MB, of which 56 MB is its own memory and the rest shared WPF and .NET images (`docs/compatibility.md`
+  §13.1). CPU at rest stays under 0.5 % of one core.
 - **No manual thread choice**, and no reading of the Codex window's content: a tab switch without a prompt is not
   seen until the next hook or JSONL write.
 - **No `SessionEnd` on window close**: Codex sends it only when a thread is archived or ended, so closing Codex
