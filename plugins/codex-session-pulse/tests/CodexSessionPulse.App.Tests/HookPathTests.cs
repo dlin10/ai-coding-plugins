@@ -216,6 +216,31 @@ public sealed class HookPathTests
         Assert.Equal(Clients, server.Rejected);
     }
 
+    /// <summary>A hook that fails still exits 0 and leaves the failure's type in hook.log, never the payload.</summary>
+    [Fact]
+    public void Run_Failure_ExitsZeroAndLogsTheTypeOnly()
+    {
+        string home = Path.Combine(Path.GetTempPath(), "csp-hookfail-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            int exitCode = HookRunner.Run(new FailingStream(), noStart: true, () => TextWriter.Null,
+                                          name => name == "CODEX_SESSION_PULSE_HOME" ? home : null);
+            string log = File.ReadAllText(Path.Combine(home, "logs", "hook.log"));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("WARN hook failed: System.InvalidOperationException 0x80131509 in ", log, StringComparison.Ordinal);
+            Assert.DoesNotContain(FailingStream.Secret, log, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(home))
+            {
+                Directory.Delete(home, recursive: true);
+            }
+        }
+    }
+
     /// <summary>Without an overlay a send gives up within its connect limit.</summary>
     [Fact]
     public void Pipe_NoServer_GivesUpWithinTheLimit()
@@ -338,4 +363,17 @@ public sealed class HookPathTests
     /// <summary>A stream whose position shows how much was read.</summary>
     /// <param name="data">The bytes.</param>
     private sealed class CountingStream(byte[] data) : MemoryStream(data);
+
+    /// <summary>A stdin whose read fails with a message that quotes the payload.</summary>
+    private sealed class FailingStream : MemoryStream
+    {
+        /// <summary>The payload text the exception message carries.</summary>
+        public const string Secret = "secret prompt text";
+
+        /// <inheritdoc />
+        public override int Read(byte[] buffer, int offset, int count) => throw new InvalidOperationException(Secret);
+
+        /// <inheritdoc />
+        public override int Read(Span<byte> buffer) => throw new InvalidOperationException(Secret);
+    }
 }
