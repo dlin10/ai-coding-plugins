@@ -54,10 +54,12 @@ The first hook of a version downloads `CodexSessionPulse.exe` (about 1 MB) from 
 
 ### After every update
 
-Every new plugin version needs **Review hooks** again: Codex keys the trust to the plugin's files, and a version
-bump changes them. Until you review, the hooks do not run; an overlay you start by hand still works from the JSONL
-files and says `Auto · inferred`, and **Copy diagnostics** says
-`hook events since start: none observed (after a plugin update, open Review hooks in Codex)`.
+Every new plugin version needs **Review hooks** again: Codex keys the trust to the plugin's files, and an update
+changes them. Codex shows a **Review hooks** button under the prompt box meanwhile. Until you review, the hooks do
+not run; an overlay you start by hand still works from the JSONL files and says `Auto · inferred`, its tooltip
+says `Hooks not observed: after a plugin update, open Review hooks in Codex`, and **Copy diagnostics** says
+`hook events since start: none observed (after a plugin update, open Review hooks in Codex)`. After the review,
+the hooks run in threads you start from then on.
 
 ## Start it by hand
 

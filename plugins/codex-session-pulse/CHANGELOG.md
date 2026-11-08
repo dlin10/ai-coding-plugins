@@ -7,6 +7,8 @@ Initial release.
 - **A non-activating overlay over Codex Desktop** shows the active thread's last cached-input and input tokens, a TTL
   estimate with a bar, the selection confidence and the source. It follows the foreground Codex window across
   monitors and DPI scales, never takes focus, is not in Alt+Tab, and exits 3–4 s after the last Codex window closes.
+  It puts itself back within a second when another process minimizes it, and stays above a Codex window pinned on
+  top without ever covering a window that Codex does not.
 - **Rollout JSONL files are the foundation, hooks an accelerator.** Every main thread and fork keeps its own cache
   state and TTL; the thread is chosen automatically (`Auto · confirmed` by a hook, `inferred` from JSONL, never above
   `inferred` with two or more Codex windows). Without trusted hooks the overlay keeps working from JSONL.
