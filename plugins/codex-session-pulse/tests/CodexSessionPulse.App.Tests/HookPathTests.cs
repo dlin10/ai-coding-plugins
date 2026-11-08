@@ -189,9 +189,13 @@ public sealed class HookPathTests
         Assert.Equal(0, server.Rejected);
     }
 
-    /// <summary>A client that sends garbage and leaves before the answer is one refused connection, not two.</summary>
+    /// <summary>
+    /// A refused connection counts once. Clients that leave right after writing are counted at most once each (one that
+    /// left before the server's wait began is not counted at all: it got no answer and knows it); clients that wait for
+    /// the answer, as a hook does, are counted exactly once each.
+    /// </summary>
     [Fact]
-    public async Task Pipe_RefusedClientThatLeaves_CountsOnce()
+    public async Task Pipe_RefusedConnections_CountOnce()
     {
         const int Clients = 20;
         PulseChannel channel = TestChannel();
@@ -200,20 +204,25 @@ public sealed class HookPathTests
         for (int i = 0; i < Clients; i++)
         {
             using System.IO.Pipes.NamedPipeClientStream client = new(".", channel.PipeName, System.IO.Pipes.PipeDirection.InOut);
-            await client.ConnectAsync(2000);
-            await client.WriteAsync("garbage\n"u8.ToArray());
+            client.Connect(10_000);
+            client.Write("garbage\n"u8);
         }
 
-        Stopwatch waited = Stopwatch.StartNew();
-
-        while (server.Rejected < Clients && waited.ElapsedMilliseconds < 5000)
-        {
-            await Task.Delay(20);
-        }
-
-        // Any double count would show within the server's 1 s read timeout.
+        // Past the server's 1 s read timeout, every leaving client has been served.
         await Task.Delay(1500);
-        Assert.Equal(Clients, server.Rejected);
+        long leaving = server.Rejected;
+
+        for (int i = 0; i < Clients; i++)
+        {
+            using System.IO.Pipes.NamedPipeClientStream client = new(".", channel.PipeName, System.IO.Pipes.PipeDirection.InOut);
+            client.Connect(10_000);
+            client.Write("garbage\n"u8);
+            Assert.Equal(HookMessage.Refused, client.ReadByte());
+        }
+
+        await Task.Delay(500);
+        Assert.InRange(leaving, 0, Clients);
+        Assert.Equal(Clients, server.Rejected - leaving);
     }
 
     /// <summary>A hook that fails still exits 0 and leaves the failure's type in hook.log, never the payload.</summary>
