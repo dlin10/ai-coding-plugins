@@ -35,7 +35,8 @@ function New-Release([string]$Name, [byte[]]$Bytes) {
 
 function New-Case([string]$Name, [string]$ReleaseUrl, [string]$Manifest = $manifest, [switch]$Cached) {
     $root = Join-Path $fixture $Name
-    $plugin = Join-Path $root 'plugin with spaces'
+    # A profile name may hold any of these; the launcher must survive them in every case.
+    $plugin = Join-Path $root 'plugin with spaces & a bang!'
     New-Item -ItemType Directory -Path (Join-Path $plugin 'bin'), (Join-Path $plugin '.codex-plugin'), (Join-Path $root 'home/codex/sessions') | Out-Null
     [IO.File]::WriteAllText((Join-Path $plugin 'bin/codex-session-pulse-launcher.cmd'), $launcher)
     [IO.File]::WriteAllText((Join-Path $plugin 'bin/codex-session-pulse-cache.ps1'), $helper.Replace($releaseLine, "`$releases = '$ReleaseUrl'"))

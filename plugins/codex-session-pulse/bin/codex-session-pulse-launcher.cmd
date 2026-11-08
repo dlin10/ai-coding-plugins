@@ -11,12 +11,22 @@ for %%i in ("%~dp0..") do set "PLUGIN_ROOT=%%~fi"
 set "ROOT=%USERPROFILE%\.codex-session-pulse"
 if defined CODEX_SESSION_PULSE_HOME set "ROOT=%CODEX_SESSION_PULSE_HOME%"
 
-rem The manifest names the release, so the cache folder can never disagree with the plugin that runs it.
-set "VERSION="
-for /f "usebackq delims=" %%l in ("%PLUGIN_ROOT%\.codex-plugin\plugin.json") do if not defined VERSION (
+rem The manifest names the release, so the cache folder can never disagree with the plugin that runs it. Only the
+rem top-level key counts, two spaces in, as the repository's manifests are written: a nested "version" or a minified
+rem manifest yields nothing, which is refused rather than guessed at. Directory.Build.props reads it the same way.
+rem Delayed expansion is on only here, and the path goes in as !MANIFEST!, whose value it never rescans: a "!" in
+rem the plugin path stays intact. A "call" per line would cost about 5 ms (docs/compatibility.md 13.1).
+set "MANIFEST=%PLUGIN_ROOT%\.codex-plugin\plugin.json"
+setlocal EnableDelayedExpansion
+set "V="
+for /f "usebackq delims=" %%l in ("!MANIFEST!") do if not defined V (
     set "LINE=%%l"
-    call :version
+    set "LINE=!LINE:"=!"
+    if "!LINE:~0,10!"=="  version:" set "V=!LINE:~10!"
 )
+if defined V set "V=!V: =!"
+if defined V set "V=!V:,=!"
+endlocal & set "VERSION=%V%"
 if not defined VERSION goto :noversion
 
 set "EXE=%ROOT%\bin\%VERSION%\CodexSessionPulse.exe"
@@ -58,13 +68,3 @@ exit /b %CODE%
 rem A hook must never fail Codex; the rollout files stay the source of truth without it.
 if /i "%~1"=="--hook" exit /b 0
 exit /b 1
-
-:version
-rem Only the top-level key, two spaces in, as the repository's manifests are written: a nested "version" or a minified
-rem manifest yields nothing, which is refused rather than guessed at. Directory.Build.props reads it the same way.
-set "LINE=%LINE:"=%"
-if not "%LINE:~0,10%"=="  version:" exit /b 0
-set "VERSION=%LINE:~10%"
-set "VERSION=%VERSION: =%"
-set "VERSION=%VERSION:,=%"
-exit /b 0
