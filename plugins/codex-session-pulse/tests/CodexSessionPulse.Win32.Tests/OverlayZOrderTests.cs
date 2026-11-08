@@ -29,12 +29,15 @@ public sealed class OverlayZOrderTests
         try
         {
             Assert.True(SetWindowPos(codex.Hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.False(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
             Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
 
             Assert.True(IsTopmost(overlay.Hwnd), "The overlay stayed below a topmost Codex.");
+            Assert.True(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
             Assert.Equal(overlay.Hwnd, GetWindow(codex.Hwnd, GwHwndPrev));
 
             Assert.True(SetWindowPos(codex.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.False(OverlayWindowInterop.IsInCodexBand(overlay.Hwnd, codex.Hwnd));
             Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
 
             Assert.False(IsTopmost(overlay.Hwnd), "The overlay stayed topmost after Codex was unpinned.");

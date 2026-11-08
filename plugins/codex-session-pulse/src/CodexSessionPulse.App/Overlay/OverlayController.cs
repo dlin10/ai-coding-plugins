@@ -208,11 +208,20 @@ internal sealed class OverlayController : IDisposable
         Reposition();
     }
 
-    /// <summary>The 1 s display clock: the view, the engine's time-based states, the source status, pruning and the exit check.</summary>
+    /// <summary>
+    /// The 1 s display clock: the view, the overlay's z-order band against a Codex window pinned or unpinned meanwhile,
+    /// the engine's time-based states, the source status, pruning and the exit check.
+    /// </summary>
     private void OnClock()
     {
         _viewModel.Tick();
         DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        if (_window is { IsVisible: true } && _anchor?.Current.Hwnd is { } codex && codex != 0
+            && !OverlayWindowInterop.IsInCodexBand(_window.Handle, codex))
+        {
+            Reposition();
+        }
 
         if (_pipeline is { } pipeline)
         {

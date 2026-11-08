@@ -74,6 +74,15 @@ public static class OverlayWindowInterop
         return NativeMethods.SetWindowPos(overlay, insertAfter, left, top, 0, 0, flags);
     }
 
+    /// <summary>
+    /// Tells whether the overlay is in the same z-order band as Codex. A pin or unpin of Codex moves no window, so the
+    /// anchor reports nothing; the overlay's clock asks this once a second and places the overlay again when it is not.
+    /// </summary>
+    /// <param name="overlay">The overlay window.</param>
+    /// <param name="codex">The Codex window it follows.</param>
+    /// <returns><see langword="true"/> when both are topmost or both are not.</returns>
+    public static bool IsInCodexBand(nint overlay, nint codex) => IsTopmost(overlay) == IsTopmost(codex);
+
     private static bool IsTopmost(nint window) =>
         (NativeMethods.GetWindowLongPtr(window, NativeMethods.GwlExStyle) & NativeMethods.WsExTopmost) != 0;
 }
