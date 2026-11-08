@@ -15,7 +15,7 @@ on:
       - '.github/workflows/release-codex-session-pulse.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: codex-session-pulse-release
@@ -56,6 +56,8 @@ jobs:
     needs: decide
     if: needs.decide.outputs.cut == 'true'
     runs-on: windows-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: plugins/codex-session-pulse
@@ -77,7 +79,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $executable = 'artifacts/publish/win-x64/CodexSessionPulse.exe'
+          # The notes are the version's CHANGELOG section. --generate-notes would list every PR since the repository's
+          # previous tag, which belongs to another plugin.
+          $lines = Get-Content CHANGELOG.md
+          $start = [array]::FindIndex($lines, [Predicate[string]] { param($line) $line -match "^## $([regex]::Escape($env:PLUGIN_VERSION))( |$)" })
+          if ($start -lt 0) { throw "CHANGELOG.md has no entry for $env:PLUGIN_VERSION" }
+          $end = [array]::FindIndex($lines, $start + 1, [Predicate[string]] { param($line) $line.StartsWith('## ') })
+          if ($end -lt 0) { $end = $lines.Length }
+          ($lines[($start + 1)..($end - 1)] -join "`n").Trim() | Set-Content -Path release-notes.md -Encoding utf8
           # @() keeps it an array: an if unrolls a one-item array to a string, and a splatted string passes its characters.
           $preview = @(if ($env:PLUGIN_VERSION.Contains('-')) { '--prerelease' })
-          gh release create $env:RELEASE_TAG $executable --target ${{ github.sha }} --title "Codex Session Pulse $env:PLUGIN_VERSION" --generate-notes @preview
+          gh release create $env:RELEASE_TAG $executable --target ${{ github.sha }} --title "Codex Session Pulse $env:PLUGIN_VERSION" --notes-file release-notes.md @preview
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

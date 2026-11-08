@@ -9,10 +9,12 @@ on:
     paths:
       - 'plugins/codex-session-pulse/**'
       - '.github/workflows/build-codex-session-pulse.yml'
+      - '.github/workflows/release-codex-session-pulse.yml'
   pull_request:
     paths:
       - 'plugins/codex-session-pulse/**'
       - '.github/workflows/build-codex-session-pulse.yml'
+      - '.github/workflows/release-codex-session-pulse.yml'
 
 jobs:
   build:
