@@ -13,7 +13,6 @@ public sealed class OverlayZOrderTests
     private const uint GwHwndPrev = 3;
     private const int GwlExStyle = -20;
     private const long WsExTopmost = 0x8;
-    private static readonly nint HwndTop = 0;
     private static readonly nint HwndTopmost = -1;
     private static readonly nint HwndNoTopmost = -2;
 
@@ -64,8 +63,11 @@ public sealed class OverlayZOrderTests
 
         try
         {
+            // Codex to the top of the normal band: HWND_TOP does not raise a window of this background process, so through
+            // the topmost band and back, as PlaceAbove does.
             Assert.True(SetWindowPos(other.Hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
-            Assert.True(SetWindowPos(codex.Hwnd, HwndTop, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.True(SetWindowPos(codex.Hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.True(SetWindowPos(codex.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
             Assert.True(IsTopmost(GetWindow(codex.Hwnd, GwHwndPrev)), "The window right above Codex should be topmost.");
             Assert.False(IsTopmost(overlay.Hwnd));
             Assert.False(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
