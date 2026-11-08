@@ -71,10 +71,11 @@ internal static class OverlayFormatter
     /// <summary>Formats a snapshot.</summary>
     /// <param name="snapshot">The latest cache snapshot.</param>
     /// <param name="codexWindows">The number of Codex windows; two or more cap the confidence at inferred (spec §3.3).</param>
+    /// <param name="hookEvents">The hook events received since the overlay started; none with live JSONL means hooks await Review (spec §4.4 item 7).</param>
     /// <param name="nowUtc">The current time; the remaining TTL counts down from the snapshot's time to it.</param>
     /// <param name="local">The time zone for local times.</param>
     /// <returns>The formatted line.</returns>
-    public static OverlayView Format(CacheSnapshot snapshot, int codexWindows, DateTimeOffset nowUtc, TimeZoneInfo local)
+    public static OverlayView Format(CacheSnapshot snapshot, int codexWindows, int hookEvents, DateTimeOffset nowUtc, TimeZoneInfo local)
     {
         SelectionConfidence confidence = EffectiveConfidence(snapshot.Selection.Confidence, codexWindows);
         TimeSpan? remaining = snapshot.Ttl.Remaining is { } atSnapshot ? Max(atSnapshot - (nowUtc - snapshot.AtUtc), TimeSpan.Zero) : null;
@@ -117,8 +118,19 @@ internal static class OverlayFormatter
                                TokensTooltip(snapshot),
                                "Timing data unavailable",
                                SelectionTooltip(snapshot, confidence, codexWindows),
-                               SourceTooltip(snapshot.Source));
+                               SourceTooltip(snapshot.Source, hookEvents));
     }
+
+    /// <summary>The tooltip's hook line: the count since start, or the Review-hooks hint when none came while JSONL is live.</summary>
+    /// <param name="hookEvents">The hook events received since the overlay started.</param>
+    /// <param name="status">The rollout source status.</param>
+    /// <returns>The line.</returns>
+    internal static string HookLine(int hookEvents, SourceStatus status) => (hookEvents, status) switch
+    {
+        ( > 0, _) => $"Hook events since start: {hookEvents.ToString(Invariant)}",
+        (_, SourceStatus.Available) => "Hooks not observed: after a plugin update, open Review hooks in Codex",
+        _ => "Hook events since start: none",
+    };
 
     /// <summary>Caps a confidence at inferred while two or more Codex windows are open: the foreground window does not prove the tab.</summary>
     /// <param name="confidence">The resolver's confidence.</param>
@@ -257,13 +269,14 @@ internal static class OverlayFormatter
         _ => "JSONL error",
     };
 
-    private static string SourceTooltip(SourceInfo source)
+    private static string SourceTooltip(SourceInfo source, int hookEvents)
     {
         string file = source.Path is { } path ? Path.GetFileName(path) : "none";
 
         return $"Source: rollout JSONL, {source.Status}" + Environment.NewLine +
                $"File: {file}" + Environment.NewLine +
-               $"Codex CLI: {source.CliVersion ?? "unknown"}";
+               $"Codex CLI: {source.CliVersion ?? "unknown"}" + Environment.NewLine +
+               HookLine(hookEvents, source.Status);
     }
 
     private static string Count(long? tokens) => tokens is { } value ? value.ToString("N0", Invariant) : "unknown";

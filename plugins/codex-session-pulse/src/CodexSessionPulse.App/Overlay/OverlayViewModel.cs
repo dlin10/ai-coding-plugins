@@ -12,6 +12,7 @@ internal sealed class OverlayViewModel(TimeProvider clock) : INotifyPropertyChan
 {
     private CacheSnapshot? _cache;
     private int _codexWindows;
+    private int _hookEvents;
 
     /// <inheritdoc />
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -44,6 +45,14 @@ internal sealed class OverlayViewModel(TimeProvider clock) : INotifyPropertyChan
         }
     }
 
+    /// <summary>Takes the number of hook events received since start, for the source tooltip.</summary>
+    /// <param name="received">The count.</param>
+    public void UpdateHooks(int received)
+    {
+        _hookEvents = received;
+        Render();
+    }
+
     /// <summary>Re-formats the line for the current time, so the TTL counts down between snapshots.</summary>
     public void Tick() => Render();
 
@@ -54,7 +63,7 @@ internal sealed class OverlayViewModel(TimeProvider clock) : INotifyPropertyChan
             return;
         }
 
-        OverlayView view = OverlayFormatter.Format(_cache, _codexWindows, clock.GetUtcNow(), TimeZoneInfo.Local);
+        OverlayView view = OverlayFormatter.Format(_cache, _codexWindows, _hookEvents, clock.GetUtcNow(), TimeZoneInfo.Local);
 
         if (view != View)
         {

@@ -127,6 +127,21 @@ public sealed class HookPathTests
         Assert.Null(cleaned.ThreadId);
     }
 
+    /// <summary>Event and source names from stdin and from the pipe are mapped to the fixed sets before anything logs or counts them.</summary>
+    [Fact]
+    public void Message_EventAndSource_AreMappedToFixedSets()
+    {
+        HookMessage known = HookMessage.From(new HookPayload("SessionStart", null, TranscriptPath, "resume"), DateTimeOffset.UtcNow);
+        HookMessage foreign = HookMessage.From(new HookPayload("Stop\r\nINFO forged log line", null, TranscriptPath, new string('s', 5000)),
+                                               DateTimeOffset.UtcNow);
+        bool parsed = HookMessage.TryParse("{\"v\":1,\"event\":\"sessionstart\",\"source\":\"x\",\"at\":\"2026-11-07T10:00:00Z\"}"u8, out HookMessage piped);
+
+        Assert.Equal(("SessionStart", "resume"), (known.Event, known.Source));
+        Assert.Equal((HookMessage.Other, HookMessage.Other), (foreign.Event, foreign.Source));
+        Assert.True(parsed);
+        Assert.Equal((HookMessage.Other, HookMessage.Other), (piped.Event, piped.Source));
+    }
+
     /// <summary>The names carry the user SID and the protocol major; a moved home gets its own channel.</summary>
     [Fact]
     public void Channel_NamesCarrySidVersionAndHome()
@@ -166,6 +181,33 @@ public sealed class HookPathTests
 
         Assert.Equal(16, received.Select(message => message.AtUtc).Distinct().Count());
         Assert.Equal(0, server.Rejected);
+    }
+
+    /// <summary>A client that sends garbage and leaves before the answer is one refused connection, not two.</summary>
+    [Fact]
+    public async Task Pipe_RefusedClientThatLeaves_CountsOnce()
+    {
+        const int Clients = 20;
+        PulseChannel channel = TestChannel();
+        using HookPipeServer server = HookPipeServer.TryStart(channel.PipeName, _ => { })!;
+
+        for (int i = 0; i < Clients; i++)
+        {
+            using System.IO.Pipes.NamedPipeClientStream client = new(".", channel.PipeName, System.IO.Pipes.PipeDirection.InOut);
+            await client.ConnectAsync(2000);
+            await client.WriteAsync("garbage\n"u8.ToArray());
+        }
+
+        Stopwatch waited = Stopwatch.StartNew();
+
+        while (server.Rejected < Clients && waited.ElapsedMilliseconds < 5000)
+        {
+            await Task.Delay(20);
+        }
+
+        // Any double count would show within the server's 1 s read timeout.
+        await Task.Delay(1500);
+        Assert.Equal(Clients, server.Rejected);
     }
 
     /// <summary>Without an overlay a send gives up within its connect limit.</summary>

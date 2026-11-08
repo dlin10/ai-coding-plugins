@@ -11,12 +11,25 @@ namespace CodexSessionPulse.App.Ipc;
 /// <c>cwd</c> and no path, only the event, the thread id taken from <c>transcript_path</c>, the <c>SessionStart</c> source
 /// and when the hook started.
 /// </summary>
-/// <param name="Event">The <c>hook_event_name</c>.</param>
+/// <remarks>
+/// The event and the source come from stdin, so both are mapped to a fixed set before anything logs or counts them: a
+/// name outside <see cref="Events"/> or <see cref="Sources"/> becomes <see cref="Other"/>.
+/// </remarks>
+/// <param name="Event">The <c>hook_event_name</c>: one of <see cref="Events"/> or <see cref="Other"/>.</param>
 /// <param name="ThreadId">The thread id from the rollout file name, or <see langword="null"/> when <c>transcript_path</c> is null or not a rollout name (an ephemeral suggestion thread).</param>
-/// <param name="Source">The <c>SessionStart</c> source, or <see langword="null"/>.</param>
+/// <param name="Source">The <c>SessionStart</c> source: one of <see cref="Sources"/>, <see cref="Other"/> or <see langword="null"/>.</param>
 /// <param name="AtUtc">When the hook process started, in UTC.</param>
 internal sealed record HookMessage(string Event, string? ThreadId, string? Source, DateTimeOffset AtUtc)
 {
+    /// <summary>What an event or a source outside the fixed sets is logged and counted as.</summary>
+    public const string Other = "other";
+
+    /// <summary>The events of <c>hooks/hooks.json</c>, the only ones passed on by name.</summary>
+    public static readonly IReadOnlyList<string> Events = ["SessionStart", "UserPromptSubmit", "SessionEnd"];
+
+    /// <summary>The <c>SessionStart</c> sources Codex sends (spec §4.4 item 1).</summary>
+    public static readonly IReadOnlyList<string> Sources = ["startup", "resume", "clear", "compact", "fork"];
+
     /// <summary>The largest message the overlay accepts, its newline included.</summary>
     public const int MaxBytes = 4096;
 
@@ -26,18 +39,15 @@ internal sealed record HookMessage(string Event, string? ThreadId, string? Sourc
     /// <summary>The overlay's answer to data that is not a valid message.</summary>
     public const byte Refused = 0;
 
-    /// <summary>The longest event or source name that is passed on; longer ones are cut.</summary>
-    private const int MaxNameLength = 64;
-
     /// <summary>Builds the message from a hook payload.</summary>
     /// <param name="payload">The payload.</param>
     /// <param name="atUtc">When the hook started.</param>
-    /// <returns>The message; an unknown event is named "unknown".</returns>
+    /// <returns>The message; an event or source outside the fixed sets is <see cref="Other"/>.</returns>
     public static HookMessage From(HookPayload payload, DateTimeOffset atUtc)
     {
         string? threadId = RolloutFileName.TryGetThreadId(payload.TranscriptPath, out string id) ? id : null;
 
-        return new HookMessage(Cut(payload.HookEventName) ?? "unknown", threadId, Cut(payload.Source), atUtc);
+        return new HookMessage(Known(payload.HookEventName, Events) ?? Other, threadId, Known(payload.Source, Sources), atUtc);
     }
 
     /// <summary>Serializes the message.</summary>
@@ -127,7 +137,7 @@ internal sealed record HookMessage(string Event, string? ThreadId, string? Sourc
                 threadId = null;
             }
 
-            message = new HookMessage(Cut(eventName)!, threadId, Cut(source), at.Value);
+            message = new HookMessage(Known(eventName, Events)!, threadId, Known(source, Sources), at.Value);
 
             return true;
         }
@@ -137,5 +147,10 @@ internal sealed record HookMessage(string Event, string? ThreadId, string? Sourc
         }
     }
 
-    private static string? Cut(string? value) => value is { Length: > MaxNameLength } ? value[..MaxNameLength] : value;
+    /// <summary>Maps a name from stdin or the pipe to the fixed set, returning the set's own string.</summary>
+    /// <param name="value">The name, or <see langword="null"/>.</param>
+    /// <param name="known">The fixed set.</param>
+    /// <returns>The known name, <see cref="Other"/>, or <see langword="null"/> for <see langword="null"/>.</returns>
+    private static string? Known(string? value, IReadOnlyList<string> known) =>
+        value is null ? null : known.FirstOrDefault(name => string.Equals(name, value, StringComparison.Ordinal)) ?? Other;
 }

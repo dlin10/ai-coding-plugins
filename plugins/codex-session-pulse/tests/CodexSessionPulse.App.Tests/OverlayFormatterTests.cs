@@ -47,8 +47,8 @@ public sealed class OverlayFormatterTests
     {
         CacheSnapshot snapshot = StubSnapshotScript.At(2, Now);
 
-        Assert.Equal("~20 min", OverlayFormatter.Format(snapshot, 1, Now.AddMinutes(4).AddSeconds(30), Utc).TtlText);
-        Assert.Equal("~0 min", OverlayFormatter.Format(snapshot, 1, Now.AddHours(1), Utc).TtlText);
+        Assert.Equal("~20 min", OverlayFormatter.Format(snapshot, 1, 0, Now.AddMinutes(4).AddSeconds(30), Utc).TtlText);
+        Assert.Equal("~0 min", OverlayFormatter.Format(snapshot, 1, 0, Now.AddHours(1), Utc).TtlText);
     }
 
     /// <summary>Without an estimate the TTL is "TTL unknown" and the bar is indefinite.</summary>
@@ -99,11 +99,25 @@ public sealed class OverlayFormatterTests
     [Fact]
     public void TwoWindows_CapConfidenceAtInferred()
     {
-        OverlayView view = OverlayFormatter.Format(StubSnapshotScript.At(2, Now), 2, Now, Utc);
+        OverlayView view = OverlayFormatter.Format(StubSnapshotScript.At(2, Now), 2, 0, Now, Utc);
 
         Assert.Equal("Auto · inferred", view.SelectionText);
         Assert.Contains("2 Codex windows", view.SelectionTooltip, StringComparison.Ordinal);
         Assert.Equal(SelectionConfidence.Unknown, OverlayFormatter.EffectiveConfidence(SelectionConfidence.Unknown, 3));
+    }
+
+    /// <summary>The source tooltip counts hooks; with none while JSONL is live it says to open Review hooks (spec §4.4 item 7).</summary>
+    [Fact]
+    public void SourceTooltip_CountsHooksOrHintsAtReview()
+    {
+        CacheSnapshot snapshot = StubSnapshotScript.At(2, Now);
+
+        string none = OverlayFormatter.Format(snapshot with { Source = snapshot.Source with { Status = SourceStatus.Available } }, 1, 0, Now, Utc).SourceTooltip;
+        string some = OverlayFormatter.Format(snapshot, 1, 3, Now, Utc).SourceTooltip;
+
+        Assert.EndsWith("Hooks not observed: after a plugin update, open Review hooks in Codex", none, StringComparison.Ordinal);
+        Assert.EndsWith("Hook events since start: 3", some, StringComparison.Ordinal);
+        Assert.Equal("Hook events since start: none", OverlayFormatter.HookLine(0, SourceStatus.NotFound));
     }
 
     /// <summary>Token counts: plain below 1000, one decimal with k or M above, a dash when unknown.</summary>
@@ -135,5 +149,5 @@ public sealed class OverlayFormatterTests
         Assert.Equal(Enum.GetValues<CacheState>().ToHashSet(), states);
     }
 
-    private static OverlayView Format(CacheSnapshot snapshot) => OverlayFormatter.Format(snapshot, 1, Now, Utc);
+    private static OverlayView Format(CacheSnapshot snapshot) => OverlayFormatter.Format(snapshot, 1, 0, Now, Utc);
 }

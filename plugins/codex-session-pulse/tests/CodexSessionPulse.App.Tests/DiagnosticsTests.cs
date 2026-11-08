@@ -75,6 +75,25 @@ public sealed class DiagnosticsTests : IDisposable
         Assert.Contains("line 0199", File.ReadAllText(log.CurrentFile), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Two writers of one file, as two hooks that log at once: each instance has its own lock, like separate processes,
+    /// so they meet only at the file, and every line still arrives whole.
+    /// </summary>
+    [Fact]
+    public void RollingLog_ConcurrentWritersLoseNoLine()
+    {
+        const int LinesPerWriter = 300;
+        RollingFileLog[] writers = [new(_logs, baseName: "hook"), new(_logs, baseName: "hook")];
+
+        Parallel.For(0, writers.Length * LinesPerWriter, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                     i => writers[i % writers.Length].Info($"writer {i % writers.Length} line {i:D4}"));
+
+        string[] lines = File.ReadAllLines(writers[0].CurrentFile);
+
+        Assert.Equal(writers.Length * LinesPerWriter, lines.Length);
+        Assert.All(lines, line => Assert.Matches(@"^\S+ INFO writer \d line \d{4}$", line));
+    }
+
     /// <summary>The overlay shows only for the foreground Codex window, or a background one with keep-visible, and never when hidden from the tray.</summary>
     /// <param name="state">The anchor state.</param>
     /// <param name="hideWhenInactive">The hide-when-inactive setting.</param>

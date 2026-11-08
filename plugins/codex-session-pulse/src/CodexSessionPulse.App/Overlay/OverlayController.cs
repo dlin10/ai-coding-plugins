@@ -58,6 +58,8 @@ internal sealed class OverlayController : IDisposable
     private int _ticks;
     private bool _exiting;
     private int _loggedRecheckWindows = -1;
+    private readonly HookRouter _hookRouter = new();
+    private int _hooksReceived;
 
     /// <summary>Creates the controller; <see cref="Start"/> does the work.</summary>
     /// <param name="startup">The bootstrap's files, log, hook pipe and job membership.</param>
@@ -261,6 +263,8 @@ internal sealed class OverlayController : IDisposable
         tailer.ThreadObserved += observation => engine.Observe(observation);
         pipeline.Subscription = engine.Snapshots.Subscribe(new Observer<CacheSnapshot>(OnEngineSnapshot));
         engine.OnCodexWindows(Math.Max(_loggedWindows, 0));
+        // After a settings save the new engine starts with the selection the hooks confirmed, not only the JSONL guess.
+        _hookRouter.Replay(engine);
         _pipeline = pipeline;
         _ = Task.Run(() => TailAsync(pipeline));
         _log.Info($"pipeline start: rollouts {(_settings.SessionRootOverride is null ? "default root" : "override root")}, ttl {_settings.EstimatedCacheTtlMinutes} min");
@@ -326,7 +330,8 @@ internal sealed class OverlayController : IDisposable
     /// <summary>
     /// Counts a hook and routes it into the engine. Only the three events of hooks.json reach the engine, and only with a
     /// thread id from <c>transcript_path</c>: an ephemeral suggestion thread (no path) and any other event, such as
-    /// <c>SubagentStart</c>, are only counted, so a hook alone never puts a subagent or a suggestion thread on display.
+    /// <c>SubagentStart</c> (counted as <see cref="HookMessage.Other"/>), are only counted, so a hook alone never puts a
+    /// subagent or a suggestion thread on display.
     /// </summary>
     /// <param name="message">The message.</param>
     private void OnHook(HookMessage message)
@@ -337,23 +342,11 @@ internal sealed class OverlayController : IDisposable
         _log.Info($"hook {message.Event}{(message.Source is { } source ? $" ({source})" : string.Empty)}, "
                   + $"thread {(message.ThreadId is null ? "none" : "from transcript_path")}");
 
-        if (message.ThreadId is not { } threadId || _pipeline?.Engine is not { } engine)
-        {
-            return;
-        }
+        _hookRouter.Route(_pipeline?.Engine, message, at);
 
-        switch (message.Event)
-        {
-            case "SessionStart":
-                engine.OnSessionStart(threadId, at);
-                break;
-            case "UserPromptSubmit":
-                engine.OnUserActivity(threadId, at);
-                break;
-            case "SessionEnd":
-                engine.OnSessionEnd(threadId, at);
-                break;
-        }
+        // One reader, so the dispatcher receives the counts in order.
+        int received = Interlocked.Increment(ref _hooksReceived);
+        _window?.Dispatcher.BeginInvoke(() => _viewModel.UpdateHooks(received));
     }
 
     /// <summary>Takes an engine snapshot on any thread and shows the latest one on the UI thread; bursts collapse into one update.</summary>

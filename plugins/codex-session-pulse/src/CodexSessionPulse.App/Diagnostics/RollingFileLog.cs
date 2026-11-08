@@ -6,7 +6,9 @@ namespace CodexSessionPulse.App.Diagnostics;
 
 /// <summary>
 /// The overlay's own log (spec §8.2): <c>overlay.log</c> plus at most four older files of 1 MB each; the hook writes
-/// <c>hook.log</c> the same way. It never throws, and callers never pass prompts, rollout text or raw JSON.
+/// <c>hook.log</c> the same way. It never throws, and callers never pass prompts, rollout text or raw JSON. Hooks are
+/// separate processes that may log at the same moment, so a line that finds the file held by another writer waits for it
+/// (up to about 100 ms) instead of being dropped.
 /// </summary>
 /// <param name="directory">The log folder.</param>
 /// <param name="maxBytes">The size at which the current file is rotated.</param>
@@ -14,6 +16,13 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="baseName">The file name without <c>.log</c>.</param>
 internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 1024, int maxFiles = 5, string baseName = "overlay")
 {
+    private const int ErrorSharingViolation = 32;
+    private const int ErrorLockViolation = 33;
+
+    /// <summary>A writer holds the file for one line, so 20 attempts 5 ms apart outlast any other writer.</summary>
+    private const int MaxAttempts = 20;
+    private const int RetryDelayMs = 5;
+
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private readonly Lock _gate = new();
 
@@ -39,24 +48,39 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
 
         lock (_gate)
         {
-            try
+            for (int attempt = 1; ; attempt++)
             {
-                Directory.CreateDirectory(directory);
-                FileInfo current = new(CurrentFile);
-
-                if (current.Exists && current.Length + Utf8NoBom.GetByteCount(line) > maxBytes)
+                try
                 {
-                    Rotate();
-                }
+                    Directory.CreateDirectory(directory);
+                    FileInfo current = new(CurrentFile);
 
-                File.AppendAllText(CurrentFile, line, Utf8NoBom);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // Logging must never take the overlay down.
+                    if (current.Exists && current.Length + Utf8NoBom.GetByteCount(line) > maxBytes)
+                    {
+                        Rotate();
+                    }
+
+                    File.AppendAllText(CurrentFile, line, Utf8NoBom);
+
+                    return;
+                }
+                catch (IOException exception) when (IsSharingViolation(exception) && attempt < MaxAttempts)
+                {
+                    // Another process, such as a second hook, holds the file for its own line: wait for it rather than
+                    // share the handle, because two appending handles would write at stale offsets over each other.
+                    Thread.Sleep(RetryDelayMs);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // Logging must never take the overlay down.
+                    return;
+                }
             }
         }
     }
+
+    private static bool IsSharingViolation(IOException exception) =>
+        (exception.HResult & 0xFFFF) is ErrorSharingViolation or ErrorLockViolation;
 
     private void Rotate()
     {
