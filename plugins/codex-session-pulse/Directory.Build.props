@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <!-- The manifest is the one version source. Its top-level "version" line is read the way the launcher reads it, two
+       spaces in, so the exe, the cache folder and the release tag cannot disagree; VersionTests and package.ps1 compare
+       the result with the parsed JSON. No commit hash is appended: diagnostics print the plugin version as it is. -->
+  <PropertyGroup>
+    <PluginManifest>$(MSBuildThisFileDirectory).codex-plugin\plugin.json</PluginManifest>
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(PluginManifest)')), '(?m)(?&lt;=^  "version": ")[^"]+').Value)</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+  <Target Name="RequirePluginVersion" BeforeTargets="BeforeBuild" Condition="'$(Version)' == ''">
+    <Error Text="No top-level &quot;version&quot; line two spaces in, in $(PluginManifest)." />
+  </Target>
+</Project>

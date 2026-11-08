@@ -1,0 +1,95 @@
+name: Codex Session Pulse release
+
+# Cuts a release when a push to main carries a plugin version that has no tag yet, or when its tag is pushed; a later
+# push without a version bump finds the tag and cuts nothing. A preview version such as 0.2.0-preview.1 becomes a GitHub
+# pre-release. The one asset is CodexSessionPulse.exe, which bin/codex-session-pulse-cache.ps1 downloads by the plugin
+# version on the first hook of that version (spec §4.2; the pattern of roslyn-mcp's docs/adr/0008).
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'codex-session-pulse-v*'
+    paths:
+      - 'plugins/codex-session-pulse/**'
+      - '.github/workflows/release-codex-session-pulse.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-session-pulse-release
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: windows-latest
+    outputs:
+      cut: ${{ steps.decide.outputs.cut }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide the version and whether to cut a release
+        id: decide
+        shell: pwsh
+        run: |
+          $version = (Get-Content plugins/codex-session-pulse/.codex-plugin/plugin.json -Raw | ConvertFrom-Json).version
+          $tag = "codex-session-pulse-v$version"
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -ne $tag) {
+              throw "Tag ${{ github.ref_name }} disagrees with manifest version $version; expected $tag"
+            }
+            $cut = $true
+          }
+          else {
+            $existing = git ls-remote --tags origin "refs/tags/$tag" | Out-String
+            $cut = [string]::IsNullOrWhiteSpace($existing)
+            if (-not $cut) { Write-Host "$tag is already released; nothing to cut." }
+            else { Write-Host "$tag does not exist yet; cutting it from ${{ github.sha }}." }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "cut=$($cut.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.cut == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: plugins/codex-session-pulse
+        shell: pwsh
+    env:
+      PLUGIN_VERSION: ${{ needs.decide.outputs.version }}
+      RELEASE_TAG: ${{ needs.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and smoke-test CodexSessionPulse.exe
+        run: ./build/package.ps1
+      - name: Test the launcher against the published exe
+        run: ./build/test-launcher.ps1
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $executable = 'artifacts/publish/win-x64/CodexSessionPulse.exe'
+          # The notes are the version's CHANGELOG section. --generate-notes would list every PR since the repository's
+          # previous tag, which belongs to another plugin.
+          $lines = Get-Content CHANGELOG.md
+          $start = [array]::FindIndex($lines, [Predicate[string]] { param($line) $line -match "^## $([regex]::Escape($env:PLUGIN_VERSION))( |$)" })
+          if ($start -lt 0) { throw "CHANGELOG.md has no entry for $env:PLUGIN_VERSION" }
+          $end = [array]::FindIndex($lines, $start + 1, [Predicate[string]] { param($line) $line.StartsWith('## ') })
+          if ($end -lt 0) { $end = $lines.Length }
+          # A descending range would return the headings themselves, so an empty section is refused rather than sliced.
+          if ($end - $start -lt 2) { throw "The CHANGELOG.md entry for $env:PLUGIN_VERSION is empty" }
+          ($lines[($start + 1)..($end - 1)] -join "`n").Trim() | Set-Content -Path release-notes.md -Encoding utf8
+          # @() keeps it an array: an if unrolls a one-item array to a string, and a splatted string passes its characters.
+          $preview = @(if ($env:PLUGIN_VERSION.Contains('-')) { '--prerelease' })
+          gh release create $env:RELEASE_TAG $executable --target ${{ github.sha }} --title "Codex Session Pulse $env:PLUGIN_VERSION" --notes-file release-notes.md @preview
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

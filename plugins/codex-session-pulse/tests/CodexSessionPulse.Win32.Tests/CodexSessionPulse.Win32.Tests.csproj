@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodexSessionPulse.Win32\CodexSessionPulse.Win32.csproj" />
+    <!-- Build order only: the tests start the exe from the App project's own output folder (see AppOutputDir). -->
+    <ProjectReference Include="..\..\src\CodexSessionPulse.App\CodexSessionPulse.App.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The rollout fixtures of the reader's tests, read in place by the lifecycle tests. -->
+    <AssemblyMetadata Include="FixturesRoot" Value="$(MSBuildProjectDirectory)\..\CodexSessionPulse.Infrastructure.Tests\Fixtures" />
+    <!-- Not [CallerFilePath]: ContinuousIntegrationBuild maps source paths to /_/, which is no folder on the runner. -->
+    <AssemblyMetadata Include="PluginRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>AppOutputDir</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\src\CodexSessionPulse.App\bin\$(Configuration)\$(TargetFramework)\'))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>
