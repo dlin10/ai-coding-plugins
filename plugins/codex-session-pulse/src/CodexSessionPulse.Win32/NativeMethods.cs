@@ -13,10 +13,12 @@ internal static partial class NativeMethods
     internal const long WsExTransparent = 0x00000020;
 
     internal const uint GwOwner = 4;
+    internal const uint GwHwndNext = 2;
     internal const uint GwHwndPrev = 3;
     internal const uint GaRootOwner = 3;
 
     internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoMove = 0x0002;
     internal const uint SwpNoZOrder = 0x0004;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpNoOwnerZOrder = 0x0200;

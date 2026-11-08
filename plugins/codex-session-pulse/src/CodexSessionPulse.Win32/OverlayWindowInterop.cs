@@ -9,6 +9,9 @@ namespace CodexSessionPulse.Win32;
 /// </summary>
 public static class OverlayWindowInterop
 {
+    /// <summary>More top-level windows than a desktop holds, hidden ones included; only a z-order change mid-walk reaches it.</summary>
+    private const int MaxZOrderSteps = 10_000;
+
     /// <summary>Computes the extended style of the overlay: adds no-activate and tool-window, keeps every other bit, never click-through.</summary>
     /// <param name="exStyle">The current extended style.</param>
     /// <returns>The new extended style.</returns>
@@ -66,25 +69,62 @@ public static class OverlayWindowInterop
             // a topmost window makes the overlay topmost (OverlayZOrderTests).
             insertAfter = above;
         }
+        else if (codexTopmost)
+        {
+            // Codex tops the topmost band: the top of that band is right above it.
+            insertAfter = NativeMethods.HwndTopmost;
+        }
         else
         {
-            // Codex tops its band: the top of that band is right above it.
-            insertAfter = codexTopmost ? NativeMethods.HwndTopmost : NativeMethods.HwndNoTopmost;
+            // Codex tops the normal band, right under the topmost windows. HWND_NOTOPMOST puts a topmost window at the top
+            // of the normal band but does not move a window that is already normal, and HWND_TOP does not raise the window
+            // of a background process, which the overlay is while Codex has the focus (OverlayZOrderTests measured both).
+            // So a normal overlay is made topmost for a moment, then demoted to the top of the normal band.
+            if (!IsTopmost(overlay))
+            {
+                NativeMethods.SetWindowPos(overlay, NativeMethods.HwndTopmost, 0, 0, 0, 0, flags | NativeMethods.SwpNoMove);
+            }
+
+            insertAfter = NativeMethods.HwndNoTopmost;
         }
 
         return NativeMethods.SetWindowPos(overlay, insertAfter, left, top, 0, 0, flags);
     }
 
     /// <summary>
-    /// Tells whether the overlay is still placed for Codex: not minimized, and in the same z-order band. Neither another
-    /// process minimizing the overlay (measured: a screen-automation tool does, which left it as a 160 DIP minimized stub
-    /// at the bottom left of the work area) nor a pin or unpin of Codex moves the Codex window, so the anchor reports
-    /// nothing; the overlay's clock asks this once a second and places the overlay again when it is not.
+    /// Tells whether the overlay is still placed for Codex: not minimized, in the same z-order band, and somewhere above
+    /// it. Neither another process minimizing the overlay (measured: a screen-automation tool does, which left it as a
+    /// 160 DIP minimized stub at the bottom left of the work area), nor a pin or unpin of Codex, nor Codex raised above
+    /// the overlay without moving moves the Codex window, so the anchor reports nothing; the overlay's clock asks this
+    /// once a second and places the overlay again when it is not. "Above", not "right above": Codex's own hidden windows,
+    /// such as its IME window, sit between the two, and requiring adjacency would re-place the overlay every second.
     /// </summary>
     /// <param name="overlay">The overlay window.</param>
     /// <param name="codex">The Codex window it follows.</param>
-    /// <returns><see langword="true"/> when the overlay is not minimized and both are topmost or both are not.</returns>
-    public static bool IsPlacedFor(nint overlay, nint codex) => !NativeMethods.IsIconic(overlay) && IsTopmost(overlay) == IsTopmost(codex);
+    /// <returns><see langword="true"/> when the overlay is not minimized, in Codex's band and above Codex.</returns>
+    public static bool IsPlacedFor(nint overlay, nint codex) =>
+        !NativeMethods.IsIconic(overlay) && IsTopmost(overlay) == IsTopmost(codex) && IsAbove(overlay, codex);
+
+    /// <summary>Walks down the z-order from one window looking for another; bounded, since the order can change meanwhile.</summary>
+    /// <param name="window">The window that should be higher.</param>
+    /// <param name="below">The window that should be lower.</param>
+    /// <returns><see langword="true"/> when <paramref name="below"/> was found under <paramref name="window"/>.</returns>
+    private static bool IsAbove(nint window, nint below)
+    {
+        nint next = NativeMethods.GetWindow(window, NativeMethods.GwHwndNext);
+
+        for (int step = 0; next != 0 && step < MaxZOrderSteps; step++)
+        {
+            if (next == below)
+            {
+                return true;
+            }
+
+            next = NativeMethods.GetWindow(next, NativeMethods.GwHwndNext);
+        }
+
+        return false;
+    }
 
     private static bool IsTopmost(nint window) =>
         (NativeMethods.GetWindowLongPtr(window, NativeMethods.GwlExStyle) & NativeMethods.WsExTopmost) != 0;

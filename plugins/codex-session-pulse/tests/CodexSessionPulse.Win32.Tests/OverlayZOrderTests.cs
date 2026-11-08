@@ -13,6 +13,7 @@ public sealed class OverlayZOrderTests
     private const uint GwHwndPrev = 3;
     private const int GwlExStyle = -20;
     private const long WsExTopmost = 0x8;
+    private static readonly nint HwndTop = 0;
     private static readonly nint HwndTopmost = -1;
     private static readonly nint HwndNoTopmost = -2;
 
@@ -47,6 +48,37 @@ public sealed class OverlayZOrderTests
         {
             SetWindowPos(overlay.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
             SetWindowPos(codex.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
+    }
+
+    /// <summary>
+    /// A normal Codex activated to the top of the normal band, a topmost window right above it, and the normal overlay
+    /// below it: the overlay is not placed, and placing it raises it right above Codex.
+    /// </summary>
+    [Fact]
+    public void PlaceAbove_NormalOverlayBelowCodexAtTheTopOfItsBand_RaisesIt()
+    {
+        using FakeCodexWindow overlay = new("csp-zorder-overlay");
+        using FakeCodexWindow codex = new("csp-zorder-codex", withoutIme: true);
+        using FakeCodexWindow other = new("csp-zorder-other");
+
+        try
+        {
+            Assert.True(SetWindowPos(other.Hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.True(SetWindowPos(codex.Hwnd, HwndTop, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate));
+            Assert.True(IsTopmost(GetWindow(codex.Hwnd, GwHwndPrev)), "The window right above Codex should be topmost.");
+            Assert.False(IsTopmost(overlay.Hwnd));
+            Assert.False(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
+
+            Assert.True(OverlayWindowInterop.PlaceAbove(overlay.Hwnd, codex.Hwnd, 150, 150));
+
+            Assert.Equal(overlay.Hwnd, VisibleAbove(codex.Hwnd));
+            Assert.False(IsTopmost(overlay.Hwnd));
+            Assert.True(OverlayWindowInterop.IsPlacedFor(overlay.Hwnd, codex.Hwnd));
+        }
+        finally
+        {
+            SetWindowPos(other.Hwnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
         }
     }
 
