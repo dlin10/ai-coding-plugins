@@ -165,10 +165,12 @@ public sealed class HookPathTests
         Assert.NotNull(server);
         Assert.Null(HookPipeServer.TryStart(channel.PipeName, _ => { }));
 
+        // 16 clients at once wait for pipe instances in turn; on a two-core CI runner that outlasts the 300 ms a real hook
+        // gets (measured: 10 of 16 timed out). This test is about every message arriving whole, so it waits longer.
         DateTimeOffset at = DateTimeOffset.UtcNow;
         bool[] sent = await Task.WhenAll(Enumerable.Range(0, 16).Select(index => Task.Run(() =>
             HookPipeClient.TrySend(channel.PipeName, new HookMessage("UserPromptSubmit", ThreadId, null, at.AddSeconds(index)).ToBytes(),
-                                   HookPipeClient.ConnectTimeoutMs))));
+                                   connectTimeoutMs: 10_000))));
 
         Assert.All(sent, Assert.True);
         List<HookMessage> received = [];

@@ -1,6 +1,5 @@
 using System.IO;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -47,6 +46,6 @@ public sealed class VersionTests
         return manifest.RootElement.GetProperty("version").GetString()!;
     }
 
-    private static string PluginRoot([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
+    private static string PluginRoot() =>
+        typeof(VersionTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(attribute => attribute.Key == "PluginRoot").Value!;
 }

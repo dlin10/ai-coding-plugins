@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
+using System.Reflection;
 using System.Text.Json;
 using Xunit;
 
@@ -101,6 +101,6 @@ public sealed class LauncherTests
         return manifest.RootElement.GetProperty("version").GetString()!;
     }
 
-    private static string PluginRoot([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
+    private static string PluginRoot() =>
+        typeof(LauncherTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(attribute => attribute.Key == "PluginRoot").Value!;
 }
