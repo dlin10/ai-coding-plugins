@@ -1,6 +1,6 @@
 {
   "name": "codex-session-pulse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A small overlay over Codex Desktop showing the last observed prompt-cache read and a TTL estimate.",
   "author": {
     "name": "Dmitry Linetsky"

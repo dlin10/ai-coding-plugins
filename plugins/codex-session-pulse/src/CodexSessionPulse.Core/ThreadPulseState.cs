@@ -20,6 +20,9 @@ public sealed class ThreadPulseState
     /// <summary>Gets the cache state machine of this thread only.</summary>
     public CacheTracker Tracker { get; }
 
+    /// <summary>Gets the output speed of this thread only.</summary>
+    public SpeedTracker Speed { get; } = new();
+
     /// <summary>Gets the lifecycle generation: a fresh state after an end gets a higher one.</summary>
     public long Generation { get; }
 

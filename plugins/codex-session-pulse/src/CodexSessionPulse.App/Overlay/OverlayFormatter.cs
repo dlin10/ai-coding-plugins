@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO;
 using CodexSessionPulse.Core;
 
 namespace CodexSessionPulse.App.Overlay;
@@ -23,41 +22,37 @@ internal enum OverlayTone
     Error,
 }
 
-/// <summary>Everything the overlay line shows, already formatted (spec §3.1, §3.2). Core never formats; this is the only place that does.</summary>
+/// <summary>
+/// Everything the overlay line shows, already formatted (spec §3.1, §3.2): the state, the bar, the time left and the
+/// speed. Core never formats; this is the only place that does.
+/// </summary>
 /// <param name="StateText">The state label, e.g. <c>cache</c> or <c>Observed cache miss 14:32</c>.</param>
 /// <param name="Tone">The colour role.</param>
-/// <param name="ShowMetrics">Whether the bar, TTL, tokens and speed are shown.</param>
+/// <param name="ShowMetrics">Whether the bar, the time left and the speed are shown.</param>
 /// <param name="BarFraction">The filled share of the bar, from 0 to 1.</param>
 /// <param name="BarKnown">Whether the bar reflects an estimate; an unknown TTL gives a grey indefinite bar.</param>
 /// <param name="TtlText">The approximate remaining time, <c>~24 min</c>, or <c>TTL unknown</c>.</param>
-/// <param name="TokensText">Cached over input tokens of the last request, <c>245.1k/245.3k</c>.</param>
-/// <param name="SpeedText">Always <c>Avg speed —</c> in P0.</param>
-/// <param name="SelectionText">The automatic selection and its confidence, <c>Auto · inferred</c>.</param>
-/// <param name="SourceText">The data source in one word.</param>
+/// <param name="SpeedText">The output speed, <c>Avg speed 31 tok/s</c>, or <c>Avg speed —</c> before a request is timed.</param>
 /// <param name="ShowChooseFolder">Whether the Choose folder button is shown (no session found).</param>
-/// <param name="StateTooltip">The state tooltip: times, model, source and selection.</param>
+/// <param name="StateTooltip">The state tooltip: times, model, source, the selection and the hooks received.</param>
 /// <param name="TtlTooltip">The TTL tooltip; always says it is an estimate.</param>
-/// <param name="TokensTooltip">The tokens tooltip: percentage and cache write.</param>
 /// <param name="SpeedTooltip">The speed tooltip.</param>
-/// <param name="SelectionTooltip">The selection tooltip.</param>
-/// <param name="SourceTooltip">The source tooltip.</param>
+/// <param name="HasContent">
+/// Whether the line has anything to show; <see langword="false"/> on a page Codex's log names with no cache to show
+/// (New chat, a thread without a local rollout, a thread not loaded), where the overlay hides.
+/// </param>
 internal sealed record OverlayView(string StateText,
                                    OverlayTone Tone,
                                    bool ShowMetrics,
                                    double BarFraction,
                                    bool BarKnown,
                                    string TtlText,
-                                   string TokensText,
                                    string SpeedText,
-                                   string SelectionText,
-                                   string SourceText,
                                    bool ShowChooseFolder,
                                    string StateTooltip,
                                    string TtlTooltip,
-                                   string TokensTooltip,
                                    string SpeedTooltip,
-                                   string SelectionTooltip,
-                                   string SourceTooltip);
+                                   bool HasContent);
 
 /// <summary>Turns a <see cref="CacheSnapshot"/> into the overlay line. Pure: time and time zone are parameters.</summary>
 internal static class OverlayFormatter
@@ -84,6 +79,7 @@ internal static class OverlayFormatter
         double fraction = barKnown ? Math.Round(Math.Clamp(remaining!.Value / snapshot.Ttl.Estimate!.Value, 0, 1), 2) : 0;
         string lastRequest = snapshot.LastRequestAt is { } at ? ToLocal(at, local).ToString("HH:mm", Invariant) : "unknown";
 
+        bool emptyPage = IsEmptyPage(snapshot);
         (string stateText, OverlayTone tone, bool showMetrics) = snapshot.State switch
         {
             CacheState.NoSession => ("Codex session not found", OverlayTone.Neutral, false),
@@ -108,20 +104,18 @@ internal static class OverlayFormatter
                                fraction,
                                barKnown,
                                FormatTtl(snapshot, remaining),
-                               $"{FormatTokens(snapshot.CachedInput)}/{FormatTokens(snapshot.Input)}",
-                               $"Avg speed {Dash}",
-                               $"Auto · {Name(confidence)}",
-                               FormatSourceText(snapshot.Source.Status),
-                               snapshot.State == CacheState.NoSession,
-                               StateTooltip(snapshot, confidence, local),
+                               snapshot.Speed is { } speed ? $"Avg speed {speed.ToString("0", Invariant)} tok/s" : $"Avg speed {Dash}",
+                               snapshot.State == CacheState.NoSession && !emptyPage,
+                               StateTooltip(snapshot, confidence, codexWindows, hookEvents, local),
                                TtlTooltip(snapshot, remaining, nowUtc, local),
-                               TokensTooltip(snapshot),
-                               "Timing data unavailable",
-                               SelectionTooltip(snapshot, confidence, codexWindows),
-                               SourceTooltip(snapshot.Source, hookEvents));
+                               snapshot.Speed is null
+                                   ? "Timing data unavailable"
+                                   : $"Output tokens per second over the thread's last {SpeedTracker.Window} model requests, from sending each " +
+                                     "request to the end of its answer. The wait for the first token is included, so the model generates faster.",
+                               !emptyPage);
     }
 
-    /// <summary>The tooltip's hook line: the count since start, or the Review-hooks hint when none came while JSONL is live.</summary>
+    /// <summary>The state tooltip's hook line: the count since start, or the Review-hooks hint when none came while JSONL is live.</summary>
     /// <param name="hookEvents">The hook events received since the overlay started.</param>
     /// <param name="status">The rollout source status.</param>
     /// <returns>The line.</returns>
@@ -132,6 +126,18 @@ internal static class OverlayFormatter
         _ => "Hook events since start: none",
     };
 
+    /// <summary>
+    /// Whether Codex's log says the page on screen has no cache to show: New chat, a thread without a local rollout (a
+    /// remote host's thread, a project chat, a cloud task), or a thread not loaded. The overlay hides there rather than
+    /// say so, or show another thread's numbers.
+    /// </summary>
+    /// <param name="snapshot">The snapshot.</param>
+    /// <returns>Whether it is such a page.</returns>
+    private static bool IsEmptyPage(CacheSnapshot snapshot) =>
+        snapshot.State == CacheState.NoSession
+        && snapshot.Selection.Reason is SelectionReasons.DesktopRouteNewChat or SelectionReasons.DesktopRouteNoLocalData
+                                     or SelectionReasons.DesktopRouteNotLoaded;
+
     /// <summary>Caps a confidence at inferred while two or more Codex windows are open: the foreground window does not prove the tab.</summary>
     /// <param name="confidence">The resolver's confidence.</param>
     /// <param name="codexWindows">The number of Codex windows.</param>
@@ -139,20 +145,6 @@ internal static class OverlayFormatter
     public static SelectionConfidence EffectiveConfidence(SelectionConfidence confidence, int codexWindows)
     {
         return confidence == SelectionConfidence.Confirmed && codexWindows >= 2 ? SelectionConfidence.Inferred : confidence;
-    }
-
-    /// <summary>Formats a token count with a <c>k</c> or <c>M</c> suffix and one decimal.</summary>
-    /// <param name="tokens">The count, or <see langword="null"/> when unknown.</param>
-    /// <returns>The text; an unknown count is a dash.</returns>
-    public static string FormatTokens(long? tokens)
-    {
-        return tokens switch
-        {
-            null => Dash,
-            < 1000 => tokens.Value.ToString(Invariant),
-            < 1_000_000 => (tokens.Value / 1000.0).ToString("0.0", Invariant) + "k",
-            _ => (tokens.Value / 1_000_000.0).ToString("0.0", Invariant) + "M",
-        };
     }
 
     /// <summary>Formats the remaining time as an estimate: always with a tilde, rounded up to whole minutes.</summary>
@@ -175,7 +167,7 @@ internal static class OverlayFormatter
         return snapshot.Ttl.Estimate is null || remaining is null ? "TTL unknown" : FormatRemaining(remaining.Value);
     }
 
-    private static string StateTooltip(CacheSnapshot snapshot, SelectionConfidence confidence, TimeZoneInfo local)
+    private static string StateTooltip(CacheSnapshot snapshot, SelectionConfidence confidence, int codexWindows, int hookEvents, TimeZoneInfo local)
     {
         List<string> lines = [];
 
@@ -199,7 +191,14 @@ internal static class OverlayFormatter
 
         lines.Add($"Model: {snapshot.Model ?? "unknown"}");
         lines.Add($"Source: {FormatSourceText(snapshot.Source.Status)}");
-        lines.Add($"Thread: Auto · {Name(confidence)}, {Name(snapshot.Kind)}");
+        lines.Add($"Thread: Auto · {Name(confidence)}, {Name(snapshot.Kind)}. {SelectionWhy(snapshot, confidence)}");
+
+        if (codexWindows >= 2)
+        {
+            lines.Add($"{codexWindows} Codex windows are open, so the confidence is at most inferred.");
+        }
+
+        lines.Add(HookLine(hookEvents, snapshot.Source.Status));
 
         if (snapshot.State == CacheState.Stale && snapshot.Diagnostics is not null)
         {
@@ -229,37 +228,17 @@ internal static class OverlayFormatter
                "After it, the cache may have expired; a miss is shown only when a new request confirms it.";
     }
 
-    private static string TokensTooltip(CacheSnapshot snapshot)
+    private static string SelectionWhy(CacheSnapshot snapshot, SelectionConfidence confidence)
     {
-        double? ratio = snapshot.CacheRatio
-                        ?? (snapshot is { CachedInput: { } cached, Input: { } input and > 0 } ? (double)cached / input : null);
-        string share = ratio is { } value ? (value * 100).ToString("0.00", Invariant) + "%" : "unknown";
-        string write = snapshot.CacheWrite is { } written ? written.ToString("N0", Invariant) + " tokens" : "unknown";
+        bool routed = snapshot.Selection.Reason?.StartsWith(SelectionReasons.DesktopRoute, StringComparison.Ordinal) == true;
 
-        return $"Cached {Count(snapshot.CachedInput)} of {Count(snapshot.Input)} input tokens of the last request ({share})." + Environment.NewLine +
-               $"Cache write: {write}";
-    }
-
-    private static string SelectionTooltip(CacheSnapshot snapshot, SelectionConfidence confidence, int codexWindows)
-    {
-        string text = confidence switch
+        return confidence switch
         {
-            SelectionConfidence.Confirmed => "Auto · confirmed: a hook signal confirmed this thread.",
-            SelectionConfidence.Inferred => "Auto · inferred: picked from the last reliable event; the tab you are looking at may differ.",
-            _ => "Auto · unknown: no thread could be selected yet.",
+            SelectionConfidence.Confirmed when routed => "Codex Desktop's log names the page on screen.",
+            SelectionConfidence.Confirmed => "A hook signal confirmed this thread.",
+            SelectionConfidence.Inferred => "Picked from the last reliable event; the tab you are looking at may differ.",
+            _ => "No thread could be selected yet.",
         };
-
-        if (codexWindows >= 2)
-        {
-            text += Environment.NewLine + $"{codexWindows} Codex windows are open, so the confidence is at most inferred.";
-        }
-
-        if (snapshot.Selection.Reason is { } reason)
-        {
-            text += Environment.NewLine + $"Reason: {reason}";
-        }
-
-        return text;
     }
 
     private static string FormatSourceText(SourceStatus status) => status switch
@@ -268,18 +247,6 @@ internal static class OverlayFormatter
         SourceStatus.NotFound => "no JSONL",
         _ => "JSONL error",
     };
-
-    private static string SourceTooltip(SourceInfo source, int hookEvents)
-    {
-        string file = source.Path is { } path ? Path.GetFileName(path) : "none";
-
-        return $"Source: rollout JSONL, {source.Status}" + Environment.NewLine +
-               $"File: {file}" + Environment.NewLine +
-               $"Codex CLI: {source.CliVersion ?? "unknown"}" + Environment.NewLine +
-               HookLine(hookEvents, source.Status);
-    }
-
-    private static string Count(long? tokens) => tokens is { } value ? value.ToString("N0", Invariant) : "unknown";
 
     private static string Name(SelectionConfidence confidence) => confidence switch
     {

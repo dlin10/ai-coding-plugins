@@ -373,6 +373,133 @@ public sealed class PulseEngineTests
         Assert.Same(received[^1], _engine.Snapshots.Current);
     }
 
+    /// <summary>The shown thread's speed comes from its own requests only; another thread's do not mix in.</summary>
+    [Fact]
+    public void ApplyTiming_ShowsTheShownThreadsSpeed()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.Apply(Create("B", T0, 1000, 0));
+        _engine.OnUserActivity("A", T0.AddSeconds(1));
+        _engine.ApplyTiming(new RequestTiming("A", T0.AddSeconds(10), 100, TimeSpan.FromSeconds(10)));
+        _engine.ApplyTiming(new RequestTiming("B", T0.AddSeconds(11), 900, TimeSpan.FromSeconds(1)));
+
+        CacheSnapshot snapshot = _engine.ApplyTiming(new RequestTiming("A", T0.AddSeconds(40), 500, TimeSpan.FromSeconds(30)));
+
+        Assert.Equal("A", snapshot.ThreadId);
+        Assert.Equal(15.0, snapshot.Speed);
+    }
+
+    /// <summary>A request of a thread the engine does not know creates no thread.</summary>
+    [Fact]
+    public void ApplyTiming_UnknownThread_IsIgnored()
+    {
+        CacheSnapshot snapshot = _engine.ApplyTiming(new RequestTiming("Ghost", T0, 100, TimeSpan.FromSeconds(1)));
+
+        Assert.Equal(CacheState.NoSession, snapshot.State);
+        Assert.Null(snapshot.Speed);
+    }
+
+    /// <summary>A passive switch: the route names B although the last hook confirmed A, and B is shown, confirmed.</summary>
+    [Fact]
+    public void OnRoute_PassiveSwitch_ShowsTheRoutedThread()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.Apply(Create("B", T0.AddMinutes(1), 64244, 64000));
+        _engine.OnUserActivity("A", T0.AddMinutes(2));
+
+        CacheSnapshot snapshot = _engine.OnRoute(new CodexRoute(CodexRouteKind.LocalThread, "B", T0.AddMinutes(3)));
+
+        Assert.Equal("B", snapshot.ThreadId);
+        Assert.Equal(64244, snapshot.Input);
+        Assert.Equal(new ThreadSelection(SelectionConfidence.Confirmed, SelectionReasons.DesktopRoute), snapshot.Selection);
+    }
+
+    /// <summary>A hook of another thread (a CLI session, say) after the switch does not take the display from the route.</summary>
+    [Fact]
+    public void OnRoute_NewerHookOfAnotherThread_DoesNotOverrideTheRoute()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnRoute(new CodexRoute(CodexRouteKind.LocalThread, "A", T0.AddMinutes(1)));
+
+        CacheSnapshot snapshot = _engine.OnUserActivity("Cli", T0.AddMinutes(2));
+
+        Assert.Equal("A", snapshot.ThreadId);
+        Assert.Equal(SelectionReasons.DesktopRoute, snapshot.Selection.Reason);
+    }
+
+    /// <summary>New chat, a page without local data and a thread not loaded show nothing, each with its reason.</summary>
+    /// <param name="kind">The route's page.</param>
+    /// <param name="threadId">The route's thread id.</param>
+    /// <param name="reason">The expected reason.</param>
+    [Theory]
+    [InlineData(CodexRouteKind.NewChat, null, SelectionReasons.DesktopRouteNewChat)]
+    [InlineData(CodexRouteKind.Other, null, SelectionReasons.DesktopRouteNoLocalData)]
+    [InlineData(CodexRouteKind.LocalThread, "Unknown", SelectionReasons.DesktopRouteNotLoaded)]
+    public void OnRoute_NothingToShow_IsNoSessionWithTheRouteReason(CodexRouteKind kind, string? threadId, string reason)
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnUserActivity("A", T0.AddMinutes(1));
+
+        CacheSnapshot snapshot = _engine.OnRoute(new CodexRoute(kind, threadId, T0.AddMinutes(2)));
+
+        Assert.Equal(CacheState.NoSession, snapshot.State);
+        Assert.Null(snapshot.ThreadId);
+        Assert.Null(snapshot.Input);
+        Assert.Equal(new ThreadSelection(SelectionConfidence.Confirmed, reason), snapshot.Selection);
+    }
+
+    /// <summary>A routed thread that is loaded later, when its rollout is found, is shown from then on.</summary>
+    [Fact]
+    public void OnRoute_ThreadLoadedAfterTheRoute_IsShown()
+    {
+        _engine.OnRoute(new CodexRoute(CodexRouteKind.LocalThread, "Old", T0));
+
+        CacheSnapshot snapshot = _engine.Observe(new ThreadObservation("Old", ThreadKind.Main, null, "Old", "C:\\r\\old.jsonl", null, T0));
+
+        Assert.Equal("Old", snapshot.ThreadId);
+        Assert.Equal(SelectionReasons.DesktopRoute, snapshot.Selection.Reason);
+    }
+
+    /// <summary>A route that names a subagent shows nothing: subagents are never on display.</summary>
+    [Fact]
+    public void OnRoute_Subagent_IsNotShown()
+    {
+        _engine.Apply(Create("S", T0, 36842, 0, kind: ThreadKind.Subagent, rootSessionId: "M", parentThreadId: "M"));
+
+        CacheSnapshot snapshot = _engine.OnRoute(new CodexRoute(CodexRouteKind.LocalThread, "S", T0));
+
+        Assert.Null(snapshot.ThreadId);
+        Assert.Equal(SelectionReasons.DesktopRouteNotLoaded, snapshot.Selection.Reason);
+    }
+
+    /// <summary>When the route is lost (Codex restarted, its log gone), hooks and JSONL choose again.</summary>
+    [Fact]
+    public void OnRoute_Forgotten_FallsBackToHooks()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnUserActivity("A", T0.AddMinutes(1));
+        _engine.OnRoute(new CodexRoute(CodexRouteKind.NewChat, null, T0.AddMinutes(2)));
+
+        CacheSnapshot snapshot = _engine.OnRoute(null);
+
+        Assert.Equal("A", snapshot.ThreadId);
+        Assert.Equal(SelectionReasons.UserActivityHook, snapshot.Selection.Reason);
+    }
+
+    /// <summary>Two Codex windows cap a routed choice at inferred, a thread and an empty page alike (§3.3).</summary>
+    [Fact]
+    public void OnRoute_TwoCodexWindows_CapsConfidenceAtInferred()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnCodexWindows(2);
+
+        CacheSnapshot thread = _engine.OnRoute(new CodexRoute(CodexRouteKind.LocalThread, "A", T0));
+        CacheSnapshot empty = _engine.OnRoute(new CodexRoute(CodexRouteKind.NewChat, null, T0));
+
+        Assert.Equal(new ThreadSelection(SelectionConfidence.Inferred, SelectionReasons.DesktopRoute), thread.Selection);
+        Assert.Equal(new ThreadSelection(SelectionConfidence.Inferred, SelectionReasons.DesktopRouteNewChat), empty.Selection);
+    }
+
     private sealed class Collector(List<CacheSnapshot> received) : IObserver<CacheSnapshot>
     {
         public void OnCompleted()

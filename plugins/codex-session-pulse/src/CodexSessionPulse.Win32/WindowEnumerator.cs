@@ -95,6 +95,27 @@ public static class WindowEnumerator
         return NativeMethods.QueryFullProcessImageName(process, 0, buffer, ref size) ? new string(buffer, 0, size) : null;
     }
 
+    /// <summary>Reads the package family of a process, such as <c>OpenAI.Codex_2p2nqsd0c76g0</c> for Codex from the Microsoft Store.</summary>
+    /// <param name="processId">The process id.</param>
+    /// <returns>The family, or <see langword="null"/> when the process has no package or cannot be opened.</returns>
+    public static unsafe string? GetPackageFamilyName(int processId)
+    {
+        using SafeProcessHandle process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
+
+        if (process.IsInvalid)
+        {
+            return null;
+        }
+
+        // PACKAGE_FAMILY_NAME_MAX_LENGTH is 64 characters plus the terminator.
+        char* buffer = stackalloc char[128];
+        uint length = 128;
+
+        return NativeMethods.GetPackageFamilyName(process, ref length, buffer) == 0 && length > 1
+            ? new string(buffer, 0, (int)length - 1)
+            : null;
+    }
+
     /// <summary>Gets the id of the process that owns a window.</summary>
     /// <param name="hwnd">The window.</param>
     /// <returns>The process id, or 0 for an invalid window.</returns>

@@ -56,7 +56,7 @@ public sealed class SettingsStore(string path, string userProfile)
         }
 
         List<string> problems = [];
-        PulseSettings settings = Sanitize(read, problems);
+        PulseSettings settings = Sanitize(MigrateV1(read, problems), problems);
 
         if (settings.SessionRootOverride is { } root
             && SessionRootCheck.Check(root, userProfile) is not (SessionRootVerdict.Ok or SessionRootVerdict.OutsideProfile))
@@ -104,6 +104,31 @@ public sealed class SettingsStore(string path, string userProfile)
         File.Move(temp, path, overwrite: true);
 
         return [];
+    }
+
+    /// <summary>
+    /// Moves a version 1 file to the current placement. Version 1 knew only <see cref="OverlayAnchor.BottomOfCodexWindow"/>,
+    /// with the vertical offset measured from the window's bottom edge (default -170); its offsets made up for a rule that
+    /// did not know the input card, so they are dropped, and the anchor takes the current default.
+    /// </summary>
+    /// <param name="settings">The settings as read.</param>
+    /// <param name="problems">Receives <c>settings-v1-offsets-dropped</c> when offsets other than version 1's defaults are dropped.</param>
+    /// <returns>The settings with the current placement fields.</returns>
+    private static PulseSettings MigrateV1(PulseSettings settings, List<string> problems)
+    {
+        if (settings.SchemaVersion >= 2)
+        {
+            return settings;
+        }
+
+        if (settings.OffsetX != 0 || settings.OffsetY != -170)
+        {
+            problems.Add("settings-v1-offsets-dropped");
+        }
+
+        PulseSettings defaults = new();
+
+        return settings with { Anchor = defaults.Anchor, OffsetX = defaults.OffsetX, OffsetY = defaults.OffsetY };
     }
 
     /// <summary>Replaces each invalid field by its default and records why.</summary>

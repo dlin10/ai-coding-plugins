@@ -7,6 +7,7 @@ using CodexSessionPulse.App.Ipc;
 using CodexSessionPulse.App.SettingsUi;
 using CodexSessionPulse.App.Stub;
 using CodexSessionPulse.Core;
+using CodexSessionPulse.Infrastructure.Desktop;
 using CodexSessionPulse.Infrastructure.Rollouts;
 using CodexSessionPulse.Infrastructure.Settings;
 using CodexSessionPulse.Win32;
@@ -14,10 +15,12 @@ using CodexSessionPulse.Win32;
 namespace CodexSessionPulse.App.Overlay;
 
 /// <summary>
-/// Wires the overlay together on the UI thread: settings, the Codex window anchor, the overlay window and its placement,
+/// Wires the overlay together on the UI thread: settings, the Codex window anchor, the input card locator, the overlay
+/// window and its placement,
 /// the tray, diagnostics and the 1 s display clock, and the pipeline behind it: the <see cref="RolloutTailer"/> (the
-/// foundation) and the hook pipe (an accelerator) feed one <see cref="PulseEngine"/>, whose snapshots reach
-/// <see cref="UpdateCache"/> through the dispatcher. <c>--stub</c> replaces the pipeline with <see cref="StubSnapshotScript"/>.
+/// foundation), the <see cref="DesktopRouteWatcher"/> (which thread Codex shows) and the hook pipe (an accelerator) feed
+/// one <see cref="PulseEngine"/>, whose snapshots reach <see cref="UpdateCache"/> through the dispatcher. <c>--stub</c>
+/// replaces the pipeline with <see cref="StubSnapshotScript"/>.
 /// The overlay exits after the last Codex window is gone (<see cref="LastWindowExit"/>), from tray Exit or on
 /// <c>WM_CLOSE</c>, all through <see cref="RequestExit"/>.
 /// </summary>
@@ -25,6 +28,9 @@ internal sealed class OverlayController : IDisposable
 {
     private const int StubStepSeconds = 5;
     private const int PruneEveryTicks = 60;
+
+    /// <summary>How far above the line's top edge the menu watcher hit-tests for a Codex panel, in physical pixels.</summary>
+    private const int ProbeAboveLinePx = 6;
 
     /// <summary>How far a hook's own timestamp may be from the overlay's clock before the arrival time is used instead.</summary>
     private static readonly TimeSpan MaxHookClockSkew = TimeSpan.FromMinutes(5);
@@ -46,6 +52,9 @@ internal sealed class OverlayController : IDisposable
     private OverlayWindow? _window;
     private CodexWindowAnchor? _anchor;
     private IDisposable? _anchorSubscription;
+    private CodexInputLocator? _input;
+    private CodexMenuWatcher? _menus;
+    private bool _loggedInputFound;
     private TrayIcon? _tray;
     private SettingsWindow? _settingsWindow;
     private bool _userHidden;
@@ -60,6 +69,10 @@ internal sealed class OverlayController : IDisposable
     private int _loggedRecheckWindows = -1;
     private readonly HookRouter _hookRouter = new();
     private int _hooksReceived;
+    private readonly Lock _routeGate = new();
+    private DesktopRouteWatcher? _routes;
+    private CodexRoute? _route;
+    private int _routeProcessId;
 
     /// <summary>Creates the controller; <see cref="Start"/> does the work.</summary>
     /// <param name="startup">The bootstrap's files, log, hook pipe and job membership.</param>
@@ -91,6 +104,8 @@ internal sealed class OverlayController : IDisposable
 
         _anchor = new CodexWindowAnchor(ToDetectorOptions(_settings), SynchronizationContext.Current!);
         _anchorSubscription = _anchor.Snapshots.Subscribe(new Observer<AnchorSnapshot>(OnAnchor));
+        _input = new CodexInputLocator(SynchronizationContext.Current!, OnInputChanged);
+        _menus = new CodexMenuWatcher(SynchronizationContext.Current!, OnMenusChanged);
 
         _tray = new TrayIcon("Codex Session Pulse",
         [
@@ -114,6 +129,8 @@ internal sealed class OverlayController : IDisposable
         }
         else
         {
+            _routes = new DesktopRouteWatcher(SystemClock.Instance);
+            _routes.RouteChanged += OnRoute;
             StartPipeline();
         }
 
@@ -131,9 +148,19 @@ internal sealed class OverlayController : IDisposable
     /// <summary>Gets the hook counter that Copy diagnostics reports; every received hook is recorded into it.</summary>
     public HookActivityRecorder Hooks { get; } = new();
 
-    /// <summary>Shows a new cache snapshot, on the UI thread.</summary>
+    /// <summary>Shows a new cache snapshot, on the UI thread; a page with nothing to show hides the overlay, and back.</summary>
     /// <param name="snapshot">The snapshot.</param>
-    public void UpdateCache(CacheSnapshot snapshot) => _viewModel.Update(snapshot);
+    public void UpdateCache(CacheSnapshot snapshot)
+    {
+        bool hadContent = _viewModel.View?.HasContent != false;
+        _viewModel.Update(snapshot);
+        bool hasContent = _viewModel.View?.HasContent != false;
+
+        if (hasContent != hadContent)
+        {
+            Reposition();
+        }
+    }
 
     /// <summary>Ends the overlay through the one shutdown path that tray Exit, <c>WM_CLOSE</c> and the last window share.</summary>
     /// <param name="reason">Why, for the log.</param>
@@ -155,9 +182,12 @@ internal sealed class OverlayController : IDisposable
         _clock.Stop();
         _stubTimer.Stop();
         _stopping.Cancel();
+        _routes?.Dispose();
         StopPipeline();
         _anchorSubscription?.Dispose();
         _anchor?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _input?.Dispose();
+        _menus?.Dispose();
         _tray?.Dispose();
         _window?.Close();
         _log.Info("overlay stop");
@@ -195,6 +225,8 @@ internal sealed class OverlayController : IDisposable
             }
         }
 
+        FollowCodexLog(snapshot.Hwnd);
+
         bool wasPending = _exit.Pending;
         _exit.OnAnchor(snapshot.State, DateTimeOffset.UtcNow);
 
@@ -205,6 +237,89 @@ internal sealed class OverlayController : IDisposable
         }
 
         _viewModel.Update(snapshot);
+        Reposition();
+    }
+
+    /// <summary>
+    /// Points the route watcher at the log of the process that owns the Codex window, once per process: Codex restarted
+    /// means a new process, a new log and no route until it names one.
+    /// </summary>
+    /// <param name="hwnd">The anchor's Codex window, or 0.</param>
+    private void FollowCodexLog(nint hwnd)
+    {
+        int processId = _routes is null || hwnd == 0 ? 0 : WindowEnumerator.GetProcessId(hwnd);
+
+        if (processId == 0 || processId == _routeProcessId)
+        {
+            return;
+        }
+
+        _routeProcessId = processId;
+        string? family = WindowEnumerator.GetPackageFamilyName(processId);
+        _log.Info($"following the Codex Desktop log of its main process{(family is null ? " (no package)" : string.Empty)}");
+        _routes!.Follow(DesktopLogTail.LogsRoot(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), family), processId);
+    }
+
+    /// <summary>
+    /// Takes the page Codex shows, on the watcher's thread: the engine chooses by it, and the rollout reader is asked to
+    /// read the routed thread in case discovery left it out. Logged by kind only, never by thread id.
+    /// </summary>
+    /// <param name="route">The latest route, or <see langword="null"/> when Codex's log names none.</param>
+    private void OnRoute(CodexRoute? route)
+    {
+        try
+        {
+            _log.Info(route is null ? "codex page unknown; hooks and JSONL choose the thread" : $"codex page {route.Kind}");
+
+            lock (_routeGate)
+            {
+                _route = route;
+                ApplyRoute(_pipeline, route);
+            }
+        }
+        catch (Exception exception)
+        {
+            // The watcher's timer thread: an escaping exception would end the process.
+            _log.Error("codex page update failed", exception);
+        }
+    }
+
+    /// <summary>Gives a pipeline the route: the engine's choice and, for a local thread, its rollout.</summary>
+    /// <param name="pipeline">The pipeline, or <see langword="null"/> while there is none.</param>
+    /// <param name="route">The route, or <see langword="null"/>.</param>
+    private static void ApplyRoute(Pipeline? pipeline, CodexRoute? route)
+    {
+        if (pipeline is null)
+        {
+            return;
+        }
+
+        pipeline.Engine.OnRoute(route);
+
+        if (route is { Kind: CodexRouteKind.LocalThread, ThreadId: { } threadId })
+        {
+            pipeline.Tailer.Follow(threadId);
+        }
+    }
+
+    /// <summary>A Codex menu or panel opened over the line, or all closed: hide the overlay out of its way, or show it again.</summary>
+    private void OnMenusChanged()
+    {
+        _log.Info(_menus?.IsOpen == true ? "codex menu or panel over the line; overlay hidden" : "codex menus and panels closed");
+        Reposition();
+    }
+
+    /// <summary>The input card was found, moved, resized or lost: place the overlay again.</summary>
+    private void OnInputChanged()
+    {
+        bool found = _input?.Current is not null;
+
+        if (found != _loggedInputFound)
+        {
+            _loggedInputFound = found;
+            _log.Info(found ? "input card found; placing above it" : "input card not seen; placing by the window");
+        }
+
         Reposition();
     }
 
@@ -222,6 +337,12 @@ internal sealed class OverlayController : IDisposable
             && !OverlayWindowInterop.IsPlacedFor(_window.Handle, codex))
         {
             Reposition();
+        }
+
+        if (_window is { IsVisible: true } && _settings.Anchor == OverlayAnchor.AboveCodexInput && _anchor?.Current.Hwnd is { } shown && shown != 0)
+        {
+            // Retries a menu subscription that failed; nothing to do otherwise.
+            _menus?.Track(shown);
         }
 
         if (_pipeline is { } pipeline)
@@ -271,11 +392,19 @@ internal sealed class OverlayController : IDisposable
         Pipeline pipeline = new(engine, tailer, CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token));
 
         tailer.ThreadObserved += observation => engine.Observe(observation);
+        tailer.RequestTimed += timing => engine.ApplyTiming(timing);
         pipeline.Subscription = engine.Snapshots.Subscribe(new Observer<CacheSnapshot>(OnEngineSnapshot));
         engine.OnCodexWindows(Math.Max(_loggedWindows, 0));
         // After a settings save the new engine starts with the selection the hooks confirmed, not only the JSONL guess.
         _hookRouter.Replay(engine);
-        _pipeline = pipeline;
+
+        lock (_routeGate)
+        {
+            // Under the gate, so a route that arrives meanwhile reaches this pipeline after, not before, the replayed one.
+            _pipeline = pipeline;
+            ApplyRoute(pipeline, _route);
+        }
+
         _ = Task.Run(() => TailAsync(pipeline));
         _log.Info($"pipeline start: rollouts {(_settings.SessionRootOverride is null ? "default root" : "override root")}, ttl {_settings.EstimatedCacheTtlMinutes} min");
     }
@@ -385,7 +514,13 @@ internal sealed class OverlayController : IDisposable
         UpdateCache(latest);
     }
 
-    /// <summary>Shows, hides and places the overlay for the current anchor and settings.</summary>
+    /// <summary>
+    /// Shows, hides and places the overlay for the current anchor, settings and line. It hides on a page with nothing to
+    /// show. Over the input card it is as wide as the visible input box; placed by the window, as wide as its text. While it is shown
+    /// with <see cref="OverlayAnchor.AboveCodexInput"/>, the input locator and the menu watcher follow the anchor window,
+    /// and the overlay hides while a Codex menu is open, since those open upward under it; otherwise both stop, so no UI
+    /// Automation call reaches Codex while the overlay is hidden for another reason.
+    /// </summary>
     private void Reposition()
     {
         if (_window is null || _anchor is null)
@@ -396,20 +531,50 @@ internal sealed class OverlayController : IDisposable
         AnchorSnapshot anchor = _anchor.Current;
 
         if (!OverlayVisibility.ShouldShow(anchor.State, _settings.HideWhenCodexInactive, _userHidden)
+            || _viewModel.View is { HasContent: false }
             || anchor.Bounds is not { } codex || anchor.WorkArea is not { } workArea)
         {
-            if (_window.IsVisible)
-            {
-                _window.Hide();
-            }
+            _input?.Stop();
+            _menus?.Stop();
+            HideWindow();
 
             return;
         }
 
+        InputSighting? input = null;
+
+        if (_settings.Anchor == OverlayAnchor.AboveCodexInput && _input is not null)
+        {
+            _input.Track(anchor.Hwnd);
+            _menus?.Track(anchor.Hwnd);
+            input = _input.Current;
+
+            if (_menus?.IsOpen == true)
+            {
+                // The watcher keeps listening, so the menu's close shows the overlay again.
+                HideWindow();
+
+                return;
+            }
+        }
+        else
+        {
+            _input?.Stop();
+            _menus?.Stop();
+        }
+
         FrameworkElement content = (FrameworkElement)_window.Content;
+        content.Width = input is { } seen ? (seen.Box ?? seen.Card).Width / anchor.DpiScale : double.NaN;
         content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        WindowBounds bounds = OverlayPlacement.Compute(codex, workArea, content.DesiredSize.Width, content.DesiredSize.Height,
+        WindowBounds bounds = OverlayPlacement.Compute(codex, input, workArea, content.DesiredSize.Width, content.DesiredSize.Height,
                                                        anchor.DpiScale, _settings.OffsetX, _settings.OffsetY);
+
+        if (input is { } placed)
+        {
+            // A panel that opens upward from the input box covers this point just above the line (§6.4).
+            WindowBounds box = placed.Box ?? placed.Card;
+            _menus?.SetProbe(box.Left + (box.Width / 2), bounds.Top - ProbeAboveLinePx, box, codex);
+        }
 
         OverlayWindowInterop.PlaceAbove(_window.Handle, anchor.Hwnd, bounds.Left, bounds.Top);
 
@@ -417,6 +582,14 @@ internal sealed class OverlayController : IDisposable
         {
             // ShowActivated is false, so WPF shows it with SW_SHOWNA: no activation, Codex keeps the focus.
             _window.Show();
+        }
+    }
+
+    private void HideWindow()
+    {
+        if (_window is { IsVisible: true })
+        {
+            _window.Hide();
         }
     }
 
@@ -512,7 +685,7 @@ internal sealed class OverlayController : IDisposable
         DiagnosticsInput input = new(AppVersion, RuntimeInformation.OSDescription + " " + RuntimeInformation.OSArchitecture,
                                      _settings, _settingsProblems, _paths.SettingsFile, _log.CurrentFile, _anchor.GetDiagnostics(),
                                      _anchor.Current, _viewModel.Cache, Hooks.Snapshot(), _stub, _tray?.IsAdded == true, _window.IsVisible, _userHidden,
-                                     _window.ExtendedStyle, pipeline);
+                                     _window.ExtendedStyle, pipeline, _input?.GetDiagnostics(), _routes?.GetDiagnostics());
         string report = DiagnosticsReport.Build(input, _userProfile, Environment.UserName);
 
         for (int attempt = 0; ; attempt++)

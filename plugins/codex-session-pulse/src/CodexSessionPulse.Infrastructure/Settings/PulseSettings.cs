@@ -1,10 +1,16 @@
 namespace CodexSessionPulse.Infrastructure.Settings;
 
-/// <summary>Where the overlay sits against the Codex window.</summary>
+/// <summary>Where the overlay sits against the Codex window; the offsets shift either position.</summary>
 public enum OverlayAnchor
 {
-    /// <summary>Centred at the bottom of the Codex window, shifted by the offsets.</summary>
+    /// <summary>Centred at the bottom of the Codex window, 170 DIP above its bottom edge. Reads nothing of the window's content.</summary>
     BottomOfCodexWindow,
+
+    /// <summary>
+    /// Centred just above Codex's input card, found through UI Automation (geometry only, never text); placed like
+    /// <see cref="BottomOfCodexWindow"/> while no card is found.
+    /// </summary>
+    AboveCodexInput,
 }
 
 /// <summary>The overlay colour theme.</summary>
@@ -26,8 +32,11 @@ public enum OverlayTheme
 /// </summary>
 public sealed record PulseSettings
 {
-    /// <summary>The schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>
+    /// The schema version this build reads and writes. Version 2 added <see cref="OverlayAnchor.AboveCodexInput"/> and made
+    /// the offsets shifts from the anchor's own position; version 1's offsets were measured from the window's bottom edge.
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>The smallest accepted TTL estimate, in minutes.</summary>
     public const int MinTtlMinutes = 1;
@@ -57,17 +66,13 @@ public sealed record PulseSettings
     public IReadOnlyList<string> CodexExecutablePathFilters { get; init; } = [@"\WindowsApps\OpenAI.Codex_"];
 
     /// <summary>Gets where the overlay sits.</summary>
-    public OverlayAnchor Anchor { get; init; } = OverlayAnchor.BottomOfCodexWindow;
+    public OverlayAnchor Anchor { get; init; } = OverlayAnchor.AboveCodexInput;
 
-    /// <summary>Gets the horizontal offset in DIP; positive moves right.</summary>
+    /// <summary>Gets the horizontal shift from the anchor's position in DIP; positive moves right.</summary>
     public int OffsetX { get; init; }
 
-    /// <summary>
-    /// Gets the offset of the overlay's bottom edge from the Codex window's bottom edge in DIP; negative moves up. The default
-    /// clears Codex Desktop's composer card (input box and project chips, about 157 DIP from the bottom), so the line sits
-    /// just above it instead of over the input.
-    /// </summary>
-    public int OffsetY { get; init; } = -170;
+    /// <summary>Gets the vertical shift from the anchor's position in DIP; negative moves up.</summary>
+    public int OffsetY { get; init; }
 
     /// <summary>Gets a value indicating whether the overlay hides while Codex is not the foreground app.</summary>
     public bool HideWhenCodexInactive { get; init; } = true;

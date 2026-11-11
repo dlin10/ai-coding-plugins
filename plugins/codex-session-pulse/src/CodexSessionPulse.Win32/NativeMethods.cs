@@ -15,6 +15,7 @@ internal static partial class NativeMethods
     internal const uint GwOwner = 4;
     internal const uint GwHwndNext = 2;
     internal const uint GwHwndPrev = 3;
+    internal const uint GaRoot = 2;
     internal const uint GaRootOwner = 3;
 
     internal const uint SwpNoSize = 0x0001;
@@ -72,6 +73,13 @@ internal static partial class NativeMethods
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ScreenPoint
+    {
+        public int X;
+        public int Y;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -165,4 +173,10 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static unsafe partial bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, char* buffer, ref int size);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint WindowFromPoint(ScreenPoint point);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetPackageFamilyName")]
+    internal static unsafe partial int GetPackageFamilyName(SafeProcessHandle process, ref uint length, char* name);
 }

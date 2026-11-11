@@ -5,7 +5,14 @@
     <!-- LibraryImport generates unsafe marshalling stubs. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- For the managed UI Automation client (UIAutomationClient) of CodexInputLocator; no WPF window lives here. -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UseWPF drops System.IO from the implicit usings (WPF's Shapes.Path clashes with it); this project has no Shapes. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CodexSessionPulse.Core\CodexSessionPulse.Core.csproj" />

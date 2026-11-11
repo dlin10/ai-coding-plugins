@@ -39,6 +39,24 @@ public sealed class SettingsWindowTests
         });
     }
 
+    /// <summary>Position offers both rules, starts at the input-box rule, and saves the one chosen.</summary>
+    [Fact]
+    public void Save_KeepsThePositionChosen()
+    {
+        RunOnSta(() =>
+        {
+            SettingsWindow window = Create(_ => [], out _);
+
+            Assert.Equal(OverlayAnchor.AboveCodexInput, window.Anchor.SelectedItem);
+            Assert.Equal(Enum.GetValues<OverlayAnchor>(), window.Anchor.ItemsSource);
+
+            window.Anchor.SelectedItem = OverlayAnchor.BottomOfCodexWindow;
+            window.SaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Equal(OverlayAnchor.BottomOfCodexWindow, window.Saved?.Anchor);
+        });
+    }
+
     /// <summary>A refused save keeps the window open and shows the problem codes.</summary>
     [Fact]
     public void Save_WithProblems_StaysOpen()

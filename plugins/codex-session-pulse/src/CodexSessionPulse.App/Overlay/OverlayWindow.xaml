@@ -97,15 +97,17 @@
     </Style>
   </Window.Resources>
 
-  <Border MinWidth="500"
-          MaxWidth="900"
-          Height="40"
+  <Border Height="40"
           Padding="12,0"
           CornerRadius="10"
           BorderThickness="1"
           Background="{DynamicResource Pulse.Background}"
           BorderBrush="{DynamicResource Pulse.Border}">
-    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <DockPanel VerticalAlignment="Center" LastChildFill="False">
+      <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Content="Auto Warm" IsEnabled="False" ToolTip="{Binding AutoWarmHint}" />
+      <Button DockPanel.Dock="Right" Style="{StaticResource FlatButton}" Content="Choose folder" Click="OnChooseFolder"
+              ToolTip="Choose the folder that holds the Codex rollout JSONL files"
+              Visibility="{Binding View.ShowChooseFolder, Converter={StaticResource Visible}}" />
       <TextBlock Style="{StaticResource ToneText}" Text="{Binding View.StateText}" ToolTip="{Binding View.StateTooltip}" />
 
       <StackPanel Orientation="Horizontal" Visibility="{Binding View.ShowMetrics, Converter={StaticResource Visible}}">
@@ -129,23 +131,19 @@
             </Style>
           </TextBlock.Style>
         </TextBlock>
-        <TextBlock Style="{StaticResource Separator}" />
-        <TextBlock Style="{StaticResource LineText}" Text="{Binding View.TokensText}" ToolTip="{Binding View.TokensTooltip}" />
-        <TextBlock Style="{StaticResource Separator}" />
+        <TextBlock>
+          <TextBlock.Style>
+            <Style TargetType="TextBlock" BasedOn="{StaticResource Separator}">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding View.TtlText}" Value="">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
         <TextBlock Style="{StaticResource LineText}" Text="{Binding View.SpeedText}" ToolTip="{Binding View.SpeedTooltip}" />
       </StackPanel>
-
-      <TextBlock Style="{StaticResource Separator}" />
-      <TextBlock Foreground="{DynamicResource Pulse.Muted}" VerticalAlignment="Center"
-                 Text="{Binding View.SelectionText}" ToolTip="{Binding View.SelectionTooltip}" />
-      <TextBlock Style="{StaticResource Separator}" />
-      <TextBlock Foreground="{DynamicResource Pulse.Muted}" VerticalAlignment="Center"
-                 Text="{Binding View.SourceText}" ToolTip="{Binding View.SourceTooltip}" />
-
-      <Button Style="{StaticResource FlatButton}" Content="Choose folder" Click="OnChooseFolder"
-              ToolTip="Choose the folder that holds the Codex rollout JSONL files"
-              Visibility="{Binding View.ShowChooseFolder, Converter={StaticResource Visible}}" />
-      <Button Style="{StaticResource FlatButton}" Content="Auto Warm" IsEnabled="False" ToolTip="{Binding AutoWarmHint}" />
-    </StackPanel>
+    </DockPanel>
   </Border>
 </Window>

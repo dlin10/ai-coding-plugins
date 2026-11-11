@@ -45,7 +45,7 @@ internal sealed class OverlayViewModel(TimeProvider clock) : INotifyPropertyChan
         }
     }
 
-    /// <summary>Takes the number of hook events received since start, for the source tooltip.</summary>
+    /// <summary>Takes the number of hook events received since start, for the state tooltip.</summary>
     /// <param name="received">The count.</param>
     public void UpdateHooks(int received)
     {

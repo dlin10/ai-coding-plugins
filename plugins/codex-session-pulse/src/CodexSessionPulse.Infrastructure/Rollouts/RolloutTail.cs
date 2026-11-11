@@ -8,7 +8,10 @@ namespace CodexSessionPulse.Infrastructure.Rollouts;
 /// <summary>What one poll found, in file order.</summary>
 /// <param name="Observations">Threads seen in a <c>session_meta</c> for the first time by this reader.</param>
 /// <param name="Usages">New usage events.</param>
-public sealed record RolloutPollResult(IReadOnlyList<ThreadObservation> Observations, IReadOnlyList<TokenUsageSnapshot> Usages);
+/// <param name="Timings">New model request timings, for the output speed.</param>
+public sealed record RolloutPollResult(IReadOnlyList<ThreadObservation> Observations,
+                                       IReadOnlyList<TokenUsageSnapshot> Usages,
+                                       IReadOnlyList<RequestTiming> Timings);
 
 /// <summary>
 /// The synchronous core of the rollout reader (spec §5.2): bounded discovery, a byte cursor per file and
@@ -39,6 +42,8 @@ public sealed class RolloutTail
     private readonly IClock _clock;
     private readonly Dictionary<string, RolloutCursor> _cursors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _changed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentQueue<string> _follow = new();
+    private readonly List<RequestTiming> _timings = [];
     private readonly HashSet<ReplayKey> _replayKeys = [];
     private readonly Queue<ReplayKey> _replayOrder = new();
     private DateTimeOffset? _lastDiscoveryUtc;
@@ -79,6 +84,20 @@ public sealed class RolloutTail
         _rescanRequested = true;
     }
 
+    /// <summary>
+    /// Makes the next poll track the newest rollout of a thread found in the day folders discovery searches, unless a
+    /// file of the thread is tracked already. It displaces the least recently grown file, like real activity does, and
+    /// is read in the same poll: its <c>session_meta</c> and last state as for any newly found file.
+    /// </summary>
+    /// <param name="threadId">The thread id; anything but a GUID is ignored.</param>
+    public void Follow(string threadId)
+    {
+        if (Guid.TryParseExact(threadId, "D", out _))
+        {
+            _follow.Enqueue(threadId);
+        }
+    }
+
     /// <summary>Discovers when due, then reads what every tracked or changed file appended since the last poll.</summary>
     /// <returns>The new observations and usage events.</returns>
     public RolloutPollResult Poll()
@@ -89,7 +108,7 @@ public sealed class RolloutTail
         if (!Directory.Exists(_options.Root))
         {
             Status = SourceStatus.NotFound;
-            return new RolloutPollResult(observations, usages);
+            return new RolloutPollResult(observations, usages, []);
         }
 
         Status = SourceStatus.Available;
@@ -105,6 +124,14 @@ public sealed class RolloutTail
             foreach (string path in Discover(now))
             {
                 Track(path, now, evict: false);
+            }
+        }
+
+        while (_follow.TryDequeue(out string? threadId))
+        {
+            if (FindNewest(threadId, now) is { } followed)
+            {
+                Track(followed, now, evict: true);
             }
         }
 
@@ -125,10 +152,43 @@ public sealed class RolloutTail
             Read(cursor, now, observations, usages);
         }
 
-        return new RolloutPollResult(observations, usages);
+        RequestTiming[] timings = [.. _timings];
+        _timings.Clear();
+
+        return new RolloutPollResult(observations, usages, timings);
     }
 
     private IEnumerable<string> Discover(DateTimeOffset nowUtc)
+    {
+        return DayFiles(nowUtc, "rollout-*" + RolloutExtension).OrderByDescending(LastTouched)
+                                                               .Take(_options.MaxFiles)
+                                                               .Select(f => f.FullName);
+    }
+
+    /// <summary>Finds the newest rollout of a thread in the day folders.</summary>
+    /// <param name="threadId">The thread id, a GUID.</param>
+    /// <param name="nowUtc">The current time, which dates the day folders.</param>
+    /// <returns>The file, or <see langword="null"/> when there is none or a file of the thread is tracked already.</returns>
+    private string? FindNewest(string threadId, DateTimeOffset nowUtc)
+    {
+        foreach (string tracked in _cursors.Keys)
+        {
+            if (RolloutFileName.TryGetThreadId(tracked, out string id) && string.Equals(id, threadId, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return DayFiles(nowUtc, "rollout-*-" + threadId + "*" + RolloutExtension)
+               .Where(f => RolloutFileName.TryGetThreadId(f.Name, out string id) && string.Equals(id, threadId, StringComparison.OrdinalIgnoreCase))
+               .MaxBy(LastTouched)?.FullName;
+    }
+
+    /// <summary>Lists the <c>.jsonl</c> files matching a pattern in the day folders discovery covers.</summary>
+    /// <param name="nowUtc">The current time, which dates the day folders.</param>
+    /// <param name="pattern">The file name pattern.</param>
+    /// <returns>The files, in no particular order.</returns>
+    private List<FileInfo> DayFiles(DateTimeOffset nowUtc, string pattern)
     {
         DateTime today = nowUtc.ToLocalTime().Date;
         List<FileInfo> files = [];
@@ -143,15 +203,17 @@ public sealed class RolloutTail
 
             if (Directory.Exists(folder))
             {
-                files.AddRange(new DirectoryInfo(folder).EnumerateFiles("rollout-*" + RolloutExtension)
+                // A pattern ending in .jsonl also matches .jsonl.zst on Windows.
+                files.AddRange(new DirectoryInfo(folder).EnumerateFiles(pattern)
                                                         .Where(f => f.Name.EndsWith(RolloutExtension, StringComparison.OrdinalIgnoreCase)));
             }
         }
 
-        return files.OrderByDescending(f => f.LastWriteTimeUtc > f.CreationTimeUtc ? f.LastWriteTimeUtc : f.CreationTimeUtc)
-                    .Take(_options.MaxFiles)
-                    .Select(f => f.FullName);
+        return files;
     }
+
+    private static DateTime LastTouched(FileInfo file) =>
+        file.LastWriteTimeUtc > file.CreationTimeUtc ? file.LastWriteTimeUtc : file.CreationTimeUtc;
 
     private void Track(string path, DateTimeOffset nowUtc, bool evict)
     {
@@ -386,6 +448,12 @@ public sealed class RolloutTail
             {
                 Diagnostics.Increment(DiagnosticCodes.ReplayedRecord);
             }
+        }
+
+        // A request read twice (truncation, re-discovery) would count twice in the speed.
+        if (parsed.Timing is { } timing && Remember(new ReplayKey(cursor.Path.ToUpperInvariant(), lineStart, Hash(line))))
+        {
+            _timings.Add(timing);
         }
     }
 

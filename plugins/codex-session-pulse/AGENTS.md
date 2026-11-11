@@ -16,7 +16,8 @@ tokens and a TTL estimate. The source of truth is `docs/spec.md` (Russian); the 
   it), `measure-hook.ps1` and `measure-overlay.ps1` (the numbers in `docs/compatibility.md` §13).
 - `src/CodexSessionPulse.Core` – domain contract, trackers, state. No WPF, no I/O, no formatted strings.
 - `src/CodexSessionPulse.Infrastructure` – JSONL tailer, settings, filesystem. References Core.
-- `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry.
+- `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry, and `CodexInputLocator`, which finds Codex's input card
+  through UI Automation (`UseWPF` is there only for `UIAutomationClient`).
 - `tests/<Project>.Tests` – xUnit, one test project per source project.
 
 ## Build and test
@@ -73,6 +74,12 @@ or stop the exact PID.
 - **The spec §4.3 public records in Core are frozen** (`TokenUsageSnapshot`, `CacheSnapshot`, `AnchorSnapshot`, the
   interfaces and enums): do not rename, reorder or add members; changes go through the orchestrator. Additive types
   are allowed and listed below.
+- **The overlay reads no text of the Codex window.** `CodexInputLocator` asks UI Automation only for control types,
+  classes and bounding rectangles: never `Name`, `Value`, `HelpText` or a text pattern. The README and spec §10 promise
+  this; a need for more is the owner's decision, not a code change.
+- **Of Codex Desktop's log, only the route line.** `DesktopLogTail` matches the marker as bytes and decodes only those
+  lines; `DesktopLogLine` keeps their time and `ownerRoutePath`. No other line becomes a string, and the overlay log
+  records the page kind, never a thread id. The same promise and the same owner's decision as above.
 - The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0. The launcher
   keeps that promise too: a missing exe, a failed download or a missing .NET runtime ends a `--hook` with 0.
 - **The launcher's fast path is `if exist` and nothing else.** No PowerShell, no `call` per manifest line, no process
@@ -109,6 +116,27 @@ New public types beside the frozen ones; adding members to them is allowed. Thei
   for `StaleAfter` is `Stale`. `ThreadRegistry.End` ignores a thread known as a subagent.
 - Win32: `JobProcess` (`StartDetached` with breakaway and fallback, `Current` for `exitsWithJob`) and
   `WindowEnumerator.CountCodexWindowsIncludingCloaked` for the exit recheck.
+
+## Additive contract (open thread)
+
+- Core: `CodexRoute` and `CodexRouteKind` (the page Codex shows), `PulseEngine.OnRoute`,
+  `ActiveThreadResolver.OnRoute`/`EmptySelection`, and the `SelectionReasons.DesktopRoute*` codes. A known route alone
+  chooses the thread; a page with nothing to show is NoSession with its reason, which the formatter turns into text.
+- Infrastructure `Desktop/`: `DesktopLogLine` (the marker and its parse), `DesktopLogTail` (one process's `t0` log,
+  synchronous, used by tests), `DesktopRouteWatcher` (the 250 ms timer around it). `RolloutTail.Follow` and
+  `RolloutTailer.Follow` read a routed thread's rollout that discovery left out.
+- Win32: `WindowEnumerator.GetPackageFamilyName`, which locates the log folder of an MSIX Codex.
+- Win32: `CodexMenuWatcher` (UI Automation `MenuOpened`/`MenuClosed` of the Codex window, and a hit test just above
+  the line every 500 ms judged by `IsPanelAt`; the overlay hides while a menu or panel covers its place),
+  `CodexInputLocator.PickBox` and `InputSighting.Box` (the visible input box whose width the line takes).
+
+## Additive contract (speed)
+
+- Core: `RequestTiming` (one model request's output and time), `SpeedTracker` (Σ output / Σ time over the last 10,
+  `ThreadPulseState.Speed`), `ThreadRegistry.ApplyTiming`, `PulseEngine.ApplyTiming`; the snapshot's frozen `Speed`
+  field carries the result.
+- Infrastructure: `RolloutFileParser` times a request from the latest `token_count`/`task_started` to its
+  `token_usage_record`; `RolloutPollResult.Timings` and `RolloutTailer.RequestTimed` deliver it after the poll's usages.
 
 ## Lifecycle (#252)
 
