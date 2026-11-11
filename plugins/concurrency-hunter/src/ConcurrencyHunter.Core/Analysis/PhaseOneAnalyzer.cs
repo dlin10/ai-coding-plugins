@@ -6,6 +6,7 @@ using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
 using ConcurrencyHunter.Solving;
@@ -37,7 +38,7 @@ public static class PhaseOneAnalyzer
     // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken,
                                                     ModelGeneration generation = ModelGeneration.ReadOnly) =>
-        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken, generation);
+        AnalyzeAsync(solution, rootDirectory, EnvironmentLimits(), cancellationToken, generation);
 
     /// <summary>The analysis of a solution with the built-in root providers under the given limits.</summary>
     /// <param name="solution">The solution to analyse.</param>
@@ -50,7 +51,30 @@ public static class PhaseOneAnalyzer
     // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
                                                     ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
-        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation, budget);
+        AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits,
+                     Z3ConstraintSolver.Create, new GenerationSetup(generation, Budget: budget), cancellationToken);
+
+    /// <summary>The analysis with a caller-supplied generation setup and default limits.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="generation">The generated layer setup, including its source provider.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
+    internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, GenerationSetup generation,
+                                                      CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, EnvironmentLimits(), generation, cancellationToken);
+
+    /// <summary>The analysis with caller-supplied limits and generation setup.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="generation">The generated layer setup, including its source provider.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
+    internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits,
+                                                      GenerationSetup generation, CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits,
+                     Z3ConstraintSolver.Create, generation, cancellationToken);
 
     /// <summary>The owner's run over one corpus for the shared frameworks' census (TD-034c): it generates within the census budget, and it
     /// reads and writes its generated files and model lock under <paramref name="censusFolder"/> rather than the corpus's repository, so it
@@ -63,14 +87,16 @@ public static class PhaseOneAnalyzer
     /// <param name="limits">The summary and heap limits.</param>
     /// <param name="settle">Whether the run settles the census written before rather than regenerating it.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="sources">The optional source provider for generations, read before their clocks start.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeCensusAsync(Solution solution, string rootDirectory, string censusFolder, AnalysisLimits limits, bool settle,
-                                                          CancellationToken cancellationToken)
+                                                          CancellationToken cancellationToken, LibrarySources? sources = null)
     {
         var install = ImplementationAssemblies.ForThisProcess();
         var builtIn = settle ? null : LibraryModels.ForCensus(FrameworkAssemblies.Installed(install.DotnetRoot));
         return AnalyzeAsync(solution, rootDirectory, Path.GetFullPath(censusFolder), ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits,
-                            Z3ConstraintSolver.Create, new GenerationSetup(ModelGeneration.Generate, install, Budget: GenerationBudget.Census, BuiltIn: builtIn),
+                            Z3ConstraintSolver.Create, new GenerationSetup(ModelGeneration.Generate, install, Budget: GenerationBudget.Census, BuiltIn: builtIn,
+                                                                          Sources: sources),
                             cancellationToken);
     }
 
@@ -430,6 +456,7 @@ public static class PhaseOneAnalyzer
                       .Select(name => new StepTiming(name, timings.GetValueOrDefault(name).TotalSeconds))
                       .ToArray(),
             ScopeSizes = sizes,
+            Sources = generation.Sources?.Statistics ?? new(false, new(0, 0, 0), new(0, 0, 0)),
             GenerationWanted = wanted.OrderBy(item => item.MemberId, StringComparer.Ordinal).ThenBy(item => item.FileKey, StringComparer.Ordinal).ToArray()
         };
     }

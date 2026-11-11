@@ -7,6 +7,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="ConcurrencyHunter.Core.Tests" />
     <InternalsVisibleTo Include="ConcurrencyHunter.Cli.Tests" />
+    <InternalsVisibleTo Include="concurrency-hunter" />
     <InternalsVisibleTo Include="ConcurrencyHunter.CoreLibGeneration" />
     <InternalsVisibleTo Include="ConcurrencyHunter.FrameworkGeneration" />
   </ItemGroup>

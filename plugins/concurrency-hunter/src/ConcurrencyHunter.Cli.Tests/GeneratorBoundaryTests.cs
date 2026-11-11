@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -6,25 +7,29 @@ using System.Reflection.PortableExecutable;
 using System.Xml.Linq;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace ConcurrencyHunter.Cli.Tests;
 
 /// <summary>
 /// What a directory listing and a proxy cannot prove about <c>generate</c> (R1), read from the metadata of
-/// <c>ConcurrencyHunter.Core.dll</c> and the CLI assembly as built: no networking, no P/Invoke but the one by which the member limit finds
-/// its thread, and no file-system write reachable from <c>GenerateCommand.Run</c> but its one <c>File.WriteAllBytes</c> to the output path.
+/// <c>ConcurrencyHunter.Core.dll</c> and the CLI assembly as built: networking belongs to the source provider, no P/Invoke but the one by
+/// which the member limit finds its thread, and only the output file and source cache writers reachable from <c>GenerateCommand.Run</c>.
 /// </summary>
-public sealed class GeneratorBoundaryTests
+public sealed partial class GeneratorBoundaryTests
 {
     private const string GENERATE = "ConcurrencyHunter.GenerateCommand.Run";
     private const string WRITE_ALL_BYTES = "System.IO.File.WriteAllBytes";
+    private const string SOURCE_CACHE_WRITER = "ConcurrencyHunter.Providers.LibraryModels.Sources.LibrarySources.WriteCacheAsync";
 
     /// <summary>The analyzer's one native import (SPEC TD-034b): the member limit's thread id, by which it reads the thread's CPU time.</summary>
     private const string THREAD_ID_IMPORT = "kernel32.dll!GetCurrentThreadId";
 
     /// <summary>The one writer the run's generated model layer added: it writes the generated files, and only the run's generation reaches
-    /// it (SPEC TD-034c), so <c>generate</c> still reaches no writer but its own.</summary>
+    /// it (SPEC TD-034c).</summary>
     private const string GENERATED_FILES_WRITER = "ConcurrencyHunter.Providers.LibraryModels.GeneratedModelFiles.WriteLocked";
 
     /// <summary>The writers of the two assemblies at the run's start commit ce22c8c, each by its declaring type and the source
@@ -48,7 +53,7 @@ public sealed class GeneratorBoundaryTests
     {
         using var program = BuiltImages();
         foreach (var image in program.Images)
-            Assert.Empty(NetworkUse(image));
+            Assert.Empty(NetworkUse(image, image == program.Images[0] ? typeof(LibrarySources).FullName : null));
         // BuiltImages reads Core first, then the CLI.
         Assert.Equal([THREAD_ID_IMPORT], PlatformInvokes(program.Images[0]));
         Assert.Empty(PlatformInvokes(program.Images[1]));
@@ -70,8 +75,35 @@ public sealed class GeneratorBoundaryTests
         var runtime = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         using var http = new Image(Path.Combine(runtime, "System.Net.Http.Json.dll"));
         Assert.NotEmpty(NetworkUse(http));
+        Assert.NotEmpty(NetworkUse(program.Images[0]));
         using var corelib = new Image(typeof(object).Assembly.Location);
         Assert.NotEmpty(PlatformInvokes(corelib));
+
+        // A permitted source provider does not permit another type in the same assembly. Its async body is still its own.
+        var compilation = CSharpCompilation.Create("NetworkBoundary", [CSharpSyntaxTree.ParseText("""
+            using System.Net.Http;
+            using System.Threading.Tasks;
+            public static class Sources
+            {
+                public static async Task Read() { await Task.Yield(); using var client = new HttpClient(); }
+                public sealed class Proxy { public object Read() => new HttpClient(); }
+            }
+            public static class Other
+            {
+                public static object Read() => new HttpClient();
+                public static HttpClient SignatureOnly() => null;
+                public static object Generic() => new System.Collections.Generic.List<HttpClient>();
+                public static object TypeToken() => typeof(HttpClient);
+            }
+            """)], StubAssemblies.PlatformWithout([]), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var bytes = new MemoryStream();
+        var emitted = compilation.Emit(bytes);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        bytes.Position = 0;
+        using var fixture = new Image(bytes);
+        Assert.Contains(NetworkUse(fixture), use => use.StartsWith("Sources.Read:", StringComparison.Ordinal));
+        Assert.Equal(["Other.Generic", "Other.Read", "Other.SignatureOnly", "Other.TypeToken"],
+                     NetworkUse(fixture, "Sources").Select(use => use[..use.IndexOf(':')]).Distinct().Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -80,14 +112,19 @@ public sealed class GeneratorBoundaryTests
         using var program = BuiltImages();
         var writers = program.Writers();
 
-        Assert.Equal(START_WRITERS.Append(GENERATED_FILES_WRITER).Append(GENERATE).Order(StringComparer.Ordinal),
+        Assert.Equal(START_WRITERS.Append(GENERATED_FILES_WRITER).Append(SOURCE_CACHE_WRITER).Append(GENERATE).Order(StringComparer.Ordinal),
                      writers.Select(writer => writer.Source).Distinct().Order(StringComparer.Ordinal));
 
         var reached = program.Reachable(program.Methods("ConcurrencyHunter.GenerateCommand", "Run"));
         var reachedWriters = writers.Where(writer => reached.ContainsKey(writer.Method)).ToArray();
-        Assert.True(reachedWriters.Length == 1 && reachedWriters[0].Source == GENERATE,
+        Assert.Equal(new[] { GENERATE, SOURCE_CACHE_WRITER }.Order(StringComparer.Ordinal),
+                     reachedWriters.Select(writer => writer.Source).Distinct().Order(StringComparer.Ordinal));
+        Assert.True(reachedWriters.Length == 2,
                     "Writers reachable from generate:\n" + string.Join("\n", reachedWriters.Select(writer => PathTo(reached, writer.Method))));
-        Assert.Equal([WRITE_ALL_BYTES], reachedWriters[0].Writes);
+        Assert.Equal([WRITE_ALL_BYTES], reachedWriters.Single(writer => writer.Source == GENERATE).Writes);
+        Assert.Equal(new[] { "System.IO.Directory.CreateDirectory", "System.IO.FileStream..ctor", "System.IO.File.Move", "System.IO.File.Delete" }
+                         .Order(StringComparer.Ordinal),
+                     reachedWriters.Single(writer => writer.Source == SOURCE_CACHE_WRITER).Writes.Order(StringComparer.Ordinal));
         // generate reaches the engine, not only its own command.
         Assert.Contains(reached.Keys, node => node.Image.SourceName(node.Handle) == "ConcurrencyHunter.Analysis.ScopePipeline.Run");
 
@@ -110,30 +147,27 @@ public sealed class GeneratorBoundaryTests
     private static ProgramImages BuiltImages() =>
         new([typeof(ModelGenerator).Assembly.Location, typeof(GenerateCommand).Assembly.Location]);
 
-    /// <summary>Every reference into <c>System.Net</c>, and every assembly reference named <c>System.Net.*</c> or <c>NuGet.*</c>.</summary>
+    /// <summary>Network references by their source method's owner, and every assembly reference named <c>NuGet.*</c>.</summary>
     /// <param name="image">The assembly.</param>
-    private static List<string> NetworkUse(Image image)
+    /// <param name="allowedType">The source provider's exact type name, including its nested types, when allowed in this image.</param>
+    private static List<string> NetworkUse(Image image, string? allowedType = null)
     {
         var reader = image.Reader;
         var found = new List<string>();
         foreach (var handle in reader.AssemblyReferences)
         {
             var name = reader.GetString(reader.GetAssemblyReference(handle).Name);
-            if (IsNetwork(name) || name.StartsWith("NuGet.", StringComparison.OrdinalIgnoreCase))
+            if (name.StartsWith("NuGet.", StringComparison.OrdinalIgnoreCase))
                 found.Add($"assembly {name}");
         }
 
-        foreach (var handle in reader.TypeReferences)
+        foreach (var handle in reader.MethodDefinitions)
         {
-            if (image.TypeName(handle) is { } name && IsNetwork(name))
-                found.Add($"type {name}");
-        }
-
-        foreach (var handle in reader.MemberReferences)
-        {
-            var reference = reader.GetMemberReference(handle);
-            if (image.ParentTypeName(reference.Parent) is { } type && IsNetwork(type))
-                found.Add($"member {type}.{reader.GetString(reference.Name)}");
+            var source = image.SourceName(handle);
+            if (image.OwnedBy(handle, allowedType))
+                continue;
+            if (image.UsesNetwork(handle))
+                found.Add($"{source}: System.Net reference");
         }
 
         return found;
@@ -279,7 +313,7 @@ public sealed class GeneratorBoundaryTests
                 var name = image.MethodName(node.Handle);
                 foreach (var nested in reader.GetTypeDefinition(declaring).GetNestedTypes())
                 {
-                    if (reader.GetString(reader.GetTypeDefinition(nested).Name).StartsWith($"<{name}>d__", StringComparison.Ordinal))
+                    if (reader.GetString(reader.GetTypeDefinition(nested).Name).StartsWith($"<{name}>d", StringComparison.Ordinal))
                     {
                         foreach (var method in reader.GetTypeDefinition(nested).GetMethods())
                             Reach(new Node(image, method));
@@ -476,9 +510,11 @@ public sealed class GeneratorBoundaryTests
 
         private readonly PEReader _pe;
 
-        public Image(string path)
+        public Image(string path) : this(File.OpenRead(path)) { }
+
+        public Image(Stream stream)
         {
-            _pe = new PEReader(File.OpenRead(path));
+            _pe = new PEReader(stream);
             Reader = _pe.GetMetadataReader();
         }
 
@@ -486,7 +522,67 @@ public sealed class GeneratorBoundaryTests
 
         public void Dispose() => _pe.Dispose();
 
+        public bool UsesNetwork(MethodDefinitionHandle handle)
+        {
+            var types = new NetworkTypes(this);
+            var method = Reader.GetMethodDefinition(handle);
+            if (NetworkTypes.InSignature(method.DecodeSignature(types, genericContext: null)))
+                return true;
+            if (Instructions(handle).Any(instruction => TokenUsesNetwork(instruction.Token, types)))
+                return true;
+            if (method.RelativeVirtualAddress == 0)
+                return false;
+            var body = _pe.GetMethodBody(method.RelativeVirtualAddress);
+            return !body.LocalSignature.IsNil && Reader.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(types, genericContext: null).Any(value => value) ||
+                   body.ExceptionRegions.Any(region => region.Kind == ExceptionRegionKind.Catch && TokenUsesNetwork(region.CatchType, types));
+        }
+
+        private bool TokenUsesNetwork(EntityHandle token, NetworkTypes types) => token.Kind switch
+        {
+            HandleKind.TypeDefinition => IsNetwork(TypeName((TypeDefinitionHandle)token)),
+            HandleKind.TypeReference => IsNetwork(TypeName((TypeReferenceHandle)token)!),
+            HandleKind.TypeSpecification => Reader.GetTypeSpecification((TypeSpecificationHandle)token).DecodeSignature(types, genericContext: null),
+            HandleKind.MethodDefinition => TokenUsesNetwork(Reader.GetMethodDefinition((MethodDefinitionHandle)token).GetDeclaringType(), types),
+            HandleKind.FieldDefinition => Reader.GetFieldDefinition((FieldDefinitionHandle)token).DecodeSignature(types, genericContext: null),
+            HandleKind.MemberReference => TokenUsesNetwork(Reader.GetMemberReference((MemberReferenceHandle)token).Parent, types),
+            HandleKind.MethodSpecification => TokenUsesNetwork(Reader.GetMethodSpecification((MethodSpecificationHandle)token).Method, types) ||
+                                              Reader.GetMethodSpecification((MethodSpecificationHandle)token).DecodeSignature(types, genericContext: null).Any(value => value),
+            _ => false
+        };
+
+        private sealed class NetworkTypes(Image image) : ISignatureTypeProvider<bool, object?>
+        {
+            public static bool InSignature(MethodSignature<bool> signature) => signature.ReturnType || signature.ParameterTypes.Any(value => value);
+            public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
+            public bool GetByReferenceType(bool elementType) => elementType;
+            public bool GetFunctionPointerType(MethodSignature<bool> signature) => InSignature(signature);
+            public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments) => genericType || typeArguments.Any(value => value);
+            public bool GetGenericMethodParameter(object? genericContext, int index) => false;
+            public bool GetGenericTypeParameter(object? genericContext, int index) => false;
+            public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => modifier || unmodifiedType;
+            public bool GetPinnedType(bool elementType) => elementType;
+            public bool GetPointerType(bool elementType) => elementType;
+            public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+            public bool GetSZArrayType(bool elementType) => elementType;
+            public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => IsNetwork(image.TypeName(handle));
+            public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => IsNetwork(image.TypeName(handle)!);
+            public bool GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) =>
+                reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        }
+
         public string MethodName(MethodDefinitionHandle handle) => Reader.GetString(Reader.GetMethodDefinition(handle).Name);
+
+        public bool OwnedBy(MethodDefinitionHandle handle, string? owner)
+        {
+            var type = Reader.GetMethodDefinition(handle).GetDeclaringType();
+            while (!type.IsNil)
+            {
+                if (TypeName(type) == owner)
+                    return true;
+                type = Reader.GetTypeDefinition(type).GetDeclaringType();
+            }
+            return false;
+        }
 
         public int ParameterCount(MethodDefinitionHandle handle) => ParameterCount(Reader.GetBlobReader(Reader.GetMethodDefinition(handle).Signature));
 
@@ -626,7 +722,7 @@ public sealed class GeneratorBoundaryTests
 
         private static string Inner(string generated) => generated[1..generated.IndexOf('>')];
 
-        /// <summary>The instructions of a method body that carry a method or a field token.</summary>
+        /// <summary>The instructions of a method body that carry a method, field or type token.</summary>
         /// <param name="handle">The method.</param>
         public IEnumerable<Instruction> Instructions(MethodDefinitionHandle handle)
         {
@@ -658,7 +754,7 @@ public sealed class GeneratorBoundaryTests
                         var targets = il.ReadInt32();
                         il.Offset += 4 * targets;
                         break;
-                    case OperandType.InlineMethod or OperandType.InlineField:
+                    case OperandType.InlineMethod or OperandType.InlineField or OperandType.InlineType or OperandType.InlineTok:
                         found.Add(new Instruction(opCode, opCode.OperandType, MetadataTokens.EntityHandle(il.ReadInt32())));
                         break;
                     default:

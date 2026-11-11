@@ -26,7 +26,7 @@ public sealed class MetricsCommandTests
     {
         using var error = new StringWriter();
 
-        Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--out", "metrics.json"], error, FixtureLoad));
+        Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--out", "metrics.json"], error, FixtureLoad, createSources: _ => null));
         Assert.Contains("--target", error.ToString(), StringComparison.Ordinal);
     }
 
@@ -35,7 +35,7 @@ public sealed class MetricsCommandTests
     {
         using var error = new StringWriter();
 
-        Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", "Fixture.slnx"], error, FixtureLoad));
+        Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", "Fixture.slnx"], error, FixtureLoad, createSources: _ => null));
         Assert.Contains("--out", error.ToString(), StringComparison.Ordinal);
     }
 
@@ -46,7 +46,7 @@ public sealed class MetricsCommandTests
         {
             using var error = new StringWriter();
             Assert.Equal(ExitCode.UsageError,
-                         await MetricsCommand.RunAsync(["--target", "Fixture.slnx", "--out", "metrics.json", "--limits", limits], error, FixtureLoad));
+                         await MetricsCommand.RunAsync(["--target", "Fixture.slnx", "--out", "metrics.json", "--limits", limits], error, FixtureLoad, createSources: _ => null));
             Assert.Contains("--limits", error.ToString(), StringComparison.Ordinal);
         }
     }
@@ -59,9 +59,13 @@ public sealed class MetricsCommandTests
         var root = json.RootElement;
 
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
-                      "peakWorkingSetMb", "counts", "coverage", "targets"],
+                      "peakWorkingSetMb", "counts", "coverage", "sources", "targets"],
                      Names(root));
-        Assert.Equal("1.5", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.6", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal(["offline", "libraries", "downloads"], Names(root.GetProperty("sources")));
+        Assert.False(root.GetProperty("sources").GetProperty("offline").GetBoolean());
+        Assert.Equal(["originalSources", "decompiledBest", "decompiledForRun"], Names(root.GetProperty("sources").GetProperty("libraries")));
+        Assert.Equal(["requests", "bytes", "seconds"], Names(root.GetProperty("sources").GetProperty("downloads")));
         Assert.Equal(BuildInfo.Version, root.GetProperty("engineVersion").GetString());
         Assert.True(DateTimeOffset.TryParse(root.GetProperty("recordedAt").GetString(), out _));
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
@@ -235,7 +239,7 @@ public sealed class MetricsCommandTests
         var output = Path.Combine(directory.Path, "out", "metrics.json");
         using var error = new StringWriter();
 
-        Assert.Equal(ExitCode.Ok, await MetricsCommand.RunAsync(["--target", target, "--out", output, "--limits", "4,8,16"], error, FixtureLoad));
+        Assert.Equal(ExitCode.Ok, await MetricsCommand.RunAsync(["--target", target, "--out", output, "--limits", "4,8,16"], error, FixtureLoad, createSources: _ => null));
 
         using var json = JsonDocument.Parse(await File.ReadAllTextAsync(output));
         var limits = json.RootElement.GetProperty("limits");

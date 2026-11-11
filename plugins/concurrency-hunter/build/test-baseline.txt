@@ -66,6 +66,12 @@ ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Unparsable_package_version_is_a
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Unparsable_package_version_is_a_usage_error_and_writes_no_file(version: "latest")	Passed
 ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Generator_uses_no_network_api	Passed
 ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Generator_writes_only_its_output_file	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "default", symbols: False)	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "default", symbols: True)	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "environment", symbols: False)	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "environment", symbols: True)	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "http-handler", symbols: False)	Passed
+ConcurrencyHunter.Cli.Tests.GeneratorBoundaryTests.Source_provider_uses_the_default_proxy_without_authenticating_after_407(configuration: "http-handler", symbols: True)	Passed
 ConcurrencyHunter.Cli.Tests.H2EShopAcceptanceTests.Exact_survivors_with_full_inputs	Passed
 ConcurrencyHunter.Cli.Tests.LauncherTests.Launcher_without_a_local_executable_tries_the_release_and_reports_the_failure_on_stderr	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Analyses_name_every_scope_and_count_the_first_analysis	Passed
@@ -89,6 +95,14 @@ ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Generation_option_parses_on
 ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Mcp_run_cannot_ask_for_the_recording_budget	Passed
 ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Mcp_run_passes_Generate	Passed
 ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Recording_option_selects_the_recording_budget_only_for_a_run_that_generates	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Generate_offline_is_an_optional_flag_without_a_value	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Metrics_carries_source_counts_and_actual_loopback_download_totals	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Metrics_json_carries_offline_with_zero_downloads_in_every_generation_mode	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Metrics_offline_accepts_every_generation_mode_recording_and_census	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Offline_generate_uses_cached_sources_without_requests	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Offline_generate_with_a_cold_cache_sends_no_loopback_requests	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Run_start_passes_offline_to_the_analysis_step_and_defaults_to_online	Passed
+ConcurrencyHunter.Cli.Tests.OfflineOptionTests.Source_cache_follows_LOCALAPPDATA_beside_runs_and_is_created_only_on_write	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.No_arguments_print_usage_to_error_and_return_usage_error	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.Unknown_command_returns_usage_error_and_names_the_command	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.Usage_names_generate	Passed
@@ -14379,6 +14393,15 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedDependencyMatrixTests.No_cell_na
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDependencyMatrixTests.Without_a_dependency_source_every_cell_answers_as_today	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Answer_with_a_reason_has_every_property_typed_as_G6_says	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Classified_answer_has_every_property_typed_as_G6_says	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledBest, reason: NoPdb, writtenKind: "decompiled", writtenReason: "no-pdb")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledBest, reason: NoSources, writtenKind: "decompiled", writtenReason: "no-sources")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledBest, reason: PersistentFailure, writtenKind: "decompiled", writtenReason: "persistent-failure")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledBest, reason: SourcesNotSought, writtenKind: "decompiled", writtenReason: "sources-not-sought")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledBest, reason: SourcesRejected, writtenKind: "decompiled", writtenReason: "sources-rejected")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledForRun, reason: Cancelled, writtenKind: "decompiled-this-run", writtenReason: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledForRun, reason: Offline, writtenKind: "decompiled-this-run", writtenReason: "offline")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: DecompiledForRun, reason: TemporaryFailure, writtenKind: "decompiled-this-run", writtenReason: "temporary-failure")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Code_kind_and_reason_are_written_in_schema_five(kind: OriginalSources, reason: null, writtenKind: "sources", writtenReason: null)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Document_is_utf8_without_bom_with_lf_and_one_final_newline	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.First_example_is_written_byte_for_byte	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Ids_and_paths_keep_their_characters_but_json_escapes	Passed
@@ -14986,6 +15009,40 @@ ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Same_member_ou
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Same_named_member_of_another_assembly_is_not_known	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Table_is_exactly_the_phase_5a_list_and_the_array_shape_members_and_the_run_b_families	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Type_a_phase_3_or_4_recognizer_owns_fails_the_build	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.AllowMultiple_compares_typed_constants_arrays_types_and_named_arguments	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Concurrent_callers_keep_their_own_code_in_both_orders	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Document_sets_and_methodless_failures_stay_with_each_concurrent_caller	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Document_sets_and_methodless_failures_stay_with_each_sequential_caller	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Existing_single_attributes_are_matched_by_type_through_aliases	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Missing_methodless_document_restores_identity_public_key_and_friends	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Pdb_defines_and_language_version_parse_the_original_documents	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Refused_sources_fall_back_and_both_entries_are_released_with_the_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Sequential_callers_keep_their_own_code_in_both_orders	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Timeout_before_compilation_writes_null_code	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Timeout_during_default_decompilation_keeps_sources_not_sought	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Timeout_during_fallback_already_reports_sources_rejected	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Timeout_during_original_compilation_keeps_sources_code	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourceCompilationTests.Timeout_during_run_only_decompilation_keeps_its_own_reason	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesMatrixTests.Every_cell_gets_its_exact_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesMatrixTests.Five_loopback_cells_agree_with_the_stage_decision	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesMatrixTests.No_offline_cell_asks_a_server	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Adjacent_pdb_accepts_exact_bytes_and_the_matching_crlf_form	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Another_instance_reads_the_validated_pdb_and_documents_from_cache_offline	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Denied_and_timed_out_hosts_are_skipped_for_the_remaining_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Embedded_pdb_and_sources_preserve_compilation_options_without_requests	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Failed_pdb_downloads_create_no_cache_directory	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Foreign_and_checksum_mismatched_pdbs_are_rejected_then_the_next_server_is_used	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Host_classification_follows_the_stage_table	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Https_redirect_to_http_is_rejected_before_sending_the_redirected_request	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Independent_writers_publish_only_complete_files_while_a_writer_is_cancelled	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.No_portable_codeview_is_best_code_and_http_is_allowed_only_on_loopback_in_tests	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Nuget_is_queried_only_with_the_dll_checksum	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Offline_missing_sources_and_cancellation_are_for_this_run_and_send_no_requests	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Optional_documents_can_be_absent_but_required_documents_use_stable_reason_priority	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Parallel_requests_for_one_dll_share_one_retrieval_per_document	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Ready_to_run_uses_the_portable_codeview_instead_of_the_first_entry	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySourcesTests.Requests_carry_neither_authorization_nor_cookies_after_set_cookie_and_redirect	Passed
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.AsEnumerable_returns_its_source	Passed
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Delegate_free_default_value_overloads_stay_unmodelled	Passed
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Every_Enumerable_member_with_a_delegate_and_no_comparer_is_modelled	Passed
@@ -15659,6 +15716,20 @@ ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Targets_go_first_by_de
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.The_recording_drains_its_queue_on_four_workers_and_every_other_run_on_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Undescribed_member_is_generated	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Workers_sharing_the_queue_take_each_member_once_at_a_time_and_end_on_final_answers	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Budget_cut_after_preparation_keeps_the_run_only_answer_in_memory	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Budget_exhausted_before_preparation_does_not_obtain_a_code_kind	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Failure_after_preparation_keeps_its_coverage_reason_and_prevents_a_readers_finality	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Persistent_methodless_absence_keeps_the_fallback_and_its_reader_final	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Run_only_model_applies_to_dependencies_and_scope_but_neither_it_nor_its_readers_are_stored	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Run_only_refusal_is_visible_with_its_coverage_reason_and_prevents_a_readers_finality	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Source_preparation_controls_storage_even_when_another_run_reuses_the_compilation	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Synthetic_timeout_after_a_transient_methodless_fallback_is_not_stored	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Synthetic_timeout_after_sources_compile_with_offline_methodless_absence_is_stored_including_a_cache_hit	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Synthetic_timeout_after_sources_compile_with_transient_methodless_absence_is_stored_including_a_cache_hit	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Synthetic_timeout_of_run_only_code_and_the_answer_that_saw_it_are_not_stored	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Synthetic_timeouts_on_best_code_are_stored_even_after_reading_a_run_only_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.The_same_member_is_generated_again_and_stored_when_the_next_run_prepares_best_code	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunOnlyAnswerTests.Transient_methodless_absence_makes_the_fallback_and_its_reader_run_only	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_class_reached_again_through_a_struct_field_stops_there	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "Leaf[]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "List<Leaf>")	Passed
@@ -15728,6 +15799,287 @@ ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_argument_field_past_d
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_receiver_field_past_depth_3_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_static_field_past_depth_2_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_receivers_field_at_depth_3_is_seeded	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Code_counts_require_successful_implementation_resolution(implementation: "implementation", reason: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Code_counts_require_successful_implementation_resolution(implementation: "missing", reason: "no-implementation")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Code_counts_require_successful_implementation_resolution(implementation: "reference", reason: "reference-assembly")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Conservative_finality_is_separate_from_observed_code(absence: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Conservative_finality_is_separate_from_observed_code(absence: Persistent)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Conservative_finality_is_separate_from_observed_code(absence: Transient)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Conservative_finality_is_separate_from_observed_code(absence: UnavailableOffline)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: False, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "none", cached: True, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: False, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "offline", cached: True, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: False, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "persistent", cached: True, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: False, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "compiling", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "compiling", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "compiling", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "fallback", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "fallback", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "fallback", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "fallback", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "not-started", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "not-started", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "not-started", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "succeeded", outcome: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "succeeded", outcome: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "succeeded", outcome: "normal")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Metrics_count_observed_code_for_normal_and_cut_answers(absence: "transient", cached: True, point: "succeeded", outcome: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "none", cached: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "none", cached: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "offline", cached: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "offline", cached: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "persistent", cached: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "persistent", cached: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "transient", cached: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceCodeStatisticsTests.Timeout_record_and_metrics_keep_sources_while_the_compile_outcome_is_unknown(absence: "transient", cached: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.A_fake_generator_with_a_source_provider_does_not_prepare	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.An_exhausted_run_budget_does_not_prepare_the_member	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.Run_cancellation_during_preparation_propagates_and_writes_no_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.Run_download_precedes_member_cpu_backstop_and_spent	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.Run_download_precedes_the_remaining_run_budget_timer	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.Setup_without_sources_keeps_disk_only_generation_and_storage	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourcePreparationTests.Standalone_download_precedes_cpu_backstop_seconds_and_stage_clocks	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Cancellation_during_a_retry_wait_stops_without_another_request(stage: "document", status: 429)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Cancellation_during_a_retry_wait_stops_without_another_request(stage: "microsoft", status: 429)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Cancellation_during_a_retry_wait_stops_without_another_request(stage: "nuget", status: 503)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "document", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "document", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "document", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "document", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "document", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "microsoft", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "microsoft", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "microsoft", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "microsoft", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "microsoft", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "nuget", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "nuget", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "nuget", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "nuget", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "nuget", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Deciding_request_reaches_the_generated_answer_and_controls_storage(stage: "offline", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Detail_follows_reason_precedence_and_first_failure_with_that_outcome(first: 404, second: 500, partialLinks: True, decidingDocument: "file1.cs", reason: NoSources)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Detail_follows_reason_precedence_and_first_failure_with_that_outcome(first: 500, second: 404, partialLinks: False, decidingDocument: "file1.cs", reason: PersistentFailure)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Detail_follows_reason_precedence_and_first_failure_with_that_outcome(first: 500, second: 429, partialLinks: False, decidingDocument: "file0.cs", reason: TemporaryFailure)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Methodless_failure_decides_detail_only_when_sources_are_rejected	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 429, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "document", status: 503, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 429, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "microsoft", status: 503, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 429, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "exception", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "exception", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "response", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "response", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "tunnel", succeeds: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retried_requests_acquire_sources_or_report_the_last_status_without_skipping_the_host(stage: "nuget", status: 503, channel: "tunnel", succeeds: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 429, header: "absent", first: 1, second: 2, third: 4)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 429, header: "past-date", first: 0, second: 0, third: 0)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 429, header: "seconds-cap", first: 60, second: 60, third: 60)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 429, header: "seconds", first: 7, second: 7, third: 7)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 503, header: "absent", first: 1, second: 2, third: 4)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 503, header: "date-cap", first: 60, second: 60, third: 60)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_after_and_backoff_use_the_instance_clock(status: 503, header: "date", first: 7, second: 7, third: 7)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Retry_wait_does_not_consume_the_next_attempt_timeout	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 401, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 401, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 401, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 403, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 403, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 403, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 404, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 404, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 404, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 407, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 410, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 410, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 410, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 429, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 429, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 429, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 500, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 500, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 500, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: 503, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "document", status: null, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 401, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 401, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 401, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 403, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 403, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 403, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 404, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 404, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 404, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 407, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 410, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 410, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 410, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 429, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 429, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 429, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 500, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 500, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 500, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: 503, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "microsoft", status: null, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 401, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 401, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 401, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 403, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 403, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 403, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 404, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 404, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 404, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 407, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 407, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 407, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 410, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 410, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 410, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 429, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 429, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 429, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 500, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 500, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 500, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 503, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 503, channel: "response")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: 503, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: null, channel: "exception")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Status_controls_classification_host_skip_and_finality_on_every_fetch_path(stage: "nuget", status: null, channel: "tunnel")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Timeout_detail_identifies_the_request_including_a_stalled_body(body: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.SourceRequestFailureTests.Timeout_detail_identifies_the_request_including_a_stalled_body(body: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_namesake_span_leaves_its_member_uncovered	Passed
 ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_pointer_argument_leaves_its_member_uncovered	Passed
 ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_ref_struct_other_than_a_span_leaves_its_member_uncovered	Passed

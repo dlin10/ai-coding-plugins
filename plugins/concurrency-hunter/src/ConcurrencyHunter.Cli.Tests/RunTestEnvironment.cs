@@ -27,7 +27,7 @@ internal sealed class RunTestEnvironment : IDisposable
         new(Time, bundleRoot ?? BundleRoot, step ?? SuccessfulAnalysisAsync);
 
     internal static async Task<RunAnalysis> SuccessfulAnalysisAsync(string target,
-                                                                     CancellationToken cancellationToken)
+                                                                     CancellationToken cancellationToken, bool offline = false)
     {
         var solution = FixtureSolution.Create(("Controller.cs", """
             using Microsoft.AspNetCore.Mvc;

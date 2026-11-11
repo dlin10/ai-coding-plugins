@@ -1,6 +1,7 @@
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Analysis;
@@ -16,9 +17,11 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="BuiltIn">The built-in models the run reads in place of the shipped ones, in its scopes and in its generations; <c>null</c> for
 /// the shipped ones. The run that regenerates the frameworks' census reads them without the census members' entries
 /// (<see cref="LibraryModels.ForCensus"/>), so that every census member is generated.</param>
+/// <param name="Sources">The optional source provider, used only by the default generator before generation clocks start.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
                                        Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null,
-                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run, LibraryModels? BuiltIn = null);
+                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run, LibraryModels? BuiltIn = null,
+                                       LibrarySources? Sources = null);
 
 /// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's calls
 /// reach and which of them are generation targets, the generated layer each analysis reads, and what each target stands for
@@ -43,7 +46,23 @@ internal sealed class GenerationPass : IDisposable
                                         setup.Time ?? TimeProvider.System,
                                         setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies,
                                                                                                                      setup.BuiltIn)),
-                                        new AssemblyRanks(_install).Of, RunGeneration.WorkersOf(setup.Budget));
+                                        new AssemblyRanks(_install).Of, RunGeneration.WorkersOf(setup.Budget),
+                                        setup.Generator is null && setup.Sources is { } sources ? (request, token) =>
+                                        {
+                                            var prepared = ModelGenerator.Prepare(request, _install, sources, token);
+                                            return (() => prepared?.RunOnly ?? false,
+                                                    (dependencies, memberToken) =>
+                                                    {
+                                                        try
+                                                        {
+                                                            return ModelGenerator.Generate(request, _install, memberToken, dependencies, setup.BuiltIn, prepared);
+                                                        }
+                                                        finally
+                                                        {
+                                                            prepared?.RecordObservedCode(sources);
+                                                        }
+                                                    });
+                                        } : null);
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;
     }

@@ -1,16 +1,17 @@
 using Common.Mcp;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 
 namespace ConcurrencyHunter;
 
 /// <summary>
 /// <c>generate</c> (SPEC TD-034b, R1): runs the model generator for one library member and writes its answer (G-6) to the output
-/// file — the one file it writes. A usage error writes nothing.
+/// file, caching retrieved library sources separately. A usage error writes nothing.
 /// </summary>
 internal static class GenerateCommand
 {
     private const string USAGE = "Usage: concurrency-hunter generate --assembly <name> --version <version> --member <declaration id> " +
-                                 "[--package <id>] [--framework netX.0] --out <file>";
+                                 "[--package <id>] [--framework netX.0] [--offline] --out <file>";
 
     /// <summary>Runs the command.</summary>
     /// <param name="args">The arguments after <c>generate</c>.</param>
@@ -19,8 +20,9 @@ internal static class GenerateCommand
     /// against a fake install.</param>
     /// <param name="memberLimit">The member limit, or the server's limit; a test may pass a shorter limit.</param>
     /// <param name="time">The limit and record clock, or the system clock.</param>
+    /// <param name="createSources">Builds the source provider; tests may return null to keep generation on the decompiler.</param>
     internal static int Run(string[] args, TextWriter error, ImplementationAssemblies? resolver = null,
-                            TimeSpan? memberLimit = null, TimeProvider? time = null)
+                            TimeSpan? memberLimit = null, TimeProvider? time = null, Func<bool, LibrarySources?>? createSources = null)
     {
         Options options;
         try
@@ -36,8 +38,9 @@ internal static class GenerateCommand
 
         try
         {
+            using var sources = (createSources ?? SourceProvider.Create)(options.Offline);
             var answer = ModelGenerator.GenerateWithin(new GenerationRequest(options.Assembly, options.Version, options.Member, options.Package, options.Framework),
-                                                 resolver ?? ImplementationAssemblies.ForThisProcess(), memberLimit, time);
+                                                 resolver ?? ImplementationAssemblies.ForThisProcess(), memberLimit, time, sources: sources);
             File.WriteAllBytes(Path.GetFullPath(options.Out), GeneratedDocument.Write(answer));
             return ExitCode.Ok;
         }
@@ -48,14 +51,17 @@ internal static class GenerateCommand
         }
     }
 
-    private sealed record Options(string Assembly, string Version, string Member, string? Package, string? Framework, string Out)
+    internal sealed record Options(string Assembly, string Version, string Member, string? Package, string? Framework, string Out, bool Offline)
     {
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            var offline = false;
             for (var index = 0; index < args.Length; index++)
             {
-                if (args[index] is not ("--assembly" or "--version" or "--member" or "--package" or "--framework" or "--out") || index + 1 >= args.Length ||
+                if (args[index] == "--offline" && !offline)
+                    offline = true;
+                else if (args[index] is not ("--assembly" or "--version" or "--member" or "--package" or "--framework" or "--out") || index + 1 >= args.Length ||
                     !values.TryAdd(args[index], args[++index]))
                     throw new ArgumentException($"Unexpected argument '{args[index]}'.");
             }
@@ -76,7 +82,7 @@ internal static class GenerateCommand
                 throw new ArgumentException($"--version '{version}' is not {(package is null ? "an assembly version" : "a package version")}.");
             if (!ModelGenerator.IsMemberId(member))
                 throw new ArgumentException($"--member '{member}' is not a declaration id.");
-            return new Options(assembly, version, member, package, framework, output);
+            return new Options(assembly, version, member, package, framework, output, offline);
         }
 
         private static string Required(Dictionary<string, string> values, string name) =>

@@ -26,12 +26,12 @@ public sealed class GenerateCommandTests : IDisposable
     public void A_generation_past_the_member_limit_writes_a_timeout_answer()
     {
         using var error = new StringWriter();
-        var code = GenerateCommand.Run(Valid(), error, _install.Resolver(), TimeSpan.FromSeconds(1), new CuttingClock());
+        var code = GenerateCommand.Run(Valid(), error, _install.Resolver(), TimeSpan.FromSeconds(1), new CuttingClock(), createSources: _ => null);
 
         Assert.True(code == ExitCode.Ok, error.ToString());
         using var document = Answer();
         var answer = document.RootElement;
-        Assert.Equal(4, answer.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(5, answer.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(GenerationReasons.TIMEOUT, answer.GetProperty("reason").GetString());
         Assert.Equal(JsonValueKind.Null, answer.GetProperty("model").ValueKind);
         Assert.Equal(1, answer.GetProperty("generation").GetProperty("seconds").GetDouble());
@@ -319,7 +319,7 @@ public sealed class GenerateCommandTests : IDisposable
     private (int Code, string Error) Run(string[] args, ImplementationAssemblies? resolver = null)
     {
         using var error = new StringWriter();
-        var code = GenerateCommand.Run(args, error, resolver ?? _install.Resolver());
+        var code = GenerateCommand.Run(args, error, resolver ?? _install.Resolver(), createSources: _ => null);
         return (code, error.ToString());
     }
 

@@ -14,9 +14,10 @@ internal sealed class RunTools
 {
     [McpServerTool(Name = "run_start"), Description("Starts a Concurrency Hunter analysis for an absolute solution, project, or repository path.")]
     public static string run_start(RunRegistry registry,
-                                   [Description("Absolute path to a .sln, .slnx, .csproj, or directory containing solutions.")] string target)
+                                   [Description("Absolute path to a .sln, .slnx, .csproj, or directory containing solutions.")] string target,
+                                   [Description("Use only local files and cached library sources, without network requests. Defaults to false.")] bool offline = false)
     {
-        var result = registry.Start(target);
+        var result = registry.Start(target, offline);
         if (result.Error is not null)
         {
             return Error(result.Error, Message(result.Error), result.Error == "runActive" ? result.RunId : null);

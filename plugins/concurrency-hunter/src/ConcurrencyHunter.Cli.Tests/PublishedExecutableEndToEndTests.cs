@@ -94,7 +94,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
                 new Dictionary<string, string?> { ["LOCALAPPDATA"] = localApplicationData });
             await InitializeAsync(server);
 
-            server.Send(ToolCall(2, "run_start", new { target = demoDirectory }));
+            server.Send(ToolCall(2, "run_start", new { target = demoDirectory, offline = true }));
             var start = ToolPayload(await server.ReadResponseAsync("run_start", HANDSHAKE_TIMEOUT));
             var runId = start.GetProperty("run_id").GetString()!;
 
@@ -268,7 +268,8 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
             Assert.DoesNotContain(Directory.GetFiles(publish), file => Path.GetFileName(file).StartsWith("ICSharpCode.", StringComparison.OrdinalIgnoreCase));
 
             var answer = Path.Combine(directory, "answer.json");
-            await RunAsync(executable, GenerateArguments(answer), ANALYSIS_TIMEOUT);
+            await RunAsync(executable, [.. GenerateArguments(answer), "--offline"], ANALYSIS_TIMEOUT,
+                           start => start.Environment["LOCALAPPDATA"] = Path.Combine(directory, "localappdata"));
 
             AssertClassifiesAll(answer);
         }
@@ -280,9 +281,9 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
     }
 
     /// <summary>
-    /// R1: <c>generate</c> writes no file but its output. Its working directory, temporary, packages and application-data folders
+    /// <c>generate</c> writes no file but its output, offline and online behind a dead proxy. Its working directory, temporary, packages and application-data folders
     /// are each an empty folder the current user may not write to or delete from, so a write there fails the run instead of
-    /// leaving no trace; the single-file host extracts into a writable folder of its own, and the proxy points at a closed port.
+    /// leaving no trace; the single-file host extracts into a writable folder of its own.
     /// </summary>
     [Fact]
     public async Task Published_generate_writes_nothing_but_its_output_file()
@@ -309,25 +310,32 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
             }
 
             var answer = Path.Combine(outFolder, "answer.json");
-            await RunAsync(executable, GenerateArguments(answer), ANALYSIS_TIMEOUT, start =>
+            foreach (var offline in new[] { true, false })
             {
-                start.WorkingDirectory = denied["work"];
-                start.Environment["TEMP"] = denied["temp"];
-                start.Environment["TMP"] = denied["tmp"];
-                start.Environment["NUGET_PACKAGES"] = denied["nuget"];
-                start.Environment["APPDATA"] = denied["appdata"];
-                start.Environment["LOCALAPPDATA"] = denied["localappdata"];
-                start.Environment[BUNDLE_EXTRACT_VARIABLE] = extract;
-                start.Environment["HTTP_PROXY"] = "http://127.0.0.1:9";
-                start.Environment["HTTPS_PROXY"] = "http://127.0.0.1:9";
-            });
+                if (File.Exists(answer))
+                    File.Delete(answer);
+                await RunAsync(executable, offline ? [.. GenerateArguments(answer), "--offline"] : GenerateArguments(answer), ANALYSIS_TIMEOUT, start =>
+                {
+                    start.WorkingDirectory = denied["work"];
+                    start.Environment["TEMP"] = denied["temp"];
+                    start.Environment["TMP"] = denied["tmp"];
+                    start.Environment["NUGET_PACKAGES"] = denied["nuget"];
+                    start.Environment["APPDATA"] = denied["appdata"];
+                    start.Environment["LOCALAPPDATA"] = denied["localappdata"];
+                    start.Environment[BUNDLE_EXTRACT_VARIABLE] = extract;
+                    start.Environment["HTTP_PROXY"] = "http://127.0.0.1:9";
+                    start.Environment["HTTPS_PROXY"] = "http://127.0.0.1:9";
+                    start.Environment["ALL_PROXY"] = "http://127.0.0.1:9";
+                    start.Environment["NO_PROXY"] = "";
+                });
 
-            AssertClassifiesAll(answer);
-            // A folder deleted through its parent's delete-child right would be missing here.
-            Assert.All(denied, folder => Assert.True(Directory.Exists(folder.Value), $"generate deleted the {folder.Key} folder"));
-            Assert.All(denied, folder => Assert.True(!Directory.EnumerateFileSystemEntries(folder.Value).Any(),
-                                                     $"generate left {string.Join(", ", Directory.EnumerateFileSystemEntries(folder.Value))} in {folder.Key}"));
-            Assert.Equal(["answer.json"], Directory.GetFileSystemEntries(outFolder).Select(Path.GetFileName));
+                AssertClassifiesAll(answer);
+                // A folder deleted through its parent's delete-child right would be missing here.
+                Assert.All(denied, folder => Assert.True(Directory.Exists(folder.Value), $"generate deleted the {folder.Key} folder"));
+                Assert.All(denied, folder => Assert.True(!Directory.EnumerateFileSystemEntries(folder.Value).Any(),
+                                                         $"generate left {string.Join(", ", Directory.EnumerateFileSystemEntries(folder.Value))} in {folder.Key}"));
+                Assert.Equal(["answer.json"], Directory.GetFileSystemEntries(outFolder).Select(Path.GetFileName));
+            }
         }
         finally
         {

@@ -20,7 +20,8 @@ public sealed class GenerationRoundMatrixTests
     private enum Chain { Direct, ZRefusal, ZModel, ZBudget, Cycle }
     private enum Second { None, Refusal, Budget, Unavailable }
     private enum Budget { Enough, BeforeRetry, DuringRetry }
-    private sealed record Cell(Outcome Outcome, PathOfY Path, Timing Timing, Chain Chain, Second Second, Budget Budget);
+    private enum Code { Best, ForRun }
+    private sealed record Cell(Outcome Outcome, PathOfY Path, Timing Timing, Chain Chain, Second Second, Budget Budget, Code X, Code Y);
 
     private static readonly Cell[] Cells = (from outcome in Enum.GetValues<Outcome>()
                                             from path in Enum.GetValues<PathOfY>()
@@ -28,7 +29,9 @@ public sealed class GenerationRoundMatrixTests
                                             from chain in Enum.GetValues<Chain>()
                                             from second in Enum.GetValues<Second>()
                                             from budget in Enum.GetValues<Budget>()
-                                            select new Cell(outcome, path, timing, chain, second, budget)).Where(Allowed).ToArray();
+                                            from x in Enum.GetValues<Code>()
+                                            from y in Enum.GetValues<Code>()
+                                            select new Cell(outcome, path, timing, chain, second, budget, x, y)).Where(Allowed).ToArray();
 
     private static bool Stored(PathOfY path) => path is PathOfY.StoredModel or PathOfY.StoredRefusal or PathOfY.UnavailableStoredModel;
     private static bool Missing(PathOfY path) => path is PathOfY.Unavailable or PathOfY.UnavailableStoredModel;
@@ -93,7 +96,7 @@ public sealed class GenerationRoundMatrixTests
                 Assert.Equal(GenerationOutcome.TIMEOUT, answer.Refusal!.Reason);
             if (cell.Path == PathOfY.FailedX || cell.Budget != Budget.Enough)
                 Assert.Equal(cell.Outcome == Outcome.Model, answer.Refusal is null); // The previous model survives a stopped repeat.
-            Assert.Empty(run.Pass.Wanted(LibraryModels.BuiltIn, [fixture.X]));
+            Assert.Empty(run.Generation.WouldGenerate(LibraryModels.BuiltIn, [fixture.X]));
             var wanted = run.ReadOnlyWanted(fixture.X);
             Assert.Equal(run.Observed.KeptX ? 0 : 1, wanted.Count);
             Assert.All(wanted, target => Assert.Equal(fixture.X.Target.MemberId, target.MemberId));
@@ -114,7 +117,7 @@ public sealed class GenerationRoundMatrixTests
                 Assert.False(run.Observed.FinalX, cell.ToString());
                 Assert.Null(run.Stored(fixture.X.Target));
             }
-            Assert.False(run.Pass.HasWork, cell.ToString());
+            Assert.False(run.Generation.HasWork, cell.ToString());
             Assert.True(run.Rounds < 12, cell.ToString());
         }
     }
@@ -129,6 +132,18 @@ public sealed class GenerationRoundMatrixTests
         Assert.Equal(Enum.GetValues<Chain>(), Cells.Select(cell => cell.Chain).Distinct().Order());
         Assert.Equal(Enum.GetValues<Second>(), Cells.Select(cell => cell.Second).Distinct().Order());
         Assert.Equal(Enum.GetValues<Budget>(), Cells.Select(cell => cell.Budget).Distinct().Order());
+        Assert.Equal(Enum.GetValues<Code>(), Cells.Select(cell => cell.X).Distinct().Order());
+        Assert.Equal(Enum.GetValues<Code>(), Cells.Select(cell => cell.Y).Distinct().Order());
+        // Each pre-existing cell has all four preparation marks, including both synthetic-timeout paths.
+        foreach (var group in Cells.GroupBy(cell => cell with { X = Code.Best, Y = Code.Best }))
+            Assert.Equal(4, group.Count());
+        foreach (var x in Enum.GetValues<Code>())
+        foreach (var y in Enum.GetValues<Code>())
+        {
+            Assert.Contains(Cells, cell => cell.X == x && cell.Y == y && cell.Outcome == Outcome.Model && cell.Path == PathOfY.RunFinalModel);
+            Assert.Contains(Cells, cell => cell.X == x && cell.Y == y && cell.Outcome == Outcome.Refusal && cell.Path == PathOfY.NoThenRefusal);
+            Assert.Contains(Cells, cell => cell.X == x && cell.Y == y && cell.Outcome == Outcome.Timeout);
+        }
         Assert.Contains(Cells, cell => cell.Path == PathOfY.RunNonfinalModel && cell.Chain == Chain.ZRefusal);
         Assert.Contains(Cells, cell => cell.Path == PathOfY.RefusalBecomesModel);
         Assert.Contains(Cells, cell => cell.Path == PathOfY.SameX);
@@ -139,6 +154,17 @@ public sealed class GenerationRoundMatrixTests
     private sealed record Observation(int CallsX, int CallsY, bool FinalX, bool KeptX, bool KnownX, bool KeptY, bool KeptZ, bool KeptW, int GeneratedInScope);
 
     private static Observation Expected(Cell cell)
+    {
+        var best = ExpectedBest(cell);
+        // Files already hold final best-code answers; Y's preparation mark matters only when Y is generated in this run.
+        var yBest = Stored(cell.Path) || Missing(cell.Path) || cell.Y == Code.Best;
+        // Synthetic timeouts carry no views, even if their generator read Y before it was cut (ADR 0032).
+        var hasViews = cell.Outcome != Outcome.Timeout && cell.Path != PathOfY.TimeoutX;
+        var final = best.FinalX && cell.X == Code.Best && (!hasViews || yBest);
+        return best with { FinalX = final, KeptX = final, KeptY = best.KeptY && yBest };
+    }
+
+    private static Observation ExpectedBest(Cell cell)
     {
         if (cell.Outcome == Outcome.Timeout)
             return new(1, 0, true, true, false, true, false, false, 0);
@@ -209,7 +235,7 @@ public sealed class GenerationRoundMatrixTests
         private readonly string _root = Directory.CreateTempSubdirectory("ch-round-cell-").FullName;
         private readonly FakeClock _clock = new();
         private readonly Dictionary<string, int> _calls = new(StringComparer.Ordinal);
-        internal GenerationPass Pass { get; }
+        internal RunGeneration Generation { get; }
         internal Observation Observed { get; }
         internal IReadOnlyList<ReachedTarget> ScopeTargets { get; }
         internal int Rounds { get; }
@@ -274,27 +300,40 @@ public sealed class GenerationRoundMatrixTests
                 return answer with { DependencyViews = views };
             }
 
-            var setup = new GenerationSetup(ModelGeneration.Generate, Generator: Generate, Time: _clock);
-            Pass = GenerationPass.Create(setup, _root, CancellationToken.None)!;
+            Generation = new RunGeneration(_root, CancellationToken.None, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, _clock,
+                (_, _, _) => throw new InvalidOperationException("must use prepared generation"), (_, _) => 0,
+                prepare: (request, _) =>
+                {
+                    var code = request.MemberId == fixture.X.Target.MemberId ? cell.X : request.MemberId == y.MemberId ? cell.Y : Code.Best;
+                    return (() => code == Code.ForRun, (source, token) => Generate(request, source, token));
+                });
             if (cell.Timing == Timing.Before && !GenerationRoundMatrixTests.Stored(cell.Path) && !Missing(cell.Path))
             {
-                _ = Pass.Prepare(LibraryModels.BuiltIn, [fixture.Y]);
+                _ = Prepare([fixture.Y]);
             }
             ScopeLayer layer;
             do
             {
                 Rounds++;
                 Assert.True(Rounds < 12, cell.ToString());
-                layer = Pass.Prepare(LibraryModels.BuiltIn, [fixture.X]);
+                layer = Prepare([fixture.X]);
             }
-            while (Pass.HasWork);
+            while (Generation.HasWork);
 
             var stored = layer.Table.Lookup(fixture.X.Compilation, fixture.X.Member, fixture.X.Target.LookupId) ?? StoredGeneratedAnswer.Absent;
-            ScopeTargets = Pass.Reached(LibraryModels.BuiltIn, layer, [fixture.X]);
-            var generated = Pass.GeneratedInRun([fixture.X]);
+            ScopeTargets = [new ReachedTarget(fixture.X.Member, fixture.X.Target,
+                new TargetStanding(stored, false, Generation.AnswerOf(fixture.X.Target), stored.Kind == StoredGeneratedKind.Model))];
+            var generated = Generation.AnswerOf(fixture.X.Target) is { Refusal: null } ? 1 : 0;
             Observed = new(_calls.GetValueOrDefault(fixture.X.Target.MemberId), _calls.GetValueOrDefault(y.MemberId), Stored(fixture.X.Target) is not null,
                 Stored(fixture.X.Target) is not null, stored.Kind == StoredGeneratedKind.Model, Stored(y) is not null,
                 Stored(fixture.Z) is not null, Stored(w) is not null, generated);
+        }
+
+        private ScopeLayer Prepare(IReadOnlyList<GenerationCandidate> candidates)
+        {
+            Generation.Generate(LibraryModels.BuiltIn, candidates);
+            Generation.EndScope();
+            return Generation.Layer(LibraryModels.BuiltIn, candidates);
         }
 
         internal IReadOnlyList<WantedGeneration> ReadOnlyWanted(GenerationCandidate candidate)
@@ -321,7 +360,7 @@ public sealed class GenerationRoundMatrixTests
             throw new InvalidOperationException("The member was never cut.");
         }
 
-        public void Dispose() { Pass.Dispose(); Directory.Delete(_root, recursive: true); }
+        public void Dispose() { Generation.Release(); Directory.Delete(_root, recursive: true); }
     }
 
     private static GeneratedAnswer Model(GenerationRequest request, IReadOnlyList<LibraryEffect>? effects = null) =>

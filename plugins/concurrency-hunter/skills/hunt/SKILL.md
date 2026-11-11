@@ -11,7 +11,9 @@ Treat the repository as read-only. Never edit application code. Read [composing.
 before composing any narrative.
 
 1. Resolve the target to an absolute path: use the command argument when supplied, otherwise use
-   the workspace root. Call `run_start` with that path.
+   the workspace root. Call `run_start` with that path. Pass `offline: true` only when the user asks
+   for a check without network access; otherwise omit `offline`. Keep that choice if a target must
+   be chosen and `run_start` is called again.
 2. Handle the `run_start` answer with exactly one of these branches:
    - When there is no `run_id`, `candidatesTotal` is greater than zero, and the answer contains
      `candidates`, treat them as file names inside the directory passed to `run_start`. Ask the user

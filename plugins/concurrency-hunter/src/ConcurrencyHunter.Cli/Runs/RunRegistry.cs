@@ -32,7 +32,7 @@ internal sealed class RunRegistry
         _analysis = analysis;
     }
 
-    internal StartResult Start(string? target)
+    internal StartResult Start(string? target, bool offline = false)
     {
         lock (_gate)
         {
@@ -69,7 +69,7 @@ internal sealed class RunRegistry
             else
             {
                 run.State = RunState.Running;
-                run.AnalysisTask = Task.Run(() => CompleteAnalysisAsync(run));
+                run.AnalysisTask = Task.Run(() => CompleteAnalysisAsync(run, offline));
             }
 
             return new StartResult(null, runId, run.Deadline, run.Target, [], 0);
@@ -279,11 +279,11 @@ internal sealed class RunRegistry
         await analysisTask.ConfigureAwait(false);
     }
 
-    private async Task CompleteAnalysisAsync(RunEntry run)
+    private async Task CompleteAnalysisAsync(RunEntry run, bool offline)
     {
         try
         {
-            var result = await _analysis(run.Target!, run.Cancellation.Token).ConfigureAwait(false);
+            var result = await _analysis(run.Target!, run.Cancellation.Token, offline).ConfigureAwait(false);
             lock (_gate)
             {
                 ObserveDeadline(run, _time.GetUtcNow());

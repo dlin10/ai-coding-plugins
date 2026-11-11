@@ -4,6 +4,7 @@ using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -49,6 +50,9 @@ public sealed record GenerationRecord(GenerationImplementation? Implementation, 
                                       IReadOnlyList<string> SetupWidened, int Seeds, IReadOnlyList<string> Unseeded,
                                       IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers, int ReachedBodies, double Seconds)
 {
+    /// <summary>The code chosen for this generation, or null until library compilation starts.</summary>
+    public LibraryCode? Code { get; init; }
+
     /// <summary>The answer attempt's treatment, or null before any attempt.</summary>
     public string? Mode { get; init; }
     /// <summary>Seconds in stages before the first attempt.</summary>
@@ -68,7 +72,7 @@ public sealed record GenerationAttempt(string Mode, int ReachedBodies, int? Conf
 }
 
 /// <summary>The generator's answer for one member (G-6): its classifications and whole model entry, or why either is absent.</summary>
-/// <param name="SchemaVersion">The answer's schema version, <c>4</c>.</param>
+/// <param name="SchemaVersion">The answer's schema version, <c>5</c>.</param>
 /// <param name="Member">The declaration id asked for.</param>
 /// <param name="Assembly">The assembly as asked for.</param>
 /// <param name="Classified">The fates by parameter name, or <c>null</c> when nothing was classified.</param>
@@ -111,10 +115,10 @@ internal sealed record GenerationTrace(GeneratedAnswer Answer, Driver? Driver, S
 
 /// <summary>The <b>Model generator</b> of SPEC TD-034b: finds a member's implementation assembly, decompiles and compiles it,
 /// synthesizes a driver, analyses both with the run's own pipeline, classifies the fates and builds one whole model entry. It reads no
-/// project models, writes no file and makes no network call.</summary>
+/// project models and writes no model file. The optional source preparation makes network calls before any generation clock starts.</summary>
 public static class ModelGenerator
 {
-    private const int SCHEMA_VERSION = 4;
+    private const int SCHEMA_VERSION = 5;
     private const int CLOSURE_BOUND = 1500;
     private const string SCOPE_ID = "model-generator";
     private const string TRACING = "System.Diagnostics.Tracing";
@@ -175,13 +179,14 @@ public static class ModelGenerator
     /// <param name="dependencyAnswers">The run's dependency source, or null for built-in models only.</param>
     /// <param name="builtIn">The built-in models the generation reads outside its own assembly in place of the shipped ones, or <c>null</c>
     /// for the shipped ones: the census run's (<see cref="LibraryModels.ForCensus"/>), so that it reads a census member as a dependency.</param>
+    /// <param name="prepared">The implementation and sources obtained before the generation clocks, or null for disk-only resolution.</param>
     internal static GeneratedAnswer Generate(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken,
-                                             DependencyAnswers? dependencyAnswers, LibraryModels? builtIn = null)
+                                             DependencyAnswers? dependencyAnswers, LibraryModels? builtIn = null, GenerationPreparation? prepared = null)
     {
         using var work = WorkCancellation.Enter(cancellationToken);
         GenerationChecks checks = new(WorkCancellation.Token);
         var facts = new Facts(request, checks) { BuiltIn = builtIn };
-        return Resolve(facts, resolver, checks, dependencyAnswers).Answer;
+        return Resolve(facts, resolver, checks, dependencyAnswers, prepared: prepared).Answer;
     }
 
     /// <summary>Generates one member within one limit covering all its attempts, counted in the CPU time of the calling thread
@@ -192,9 +197,33 @@ public static class ModelGenerator
     /// <param name="time">The clock for the limit and the generation record, or the system clock; another clock stands for the CPU time
     /// too.</param>
     /// <param name="cancellationToken">External cancellation, which propagates.</param>
+    /// <param name="sources">The optional source provider, read before all member clocks.</param>
     public static GeneratedAnswer GenerateWithin(GenerationRequest request, ImplementationAssemblies resolver, TimeSpan? limit = null,
-                                                 TimeProvider? time = null, CancellationToken cancellationToken = default) =>
-        TraceWithin(request, resolver, limit, time, cancellationToken).Answer;
+                                                 TimeProvider? time = null, CancellationToken cancellationToken = default, LibrarySources? sources = null)
+    {
+        var prepared = sources is null ? null : Prepare(request, resolver, sources, cancellationToken);
+        return TraceWithin(request, resolver, limit, time, cancellationToken, prepared: prepared).Answer;
+    }
+
+    /// <summary>Resolves the implementation and obtains its sources outside every generation clock.</summary>
+    /// <param name="request">The member asked for.</param>
+    /// <param name="resolver">Finds the implementation assembly.</param>
+    /// <param name="sources">The source provider.</param>
+    /// <param name="cancellationToken">The run's cancellation, including its deadline.</param>
+    internal static GenerationPreparation? Prepare(GenerationRequest request, ImplementationAssemblies resolver, LibrarySources sources,
+                                                   CancellationToken cancellationToken)
+    {
+        using var work = WorkCancellation.Enter(cancellationToken);
+        var token = WorkCancellation.Token;
+        token.ThrowIfCancellationRequested();
+        if (Grammar(request.MemberId) is { } grammar && DeclarationId.HasEmptyTypeSegment(grammar))
+            return null;
+        var resolution = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, token);
+        var obtained = resolution is { Reason: null, Assembly: { } assembly }
+            ? sources.GetAsync(assembly.Path, token).GetAwaiter().GetResult() : null;
+        token.ThrowIfCancellationRequested();
+        return new GenerationPreparation(resolution, obtained);
+    }
 
     /// <summary>The bounded generation with its driver and runs.</summary>
     /// <param name="request">The member asked for.</param>
@@ -203,10 +232,15 @@ public static class ModelGenerator
     /// <param name="time">The clock, or the system clock.</param>
     /// <param name="cancellationToken">External cancellation, which propagates.</param>
     /// <param name="checkReported">Reports stage checks for tests.</param>
+    /// <param name="sources">Sources prepared before this generation, or null when they were not sought.</param>
+    /// <param name="compilationProbe">Test hooks for compilation, or null.</param>
+    /// <param name="prepared">The implementation and sources obtained before the generation clocks, or null.</param>
     internal static GenerationTrace TraceWithin(GenerationRequest request, ImplementationAssemblies resolver, TimeSpan? limit = null,
                                                 TimeProvider? time = null, CancellationToken cancellationToken = default,
-                                                Action<GenerationStage, int>? checkReported = null) =>
-        Within(request, limit, time, cancellationToken, checkReported, (Facts facts, GenerationChecks checks) => Resolve(facts, resolver, checks));
+                                                Action<GenerationStage, int>? checkReported = null, LibrarySourceResult? sources = null,
+                                                LibraryCompilationProbe? compilationProbe = null, GenerationPreparation? prepared = null) =>
+        Within(request, limit, time, cancellationToken, checkReported, (Facts facts, GenerationChecks checks) =>
+            Resolve(facts, resolver, checks, sources: sources, compilationProbe: compilationProbe, prepared: prepared));
 
     /// <summary>A bounded generation over a compiled fixture.</summary>
     /// <param name="request">The member asked for.</param>
@@ -268,13 +302,16 @@ public static class ModelGenerator
         return Resolve(facts, resolver, checks);
     }
 
-    private static GenerationTrace Resolve(Facts facts, ImplementationAssemblies resolver, GenerationChecks checks, DependencyAnswers? dependencyAnswers = null)
+    private static GenerationTrace Resolve(Facts facts, ImplementationAssemblies resolver, GenerationChecks checks, DependencyAnswers? dependencyAnswers = null,
+                                            LibrarySourceResult? sources = null, LibraryCompilationProbe? compilationProbe = null,
+                                            GenerationPreparation? prepared = null)
     {
         checks.Check(GenerationStage.Resolve);
         var request = facts.Request;
         if (Unnamed(facts) is { } unnamed)
             return unnamed;
-        var resolution = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, checks);
+        var resolution = prepared?.Resolution ?? resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, checks);
+        sources = prepared?.Sources ?? sources;
         // The platform is the one the resolver chose, also when it found no assembly there.
         facts.Framework = resolution.Framework;
         if (resolution.Assembly is { } opened)
@@ -287,7 +324,16 @@ public static class ModelGenerator
             return facts.Refused(reason, resolution.Detail);
         if (dependencyAnswers is not null && ImplementationAssemblies.TryParseFramework(resolution.Framework!, out var major))
             facts.Dependencies = new DependencyModels(resolver, request.AssemblyName, major, dependencyAnswers);
-        var library = LibraryCompilation.Compile(resolution.Assembly!, checks);
+        facts.Code = LibrarySourceDecisions.ForCompilation(sources);
+        var library = LibraryCompilation.Compile(resolution.Assembly!, sources, checks,
+            () =>
+            {
+                facts.Code = LibrarySourceDecisions.ForCompilation(sources, sourcesRejected: true);
+                if (prepared is not null)
+                    prepared.Code = facts.Code;
+            }, compilationProbe);
+        if (prepared is not null)
+            prepared.Code = facts.Code;
         return Classify(facts, library, checks);
     }
 
@@ -928,6 +974,7 @@ public static class ModelGenerator
         public LibraryModels? BuiltIn { get; init; }
         public Driver? Driver { get; set; }
         public GenerationImplementation? Implementation { get; set; }
+        public LibraryCode? Code { get; set; }
         public string? Framework { get; set; }
         public IReadOnlyList<string> MissingDependencies { get; set; } = [];
         public int ExternBodies { get; set; }
@@ -951,6 +998,7 @@ public static class ModelGenerator
             return new GenerationRecord(Implementation, Framework, MissingDependencies, ExternBodies, DefaultedValues, Refusals, SetupWidened,
                                         Seeds, Unseeded, HolderTriggers, ReachedBodies, checks.Seconds)
             {
+                Code = Code,
                 Mode = _attempts.LastOrDefault()?.Mode,
                 Stages = stages[0],
                 Attempts = _attempts.Select((attempt, index) => attempt with { Stages = stages[index + 1] }).ToArray()

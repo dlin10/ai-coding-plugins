@@ -41,6 +41,10 @@
              Link="Fixtures/GenerationInstall.cs" />
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/FakeClock.cs"
              Link="Fixtures/FakeClock.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/LoopbackSymbolServer.cs"
+             Link="Fixtures/LoopbackSymbolServer.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/SourceLibrary.cs"
+             Link="Fixtures/SourceLibrary.cs" />
   </ItemGroup>
 
 </Project>

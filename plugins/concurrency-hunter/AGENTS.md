@@ -155,7 +155,7 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
   is still running — stop that one process.
-- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording | --census <folder> [--settle]]` is
+- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording | --census <folder> [--settle]] [--offline]` is
   the measurement behind the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run
   it as `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
   `--generation` is what the run does with the generated model layer: `on` (the default) generates the
@@ -164,9 +164,12 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   `--generation on`, spends the recording limit instead of the run limit (ADR 0031); only
   `build/record-demo-models.ps1` passes it. `--census <folder>` is the owner's census run, which only
   `build/generate-frameworks.ps1` passes: the census budget, the folder as the repository root, and the built-in models
-  without the census's own records unless `--settle` is given.
+  without the census's own records unless `--settle` is given. `--offline`, valid with every generation mode,
+  recording and census, sends no requests and reads library sources only from disk and the source cache; online is the default.
+  Metrics schema 1.6 records the mode, library code counts and download totals in `sources`.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
-  `demo/.concurrency-hunter/models/generated/`, with a `--generation on` run of the demo, then re-reads them to show they suffice.
+  `demo/.concurrency-hunter/models/generated/`, with an online `--generation on` run of the demo, then re-reads them to show they suffice.
+  Record online so transient offline source unavailability does not leave answers that apply only to that run unwritten.
   A source edit in `Analysis` or `Core` that changes a token or a directive changes the generator version (an edit of
   comments or whitespace alone does not, ADR 0023); `build/record-demo-models.ps1` rewrites the demo files.
   Run it when a demo case reaches a library member no committed model describes: a demo run that would generate fails

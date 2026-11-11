@@ -18,7 +18,7 @@ public sealed class RunToolsTests
     {
         using var environment = new RunTestEnvironment();
         var analysis = CreateAnalysis(Enumerable.Range(1, 200).Select(_ => "High").ToArray());
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(analysis)));
 
         var startJson = RunTools.run_start(registry, environment.SolutionPath);
         var runId = Parse(startJson).GetProperty("run_id").GetString()!;
@@ -41,7 +41,7 @@ public sealed class RunToolsTests
     {
         using var environment = new RunTestEnvironment();
         var analysis = CreateAnalysis("Low", "Medium", "High", "Low", "High", "Medium", "High");
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(analysis)));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
 
@@ -63,7 +63,7 @@ public sealed class RunToolsTests
     {
         using var environment = new RunTestEnvironment();
         var analysis = CreateAnalysis("High", findingsPerGroup: 4);
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(analysis)));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
 
@@ -85,7 +85,7 @@ public sealed class RunToolsTests
             Findings = analysis.Findings.Select((finding, index) => finding with { OccurrenceCount = index + 2 }).ToArray(),
             Groups = analysis.Groups.Select(group => group with { OccurrenceCount = 2 + 3 + 4 + 5 }).ToArray()
         };
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(counted)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(counted)));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
 
@@ -113,7 +113,7 @@ public sealed class RunToolsTests
         var box = new AccessResource("Fixture", FindingTestData.SCOPE, "alloc:Ns.Type2.Post()#Ns.Point", [],
                                      new MemberKey("Ns.Point", "", IrFieldKind.Field));
         var analysis = WithResource(WithResource(CreateAnalysis(["High", "High"], 4), 0, deep), 1, box);
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(analysis)));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
 
@@ -194,7 +194,7 @@ public sealed class RunToolsTests
         using var environment = new RunTestEnvironment();
         var analysis = CreateAnalysis("High", "High", "Medium", "Low", "Low", "High", "Medium");
         analysis = WithOversizedFirstGroup(analysis, new string('я', 2000));
-        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(analysis)));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
         var seen = new List<string>();
@@ -220,8 +220,8 @@ public sealed class RunToolsTests
         using var environment = new RunTestEnvironment();
         var realistic = WithEvidence(CreateAnalysis("High", findingsPerGroup: 4), 1);
         var oversized = WithEvidence(CreateAnalysis(Enumerable.Range(1, 12).Select(_ => "High").ToArray(), 4), 600);
-        var realisticRegistry = environment.Registry((_, _) => Task.FromResult(Success(realistic)));
-        var oversizedRegistry = environment.Registry((_, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
+        var realisticRegistry = environment.Registry((_, _, _) => Task.FromResult(Success(realistic)));
+        var oversizedRegistry = environment.Registry((_, _, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
         var realisticRun = Start(realisticRegistry, environment.SolutionPath);
         await realisticRegistry.WaitForAnalysisAsync(realisticRun);
 
@@ -263,8 +263,8 @@ public sealed class RunToolsTests
         using var environment = new RunTestEnvironment();
         var realistic = WithOwnershipAndCalls(CreateAnalysis("High", findingsPerGroup: 4), 1);
         var oversized = WithOwnershipAndCalls(CreateAnalysis(Enumerable.Range(1, 12).Select(_ => "High").ToArray(), 4), 600);
-        var realisticRegistry = environment.Registry((_, _) => Task.FromResult(Success(realistic)));
-        var oversizedRegistry = environment.Registry((_, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
+        var realisticRegistry = environment.Registry((_, _, _) => Task.FromResult(Success(realistic)));
+        var oversizedRegistry = environment.Registry((_, _, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
         var realisticRun = Start(realisticRegistry, environment.SolutionPath);
         await realisticRegistry.WaitForAnalysisAsync(realisticRun);
 
@@ -354,7 +354,7 @@ public sealed class RunToolsTests
             [longText],
             0,
             0);
-        var registry = environment.Registry((_, _) => Task.FromResult(failed));
+        var registry = environment.Registry((_, _, _) => Task.FromResult(failed));
         var runId = Start(registry, environment.SolutionPath);
         await registry.WaitForAnalysisAsync(runId);
 

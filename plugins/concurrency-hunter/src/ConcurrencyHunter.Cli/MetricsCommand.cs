@@ -6,6 +6,7 @@ using Common.Roslyn;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Reporting;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using ConcurrencyHunter.Serialization;
 using Microsoft.CodeAnalysis;
 
@@ -23,7 +24,7 @@ internal sealed record LoadedTarget(Solution Solution, int ProjectsExpected, int
 internal static class MetricsCommand
 {
     private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] " +
-                                 "[--recording | --census <folder> [--settle]]";
+                                 "[--recording | --census <folder> [--settle]] [--offline]";
     private const string RECORDING = "--recording";
     private const string CENSUS = "--census";
     private const string SETTLE = "--settle";
@@ -34,8 +35,8 @@ internal static class MetricsCommand
     private const string LOAD = "load";
     private const string RENDER = "render";
     // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps, 1.5 the ordered pairs by the
-    // assumption their ordering rests on.
-    private const string SCHEMA_VERSION = "1.5";
+    // assumption their ordering rests on; 1.6 added library sources and download totals.
+    private const string SCHEMA_VERSION = "1.6";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -44,7 +45,7 @@ internal static class MetricsCommand
     /// <summary>How a target is loaded. A parameter rather than shared state, so tests can measure an in-memory solution.</summary>
     internal delegate Task<LoadedTarget> TargetLoad(string path, CancellationToken cancellationToken);
 
-    internal static async Task<int> RunAsync(string[] args, TextWriter error, TargetLoad? load = null)
+    internal static async Task<int> RunAsync(string[] args, TextWriter error, TargetLoad? load = null, Func<bool, LibrarySources?>? createSources = null)
     {
         Options options;
         try
@@ -60,8 +61,9 @@ internal static class MetricsCommand
 
         try
         {
+            using var sources = (createSources ?? SourceProvider.Create)(options.Offline);
             var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, options.Generation, CancellationToken.None,
-                                                      options.Budget, options.Census, options.Settle)
+                                                      options.Budget, options.Census, options.Settle, sources, options.Offline)
                                        .ConfigureAwait(false);
             var path = Path.GetFullPath(options.Out);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -86,11 +88,13 @@ internal static class MetricsCommand
     /// <param name="censusFolder">The scratch folder of the owner's census run, which stands for the repository root, or <c>null</c> for any
     /// other run (<see cref="PhaseOneAnalyzer.AnalyzeCensusAsync"/>).</param>
     /// <param name="settle">Whether the census run settles the census written before rather than regenerating it.</param>
+    /// <param name="sources">The caller-owned source provider, or null for decompilation without retrieval.</param>
+    /// <param name="offline">Whether the command was asked to avoid the network, including when no provider is used.</param>
     internal static async Task<(Measurement Measurement, AnalysisResult Analysis)> MeasureAsync(string target, AnalysisLimits limits, TargetLoad load,
                                                                                                  ModelGeneration generation,
                                                                                                  CancellationToken cancellationToken,
                                                                                                  GenerationBudget budget = GenerationBudget.Run,
-                                                                                                 string? censusFolder = null, bool settle = false)
+                                                                                                 string? censusFolder = null, bool settle = false, LibrarySources? sources = null, bool offline = false)
     {
         var total = Stopwatch.StartNew();
         var step = Stopwatch.StartNew();
@@ -101,8 +105,9 @@ internal static class MetricsCommand
         var startedAt = DateTimeOffset.UtcNow;
         step.Restart();
         var analysis = censusFolder is null
-            ? await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation, budget).ConfigureAwait(false)
-            : await PhaseOneAnalyzer.AnalyzeCensusAsync(loaded.Solution, rootDirectory, censusFolder, limits, settle, cancellationToken).ConfigureAwait(false);
+            ? await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, new GenerationSetup(generation, Budget: budget, Sources: sources), cancellationToken).ConfigureAwait(false)
+            : await PhaseOneAnalyzer.AnalyzeCensusAsync(loaded.Solution, rootDirectory, censusFolder, limits, settle, cancellationToken, sources).ConfigureAwait(false);
+        analysis = analysis with { Sources = sources?.Statistics ?? new(offline, new(0, 0, 0), new(0, 0, 0)) };
         var analysisSeconds = step.Elapsed.TotalSeconds;
 
         step.Restart();
@@ -134,6 +139,7 @@ internal static class MetricsCommand
             Math.Round(peak / BYTES_PER_MB, 1),
             Counts(loaded, analysis),
             Coverage(analysis),
+            analysis.Sources,
             new TargetsInfo(new TargetValue(DETERMINISTIC_SECONDS_LIMIT, totalSeconds, totalSeconds <= DETERMINISTIC_SECONDS_LIMIT),
                             new TargetValue(PEAK_RSS_GB_LIMIT, Math.Round(peak / BYTES_PER_GB, 3), peak / BYTES_PER_GB <= PEAK_RSS_GB_LIMIT)));
         return (measurement, analysis);
@@ -252,8 +258,9 @@ internal static class MetricsCommand
     /// selects the recording's, <c>--census</c> the census budget; without either the run's.</param>
     /// <param name="Census">The scratch folder of the owner's census run, which only <c>build/generate-frameworks.ps1</c> passes, or <c>null</c>.</param>
     /// <param name="Settle">Whether the census run settles the census written before (<c>--settle</c>) rather than regenerating it.</param>
+    /// <param name="Offline">Whether source retrieval uses only disk and cache.</param>
     internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget Budget,
-                                   string? Census = null, bool Settle = false)
+                                   string? Census = null, bool Settle = false, bool Offline = false)
     {
         /// <summary>The options of a command line.</summary>
         /// <param name="args">The arguments after the command's name.</param>
@@ -263,13 +270,15 @@ internal static class MetricsCommand
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
-            var (recording, settle) = (false, false);
+            var (recording, settle, offline) = (false, false, false);
             for (var index = 0; index < args.Length; index++)
             {
                 if (args[index] == RECORDING && !recording)
                     recording = true;
                 else if (args[index] == SETTLE && !settle)
                     settle = true;
+                else if (args[index] == "--offline" && !offline)
+                    offline = true;
                 else if (args[index] is not ("--target" or "--out" or "--limits" or "--generation" or CENSUS) || index + 1 >= args.Length ||
                          !values.TryAdd(args[index], args[++index]))
                     throw new ArgumentException($"Unexpected argument '{args[index]}'.");
@@ -288,7 +297,7 @@ internal static class MetricsCommand
             if (settle && census is null)
                 throw new ArgumentException("--settle needs --census.");
             return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default, mode,
-                               recording ? GenerationBudget.Recording : census is not null ? GenerationBudget.Census : GenerationBudget.Run, census, settle);
+                               recording ? GenerationBudget.Recording : census is not null ? GenerationBudget.Census : GenerationBudget.Run, census, settle, offline);
         }
 
         private static ModelGeneration ParseGeneration(string text) => text switch
@@ -312,7 +321,7 @@ internal static class MetricsCommand
 
 internal sealed record Measurement(string SchemaVersion, string Target, string Revision, bool WorkingTreeClean, string EngineVersion,
                                    string RecordedAt, MachineInfo Machine, LimitsInfo Limits, TimingsInfo Timings, double PeakWorkingSetMb,
-                                   MeasurementCounts Counts, IReadOnlyList<ScopeMeasurement> Coverage, TargetsInfo Targets);
+                                   MeasurementCounts Counts, IReadOnlyList<ScopeMeasurement> Coverage, SourceStatistics Sources, TargetsInfo Targets);
 
 internal sealed record MachineInfo(int LogicalProcessors, double MemoryGb);
 

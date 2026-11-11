@@ -234,4 +234,25 @@ public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnl
     /// <summary>For a read-only run, the generation targets a run that generates would have generated, once each across the scopes, in ordinal
     /// order of declaration id and then of file key; empty for a run that generates and for one with the generated layer off.</summary>
     public IReadOnlyList<WantedGeneration> GenerationWanted { get; init; } = [];
+
+    /// <summary>The run's library code and source downloads, separate from its findings and coverage.</summary>
+    public SourceStatistics Sources { get; init; } = new(false, new(0, 0, 0), new(0, 0, 0));
 }
+
+/// <summary>The source mode, library counts and downloads of one run.</summary>
+/// <param name="Offline">Whether source retrieval was restricted to disk and cache.</param>
+/// <param name="Libraries">Libraries counted once by the code used.</param>
+/// <param name="Downloads">HTTP requests, received body bytes and elapsed download seconds.</param>
+public sealed record SourceStatistics(bool Offline, SourceLibraryCounts Libraries, SourceDownloads Downloads);
+
+/// <summary>Libraries by the code used for generation.</summary>
+/// <param name="OriginalSources">Libraries compiled from original sources.</param>
+/// <param name="DecompiledBest">Libraries whose best available code is decompiled.</param>
+/// <param name="DecompiledForRun">Libraries decompiled only for this run.</param>
+public sealed record SourceLibraryCounts(int OriginalSources, int DecompiledBest, int DecompiledForRun);
+
+/// <summary>Source retrieval totals, including unsuccessful requests.</summary>
+/// <param name="Requests">Requests sent, including redirects.</param>
+/// <param name="Bytes">Response body bytes received.</param>
+/// <param name="Seconds">Elapsed time spent downloading, including response bodies.</param>
+public sealed record SourceDownloads(long Requests, long Bytes, double Seconds);

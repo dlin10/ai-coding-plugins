@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
@@ -72,6 +73,34 @@ public static class GeneratedDocument
         }
         else
             json.WriteNull("implementation");
+        if (generation.Code is { } code)
+        {
+            json.WriteStartObject("code");
+            json.WriteString("kind", code.Kind switch
+            {
+                LibraryCodeKind.OriginalSources => "sources",
+                LibraryCodeKind.DecompiledBest => "decompiled",
+                LibraryCodeKind.DecompiledForRun => "decompiled-this-run",
+                _ => throw new ArgumentOutOfRangeException(nameof(generation))
+            });
+            json.WriteString("reason", code.Reason switch
+            {
+                null => null,
+                LibraryCodeReason.NoPdb => "no-pdb",
+                LibraryCodeReason.NoSources => "no-sources",
+                LibraryCodeReason.PersistentFailure => "persistent-failure",
+                LibraryCodeReason.TemporaryFailure => "temporary-failure",
+                LibraryCodeReason.Offline => "offline",
+                LibraryCodeReason.Cancelled => "cancelled",
+                LibraryCodeReason.SourcesRejected => "sources-rejected",
+                LibraryCodeReason.SourcesNotSought => "sources-not-sought",
+                _ => throw new ArgumentOutOfRangeException(nameof(generation))
+            });
+            json.WriteString("detail", code.Detail);
+            json.WriteEndObject();
+        }
+        else
+            json.WriteNull("code");
         json.WriteString("framework", generation.Framework);
         WriteStrings(json, "missingDependencies", generation.MissingDependencies);
         json.WriteNumber("externBodies", generation.ExternBodies);

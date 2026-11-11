@@ -66,16 +66,9 @@ internal static class Program
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton(serviceProvider =>
         {
-            var localApplicationData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
-            if (string.IsNullOrWhiteSpace(localApplicationData))
-            {
-                localApplicationData = Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData);
-            }
-
             return new RunRegistry(
                 serviceProvider.GetRequiredService<TimeProvider>(),
-                Path.Combine(localApplicationData, "concurrency-hunter", "runs"),
+                Path.Combine(SourceProvider.ApplicationData, "runs"),
                 SolutionAnalysis.RunAsync);
         });
         builder.Services.AddMcpServer(options =>

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Providers;
@@ -17,24 +18,24 @@ public sealed class GeneratedDocumentTests
 
     private static readonly string[] GENERATION =
     [
-        "implementation", "framework", "missingDependencies", "externBodies", "defaultedValues", "refusals", "setupWidened", "seeds", "unseeded",
+        "implementation", "code", "framework", "missingDependencies", "externBodies", "defaultedValues", "refusals", "setupWidened", "seeds", "unseeded",
         "holderTriggers", "reachedBodies", "seconds", "mode", "stages", "attempts"
     ];
 
     // G-6's two examples, their "…" filled.
     private const string FIRST_EXAMPLE =
-        "{\"schemaVersion\":4,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
+        "{\"schemaVersion\":5,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
         "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"detail\":\"\",\"model\":null,\"modelReason\":null," +
         "\"causes\":[],\"generation\":{\"implementation\":" +
         "{\"path\":\"C:\\\\Program Files\\\\dotnet\\\\shared\\\\Microsoft.NETCore.App\\\\10.0.0\\\\System.Linq.dll\",\"assemblyVersion\":\"10.0.0.0\"," +
-        "\"fileVersion\":\"10.0.25.52411\",\"mvid\":\"" + MVID + "\"},\"framework\":\"net10.0\",\"missingDependencies\":[],\"externBodies\":3," +
+        "\"fileVersion\":\"10.0.25.52411\",\"mvid\":\"" + MVID + "\"},\"code\":null,\"framework\":\"net10.0\",\"missingDependencies\":[],\"externBodies\":3," +
         "\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{}," +
         "\"reachedBodies\":41,\"seconds\":2.3,\"mode\":\"inert\",\"stages\":{\"resolve\":0.3},\"attempts\":[{\"mode\":\"inert\",\"reachedBodies\":41,\"confirmationBodies\":null,\"stages\":{\"analyze\":2.0}}]}}\n";
 
     private const string SECOND_EXAMPLE =
-        "{\"schemaVersion\":4,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
+        "{\"schemaVersion\":5,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
         "\"classified\":null,\"reason\":\"corelib\",\"detail\":\"\",\"model\":null,\"modelReason\":null,\"causes\":[],\"generation\":{\"implementation\":null," +
-        "\"framework\":null,\"missingDependencies\":[],\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[]," +
+        "\"code\":null,\"framework\":null,\"missingDependencies\":[],\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[]," +
         "\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{},\"reachedBodies\":0,\"seconds\":0.0,\"mode\":null,\"stages\":{},\"attempts\":[]}}\n";
 
     [Fact]
@@ -44,7 +45,7 @@ public sealed class GeneratedDocumentTests
         var root = document.RootElement;
 
         Assert.Equal(TOP_LEVEL, Names(root));
-        Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(5, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("member").ValueKind);
         var assembly = root.GetProperty("assembly");
         Assert.Equal(["name", "version", "package"], Names(assembly));
@@ -149,6 +150,29 @@ public sealed class GeneratedDocumentTests
     }
 
     [Theory]
+    [InlineData(LibraryCodeKind.OriginalSources, null, "sources", null)]
+    [InlineData(LibraryCodeKind.DecompiledBest, LibraryCodeReason.NoPdb, "decompiled", "no-pdb")]
+    [InlineData(LibraryCodeKind.DecompiledBest, LibraryCodeReason.NoSources, "decompiled", "no-sources")]
+    [InlineData(LibraryCodeKind.DecompiledBest, LibraryCodeReason.PersistentFailure, "decompiled", "persistent-failure")]
+    [InlineData(LibraryCodeKind.DecompiledBest, LibraryCodeReason.SourcesRejected, "decompiled", "sources-rejected")]
+    [InlineData(LibraryCodeKind.DecompiledBest, LibraryCodeReason.SourcesNotSought, "decompiled", "sources-not-sought")]
+    [InlineData(LibraryCodeKind.DecompiledForRun, LibraryCodeReason.TemporaryFailure, "decompiled-this-run", "temporary-failure")]
+    [InlineData(LibraryCodeKind.DecompiledForRun, LibraryCodeReason.Offline, "decompiled-this-run", "offline")]
+    [InlineData(LibraryCodeKind.DecompiledForRun, LibraryCodeReason.Cancelled, "decompiled-this-run", "cancelled")]
+    public void Code_kind_and_reason_are_written_in_schema_five(LibraryCodeKind kind, LibraryCodeReason? reason, string writtenKind, string? writtenReason)
+    {
+        var answer = Rich();
+        answer = answer with { Generation = answer.Generation with { Code = new(kind, reason) } };
+        using var document = JsonDocument.Parse(GeneratedDocument.Write(answer));
+        Assert.Equal(5, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        var code = document.RootElement.GetProperty("generation").GetProperty("code");
+        Assert.Equal(["kind", "reason", "detail"], Names(code));
+        Assert.Equal(writtenKind, code.GetProperty("kind").GetString());
+        Assert.Equal(writtenReason, code.GetProperty("reason").GetString());
+        Assert.Equal(reason == LibraryCodeReason.Offline ? "offline" : null, code.GetProperty("detail").GetString());
+    }
+
+    [Theory]
     [InlineData(0.0, "0.0")]
     [InlineData(0.04, "0.0")]
     [InlineData(2.26, "2.3")]
@@ -205,7 +229,7 @@ public sealed class GeneratedDocumentTests
 
     private static GeneratedAnswer Example(string member, GenerationAssembly assembly, IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason,
                                            GenerationRecord record) =>
-        new(4, member, assembly, classified, reason, null, null, record);
+        new(5, member, assembly, classified, reason, null, null, record);
 
     private static GenerationRecord Record(GenerationImplementation? implementation, string? framework, int externBodies = 0, int reachedBodies = 0,
                                            double seconds = 0) =>

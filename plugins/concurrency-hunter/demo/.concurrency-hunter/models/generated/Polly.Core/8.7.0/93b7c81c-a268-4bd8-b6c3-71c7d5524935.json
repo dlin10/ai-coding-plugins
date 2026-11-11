@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "e49b8b729d88a18968b3e6c0a74981499908fcb7dc20cdd874ef63b8e0c8ad00",
+  "generator": "6b2167ab9a3c88dbdb51b5a0bd1ecf8d98e03c5e9978956e19f34ebad0e28192",
   "assembly": {
     "name": "Polly.Core",
     "version": "8.0.0.0",
@@ -55,7 +55,6 @@
         "reason": "unknown-touch",
         "detail": "",
         "causes": [
-          "argument-graph-cells",
           "argument-member-unseen",
           "probe-accessed-elsewhere",
           "probe-handed-to-unseen"
@@ -75,7 +74,6 @@
           "probe-handed-to-unseen",
           "receiver-member-unseen",
           "unseeded-read",
-          "unsupported-store",
           "value-unobserved",
           "witness-value-handed"
         ]
@@ -95,7 +93,6 @@
           "receiver-member-unseen",
           "result-unresolved",
           "unseeded-read",
-          "unsupported-store",
           "value-unobserved",
           "witness-value-handed"
         ]
@@ -147,7 +144,6 @@
         "reason": "unknown-touch",
         "detail": "",
         "causes": [
-          "argument-graph-cells",
           "argument-member-unseen",
           "probe-accessed-elsewhere",
           "probe-handed-to-unseen"

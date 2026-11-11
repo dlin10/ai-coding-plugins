@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.ExceptionServices;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Analysis;
@@ -79,6 +80,7 @@ internal sealed class RunGeneration
     private readonly TimeSpan _memberLimit;
     private readonly TimeProvider _time;
     private readonly Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> _generate;
+    private readonly Func<GenerationRequest, CancellationToken, (Func<bool> RunOnly, Func<DependencyAnswers, CancellationToken, GeneratedAnswer> Generate)>? _prepare;
     private readonly Func<GenerationRequest, CancellationToken, int> _rank;
     private readonly int _workers;
     private readonly object _gate = new();
@@ -94,11 +96,12 @@ internal sealed class RunGeneration
     private readonly Dictionary<Compilation, Dictionary<INamedTypeSymbol, GeneratedFileKey>> _mappedTypes = new();
     private TimeSpan _spent;
 
-    private sealed class RunAnswer(GenerationTarget target, GeneratedModelAnswer answer, IReadOnlyList<DependencyView> views)
+    private sealed class RunAnswer(GenerationTarget target, GeneratedModelAnswer answer, IReadOnlyList<DependencyView> views, bool runOnly = false)
     {
         internal GenerationTarget Target { get; } = target;
         internal GeneratedModelAnswer Answer { get; } = answer;
         internal IReadOnlyList<DependencyView> Views { get; } = views;
+        internal bool RunOnly { get; } = runOnly;
         internal bool RetryStopped { get; set; }
         internal bool Final { get; set; }
         internal bool Written { get; set; }
@@ -151,9 +154,12 @@ internal sealed class RunGeneration
     /// <param name="generate">The generator call: a member's request, the run's raw dependency answers and the token that cuts the generation.</param>
     /// <param name="rank">The rank of a request's implementation assembly (<see cref="AssemblyRanks.Of"/>); called under the round's lock.</param>
     /// <param name="workers">The threads that drain a round's queue (<see cref="WorkersOf"/>); one, the caller's, unless the run records.</param>
+    /// <param name="prepare">Obtains a generation over prepared code before the member's clocks and a query of whether its current code
+    /// permits storage, or null for the supplied generator alone.</param>
     internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken, TimeSpan runLimit, TimeSpan memberLimit, TimeProvider time,
                            Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate,
-                           Func<GenerationRequest, CancellationToken, int> rank, int workers = 1)
+                           Func<GenerationRequest, CancellationToken, int> rank, int workers = 1,
+                           Func<GenerationRequest, CancellationToken, (Func<bool> RunOnly, Func<DependencyAnswers, CancellationToken, GeneratedAnswer> Generate)>? prepare = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(workers, 1);
         _repositoryRoot = repositoryRoot;
@@ -162,6 +168,7 @@ internal sealed class RunGeneration
         _memberLimit = memberLimit;
         _time = time;
         _generate = generate;
+        _prepare = prepare;
         _rank = rank;
         _workers = workers;
     }
@@ -456,7 +463,8 @@ internal sealed class RunGeneration
         return false;
     }
 
-    /// <summary>The single owner of finality: the least fixed point of kept outcomes with unchanged, final dependency answers.</summary>
+    /// <summary>The single owner of finality: the least fixed point of kept outcomes on code that is not only for this run, with unchanged,
+    /// final dependency answers.</summary>
     private void FinalizeAnswers()
     {
         WorkCancellation.Check();
@@ -475,7 +483,7 @@ internal sealed class RunGeneration
             foreach (var answer in _answers.Values)
             {
                 WorkCancellation.Check();
-                if (answer.Final || answer.RetryStopped || !GeneratedModelFiles.Keeps(answer.Answer.Outcome) ||
+                if (answer.Final || answer.RunOnly || answer.RetryStopped || !GeneratedModelFiles.Keeps(answer.Answer.Outcome) ||
                     answer.Views.Any(view => !SameView(view) || !IsFinal(view.Target)))
                     continue;
                 answer.Final = true;
@@ -656,6 +664,9 @@ internal sealed class RunGeneration
         if (left <= TimeSpan.Zero)
             return new RunAnswer(target, Refused(target, GenerationOutcome.BUDGET, $"the run's generation budget of {Seconds(_runLimit)} s was spent before the member was reached"), []);
 
+        using var preparation = WorkCancellation.Enter(_runToken);
+        var prepared = _prepare?.Invoke(target.Request, WorkCancellation.Token);
+        WorkCancellation.Check();
         var ownLimitBinds = _memberLimit <= left;
         using var member = CancellationTokenSource.CreateLinkedTokenSource(_runToken, WorkCancellation.Token);
         using var ownLimit = ownLimitBinds ? new MemberLimit(member, _memberLimit, _time) : null;
@@ -665,8 +676,9 @@ internal sealed class RunGeneration
         {
             // The compilations the generator adds to the cache belong to this run, and are released with it.
             using var owned = _compilations.Open();
-            var generated = _generate(target.Request, DependencyAnswer, member.Token);
-            return new RunAnswer(target, Answer(target, generated), generated.DependencyViews);
+            var generated = prepared is null ? _generate(target.Request, DependencyAnswer, member.Token) : prepared.Value.Generate(DependencyAnswer, member.Token);
+            return new RunAnswer(target, Answer(target, generated), generated.DependencyViews, generated.Generation.Code is { } code
+                ? code.Kind == LibraryCodeKind.DecompiledForRun : prepared?.RunOnly() ?? false);
         }
         catch (Exception error)
         {
@@ -679,10 +691,10 @@ internal sealed class RunGeneration
             {
                 return new RunAnswer(target, ownLimitBinds
                     ? Refused(target, GenerationOutcome.TIMEOUT, $"the generation did not finish within the member limit of {Seconds(_memberLimit)} s")
-                    : Refused(target, GenerationOutcome.BUDGET, $"the run's generation budget of {Seconds(_runLimit)} s ended while the member was generated"), []);
+                    : Refused(target, GenerationOutcome.BUDGET, $"the run's generation budget of {Seconds(_runLimit)} s ended while the member was generated"), [], prepared?.RunOnly() ?? false);
             }
 
-            return new RunAnswer(target, Refused(target, GenerationOutcome.FAILED, $"{error.GetType().Name}: {error.Message}"), []);
+            return new RunAnswer(target, Refused(target, GenerationOutcome.FAILED, $"{error.GetType().Name}: {error.Message}"), [], prepared?.RunOnly() ?? false);
         }
         finally
         {

@@ -22,18 +22,21 @@ public sealed class ModelGenerationModeTests
         await DemoWorkspace.EnsureRestoredAsync();
         var demo = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");
         var modes = new List<ModelGeneration>();
+        var offlineModes = new List<bool>();
 
         // The run's own load, over the demo; the analysis is the test's, which only sees what the run asks for.
         var analysis = await SolutionAnalysis.RunAsync(demo, CancellationToken.None, (path, token) => new MsBuildSolutionLoader().LoadAsync(path, token),
-                                                       (_, _, _, generation) =>
+                                                       (_, _, _, generation, sources) =>
                                                        {
                                                            modes.Add(generation);
+                                                           offlineModes.Add(sources.Statistics.Offline);
                                                            return Task.FromResult(new AnalysisResult([], [], [], [], [], [], PairCounters.None, []));
-                                                       });
+                                                       }, offline: true);
 
         Assert.False(analysis.LoadFailed);
         Assert.False(analysis.AnalysisFailed);
         Assert.Equal([ModelGeneration.Generate], modes);
+        Assert.Equal([true], offlineModes);
     }
 
     [Fact]

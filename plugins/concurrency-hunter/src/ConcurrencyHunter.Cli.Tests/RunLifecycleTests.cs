@@ -12,7 +12,7 @@ public sealed class RunLifecycleTests
     {
         using var environment = new RunTestEnvironment();
         var started = NewSignal();
-        var registry = environment.Registry(async (_, token) =>
+        var registry = environment.Registry(async (_, token, _) =>
         {
             started.SetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
@@ -48,7 +48,7 @@ public sealed class RunLifecycleTests
     public async Task Load_failure_fails_the_run_and_renders_Failed()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry((_, _) => Task.FromResult(
+        var registry = environment.Registry((_, _, _) => Task.FromResult(
             new RunAnalysis(true, false, 1, 0, ["Demo.csproj"], null, ["load failed"], 0.1, 0)));
 
         var start = registry.Start(environment.SolutionPath);
@@ -81,7 +81,7 @@ public sealed class RunLifecycleTests
     public async Task Second_start_is_refused_while_a_run_is_active()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry(async (_, token) =>
+        var registry = environment.Registry(async (_, token, _) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
             throw new InvalidOperationException("unreachable");
@@ -118,7 +118,7 @@ public sealed class RunLifecycleTests
     public async Task Get_groups_and_render_before_analysis_completes_are_not_ready()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry(async (_, token) =>
+        var registry = environment.Registry(async (_, token, _) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
             throw new InvalidOperationException("unreachable");
@@ -229,7 +229,7 @@ public sealed class RunLifecycleTests
     public async Task Deadline_during_analysis_cancels_it_and_renders_Incomplete_with_OverallTimeout()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry(async (_, token) =>
+        var registry = environment.Registry(async (_, token, _) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
             throw new InvalidOperationException("unreachable");
@@ -329,7 +329,7 @@ public sealed class RunLifecycleTests
     {
         using var environment = new RunTestEnvironment();
         var cancelled = NewSignal();
-        var registry = environment.Registry(async (_, token) =>
+        var registry = environment.Registry(async (_, token, _) =>
         {
             try
             {
@@ -375,7 +375,7 @@ public sealed class RunLifecycleTests
     public async Task Analysis_exception_after_loading_renders_Failed_with_AnalysisFailed_and_coverage()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry((_, _) => Task.FromResult(
+        var registry = environment.Registry((_, _, _) => Task.FromResult(
             new RunAnalysis(false, true, 4, 3, ["Missing.csproj"], null, ["analysis broke"], 1.1, 2.2)));
         var start = registry.Start(environment.SolutionPath);
         await registry.WaitForAnalysisAsync(start.RunId!);
@@ -393,7 +393,7 @@ public sealed class RunLifecycleTests
     public async Task Load_failure_past_the_deadline_still_renders_Failed()
     {
         using var environment = new RunTestEnvironment();
-        var registry = environment.Registry((_, _) => Task.FromResult(
+        var registry = environment.Registry((_, _, _) => Task.FromResult(
             new RunAnalysis(true, false, 1, 0, ["Missing.csproj"], null, ["load broke"], 1, 0)));
         var start = registry.Start(environment.SolutionPath);
         await registry.WaitForAnalysisAsync(start.RunId!);

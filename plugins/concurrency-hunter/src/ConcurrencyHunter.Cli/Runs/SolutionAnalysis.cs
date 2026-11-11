@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Common.Roslyn;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Runs;
@@ -9,7 +10,7 @@ internal sealed record RunAnalysis(bool LoadFailed, bool AnalysisFailed, int Pro
                                    IReadOnlyList<string> MissingProjects, AnalysisResult? Result,
                                    IReadOnlyList<string> Diagnostics, double LoadSeconds, double AnalysisSeconds);
 
-internal delegate Task<RunAnalysis> AnalysisStep(string target, CancellationToken cancellationToken);
+internal delegate Task<RunAnalysis> AnalysisStep(string target, CancellationToken cancellationToken, bool offline);
 
 /// <summary>The analysis of a loaded solution, as <see cref="PhaseOneAnalyzer"/> runs it: a parameter of the run, so that a test can see what
 /// the run asks of the analyzer.</summary>
@@ -17,13 +18,14 @@ internal delegate Task<RunAnalysis> AnalysisStep(string target, CancellationToke
 /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
 /// <param name="cancellationToken">Cancels the analysis.</param>
 /// <param name="generation">What the run does with the generated model layer.</param>
+/// <param name="sources">The source provider owned by this run.</param>
 internal delegate Task<AnalysisResult> SolutionAnalyzer(Solution solution, string rootDirectory, CancellationToken cancellationToken,
-                                                        ModelGeneration generation);
+                                                        ModelGeneration generation, LibrarySources sources);
 
 internal static class SolutionAnalysis
 {
-    internal static Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken) =>
-        RunAsync(target, cancellationToken, (path, token) => new MsBuildSolutionLoader().LoadAsync(path, token));
+    internal static Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken, bool offline = false) =>
+        RunAsync(target, cancellationToken, (path, token) => new MsBuildSolutionLoader().LoadAsync(path, token), offline: offline);
 
     /// <summary>The MCP run's analysis of a target: it loads the solution and analyses it generating the models of the library members no layer
     /// describes (<see cref="ModelGeneration.Generate"/>).</summary>
@@ -31,11 +33,14 @@ internal static class SolutionAnalysis
     /// <param name="cancellationToken">Cancels the load and the analysis.</param>
     /// <param name="load">Loads the solution.</param>
     /// <param name="analyze">Analyses the loaded solution; <see cref="PhaseOneAnalyzer"/> when omitted.</param>
+    /// <param name="offline">Restricts source retrieval to disk and cache.</param>
     internal static async Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken,
                                                      Func<string, CancellationToken, Task<MsBuildLoadResult>> load,
-                                                     SolutionAnalyzer? analyze = null)
+                                                     SolutionAnalyzer? analyze = null, bool offline = false)
     {
-        analyze ??= PhaseOneAnalyzer.AnalyzeAsync;
+        analyze ??= (solution, root, token, mode, sources) =>
+            PhaseOneAnalyzer.AnalyzeAsync(solution, root, new GenerationSetup(mode, Sources: sources), token);
+        using var sources = SourceProvider.Create(offline);
         var loadTimer = Stopwatch.StartNew();
         MsBuildLoadResult loaded;
         try
@@ -74,7 +79,7 @@ internal static class SolutionAnalysis
             try
             {
                 var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
-                var result = await analyze(loaded.Solution, rootDirectory, cancellationToken, ModelGeneration.Generate).ConfigureAwait(false);
+                var result = await analyze(loaded.Solution, rootDirectory, cancellationToken, ModelGeneration.Generate, sources).ConfigureAwait(false);
                 analysisTimer.Stop();
                 return new RunAnalysis(false, false, coverage.ProjectsExpected, coverage.ProjectsLoaded, coverage.MissingProjects, result, CurrentDiagnostics(),
                                        loadTimer.Elapsed.TotalSeconds, analysisTimer.Elapsed.TotalSeconds);

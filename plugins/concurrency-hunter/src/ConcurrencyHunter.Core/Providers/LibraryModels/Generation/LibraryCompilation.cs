@@ -2,6 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text;
+using ConcurrencyHunter.Providers.LibraryModels.Sources;
 using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.CSharp.OutputVisitor;
@@ -134,7 +137,32 @@ public static class LibraryCompilation
     /// <param name="checks">The generation's checks, which cancel the decompilation, the rewrite rounds, the compilation and the wait.</param>
     /// <param name="probe">Test hooks, or <c>null</c>.</param>
     internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers, GenerationChecks checks,
-                                                     LibraryCompilationProbe? probe = null)
+                                                     LibraryCompilationProbe? probe = null) =>
+        CompileCached(assembly, selectedMembers, checks, probe, null);
+
+    /// <summary>Compiles prepared sources, falling back to the ordinary decompiled compilation when sources are refused.</summary>
+    /// <param name="assembly">The implementation assembly.</param>
+    /// <param name="sources">The caller's prepared source result, or null when sources were not sought.</param>
+    /// <param name="checks">The caller's compilation checks.</param>
+    /// <param name="sourcesRejected">Called before starting or waiting for the fallback compilation.</param>
+    /// <param name="probe">Test hooks, or null.</param>
+    internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, LibrarySourceResult? sources, GenerationChecks checks,
+                                                     Action sourcesRejected, LibraryCompilationProbe? probe = null)
+    {
+        IReadOnlySet<string> selection = new HashSet<string>(StringComparer.Ordinal);
+        if (sources?.Kind == LibraryCodeKind.OriginalSources)
+        {
+            var code = new SourceCode(sources.Documents, sources.Defines, sources.LanguageVersion, sources.PdbId);
+            var original = CompileCached(assembly, selection, checks, probe, code);
+            if (original.Reason != GenerationReasons.LIBRARY_DOES_NOT_COMPILE)
+                return original;
+            sourcesRejected();
+        }
+        return CompileCached(assembly, selection, checks, probe, null);
+    }
+
+    private static LibraryCompilationResult CompileCached(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers, GenerationChecks checks,
+                                                           LibraryCompilationProbe? probe, SourceCode? sources)
     {
         checks.Check(GenerationStage.CompileLibrary);
         var dependencies = assembly.References.Where(reference => !string.Equals(Path.GetDirectoryName(reference),
@@ -143,13 +171,14 @@ public static class LibraryCompilation
         var selection = selectedMembers.ToHashSet(StringComparer.Ordinal);
         // Paths compare ignoring case; hex-encoded member ids retain their case in that cache.
         var key = string.Join("\n", new[] { assembly.Path, assembly.SharedFrameworkDirectory }.Concat(dependencies)) +
-                  "\nextern:\n" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", selection.Order(StringComparer.Ordinal))));
+                  "\nextern:\n" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", selection.Order(StringComparer.Ordinal)))) +
+                  (sources is null ? "\ncode:decompiled" : "\ncode:sources:" + sources.PdbId + ":" + sources.Fingerprint);
         while (true)
         {
             checks.Check(GenerationStage.CompileLibrary);
             // The value overload: the factory overload may run for several callers, and only the caller whose instance the cache holds
             // owns the entry it records.
-            var created = Started(key, assembly, selection, checks, probe);
+            var created = Started(key, assembly, selection, checks, probe, sources);
             var entry = Compilations.GetOrAdd(key, created);
             if (ReferenceEquals(entry, created))
                 CompilationOwnership.Record(key, entry);
@@ -244,8 +273,9 @@ public static class LibraryCompilation
     /// <param name="selection">Documentation ids of whole members to make extern.</param>
     /// <param name="checks">The starter's checks, which govern the compilation.</param>
     /// <param name="probe">Test hooks, or <c>null</c>.</param>
+    /// <param name="sources">Prepared original sources, or null for decompilation.</param>
     private static Lazy<Task<LibraryCompilationResult>> Started(string key, ImplementationAssembly assembly, IReadOnlySet<string> selection,
-                                                                GenerationChecks checks, LibraryCompilationProbe? probe)
+                                                                GenerationChecks checks, LibraryCompilationProbe? probe, SourceCode? sources)
     {
         Lazy<Task<LibraryCompilationResult>>? entry = null;
         entry = new Lazy<Task<LibraryCompilationResult>>(() =>
@@ -253,6 +283,8 @@ public static class LibraryCompilation
             var compiling = Task.Run(() =>
             {
                 probe?.Started?.Invoke();
+                if (sources is not null)
+                    return CompileSources(assembly, sources, checks, selection);
                 return CompileModule(assembly.AssemblyName, Decompile(assembly, checks, probe),
                                      assembly.References.Select(SharedReferences.Of).ToArray(), checks, selection);
             });
@@ -270,6 +302,93 @@ public static class LibraryCompilation
     /// <param name="task">The task.</param>
     private static bool WasCancelled(Task task) =>
         task.IsCanceled || task.IsFaulted && task.Exception!.InnerExceptions.All(error => error is OperationCanceledException);
+
+    private sealed record SourceCode(IReadOnlyList<LibrarySourceDocument> Documents, IReadOnlyList<string> Defines,
+                                     RoslynLanguageVersion LanguageVersion, string? PdbId)
+    {
+        // Encode paths before joining: their case and separators are part of the code, even in the case-insensitive path cache.
+        internal string Fingerprint => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n",
+            Documents.OrderBy(document => document.Path, StringComparer.Ordinal).Select(document =>
+                Convert.ToHexString(Encoding.UTF8.GetBytes(document.Path)) + ":" + Convert.ToHexString(SHA256.HashData(document.Content.AsSpan())))))));
+    }
+
+    private static LibraryCompilationResult CompileSources(ImplementationAssembly assembly, SourceCode sources, GenerationChecks checks,
+                                                            IReadOnlySet<string> selection)
+    {
+        var options = new CSharpParseOptions(sources.LanguageVersion, preprocessorSymbols: sources.Defines);
+        var trees = new List<SyntaxTree>();
+        foreach (var document in sources.Documents)
+        {
+            checks.Check(GenerationStage.CompileLibrary);
+            trees.Add(CSharpSyntaxTree.ParseText(document.Text, options, document.Path, cancellationToken: checks.Token));
+        }
+        using var resolver = new ReferenceResolver(assembly.References);
+        using var module = new PEFile(assembly.Path, PEStreamOptions.PrefetchEntireImage);
+        var settings = new DecompilerSettings(DecompilerLanguageVersion.Latest) { ThrowOnAssemblyResolveErrors = false };
+        var typeSystem = new DecompilerTypeSystem(module, resolver, settings);
+        var attributes = AssemblyAttributes(assembly, new ProjectDecompiler(settings, resolver).Create(typeSystem), settings, checks);
+        attributes = attributes.WithRootAndOptions(attributes.GetRoot(checks.Token), options);
+        var references = assembly.References.Select(SharedReferences.Of).ToArray();
+        var binding = CSharpCompilation.Create(assembly.AssemblyName, trees.Append(attributes), references,
+                                              new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        var assemblyAttributes = binding.Assembly.GetAttributes();
+        var moduleAttributes = binding.SourceModule.GetAttributes();
+        var supplied = assemblyAttributes.Concat(moduleAttributes).Where(attribute => attribute.ApplicationSyntaxReference?.SyntaxTree == attributes)
+                               .ToDictionary(attribute => attribute.ApplicationSyntaxReference!.Span);
+        var root = (CompilationUnitSyntax)attributes.GetRoot(checks.Token);
+        var lists = new List<AttributeListSyntax>();
+        foreach (var list in root.AttributeLists)
+        {
+            checks.Check(GenerationStage.CompileLibrary);
+            var existing = (list.Target?.Identifier.ValueText == "module" ? moduleAttributes : assemblyAttributes)
+                .Where(attribute => attribute.ApplicationSyntaxReference?.SyntaxTree != attributes).ToArray();
+            var kept = list.Attributes.Where(syntax => !supplied.TryGetValue(syntax.Span, out var candidate) ||
+                !existing.Any(attribute => candidate.AttributeClass is not null &&
+                    SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, candidate.AttributeClass) &&
+                    (!AllowsMultiple(candidate.AttributeClass) || SameArguments(attribute, candidate)))).ToArray();
+            if (kept.Length > 0)
+                lists.Add(list.WithAttributes(SeparatedList(kept)));
+        }
+        trees.Add(attributes.WithRootAndOptions(root.WithAttributeLists(List(lists)), options));
+        var metadata = module.Metadata;
+        var publicKey = metadata.IsAssembly ? metadata.GetBlobContent(metadata.GetAssemblyDefinition().PublicKey) : ImmutableArray<byte>.Empty;
+        return CompileTrees(assembly.AssemblyName, trees, references, checks, selection, repairArtefacts: false, publicKey: publicKey);
+    }
+
+    private static bool AllowsMultiple(INamedTypeSymbol? type)
+    {
+        for (; type is not null; type = type.BaseType)
+        {
+            WorkCancellation.Check();
+            var usage = type.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute");
+            if (usage is not null)
+                return usage.NamedArguments.Any(argument => argument.Key == "AllowMultiple" && argument.Value.Value is true);
+        }
+        return false;
+    }
+
+    private static bool SameArguments(AttributeData left, AttributeData right) =>
+        left.ConstructorArguments.Length == right.ConstructorArguments.Length &&
+        left.ConstructorArguments.Zip(right.ConstructorArguments).All(pair => SameConstant(pair.First, pair.Second)) &&
+        left.NamedArguments.Length == right.NamedArguments.Length &&
+        left.NamedArguments.All(argument => right.NamedArguments.Any(other => other.Key == argument.Key && SameConstant(argument.Value, other.Value)));
+
+    // bounded: recursively compares the finite attribute constant tree from metadata.
+    private static bool SameConstant(TypedConstant left, TypedConstant right) =>
+        left.Kind == right.Kind && SymbolEqualityComparer.Default.Equals(left.Type, right.Type) &&
+        (left.Kind == TypedConstantKind.Array
+            ? left.IsNull == right.IsNull && (left.IsNull || left.Values.Length == right.Values.Length &&
+                left.Values.Zip(right.Values).All(pair => SameConstant(pair.First, pair.Second)))
+            : left.Value is ISymbol symbol ? right.Value is ISymbol other && SymbolEqualityComparer.Default.Equals(symbol, other)
+                                          : Equals(left.Value, right.Value));
+
+    private static SyntaxTree AssemblyAttributes(ImplementationAssembly assembly, CSharpDecompiler attributes, DecompilerSettings settings,
+                                                  GenerationChecks checks)
+    {
+        attributes.CancellationToken = checks.Token;
+        attributes.AstTransforms.Add(new RemoveCompilerGeneratedAssemblyAttributes());
+        return Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", checks);
+    }
 
     /// <summary>Decompiles the whole module in memory: one syntax tree per top-level type the whole-project decompiler includes,
     /// with its <c>EscapeInvalidIdentifiers</c> and <c>RemoveCLSCompliantAttribute</c> transforms, and the assembly-attributes
@@ -333,10 +452,7 @@ public static class LibraryCompilation
         WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
 
-        var attributes = project.Create(typeSystem);
-        attributes.CancellationToken = cancellationToken;
-        attributes.AstTransforms.Add(new RemoveCompilerGeneratedAssemblyAttributes());
-        trees[^1] = Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", checks);
+        trees[^1] = AssemblyAttributes(assembly, project.Create(typeSystem), settings, checks);
         return new DecompiledModule(trees.OfType<SyntaxTree>().ToArray(), failures.OfType<string>().ToArray())
         {
             DecompilerAssemblies = typeSystem.Modules.Select(loaded => loaded.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase),
