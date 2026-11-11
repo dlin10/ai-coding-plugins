@@ -9,6 +9,10 @@ public sealed record ResolvedThread(ThreadPulseState Thread, ThreadSelection Sel
 /// Picks the thread to show, always in Auto mode (spec §4.4 items 3–4); there is no manual pin anywhere.
 /// </summary>
 /// <remarks>
+/// <para>A <see cref="CodexRoute"/> from Codex Desktop's log outranks everything: it names the page on screen, passive
+/// switches included. A local thread it names is shown <see cref="SelectionConfidence.Confirmed"/>; when that thread is
+/// not loaded, or the page is New chat or has no local data, nothing is shown (<see cref="EmptySelection"/> says why)
+/// rather than another thread's numbers. Hooks and JSONL choose only while no route is known.</para>
 /// <para>Hook signals outrank JSONL: the newest of the user-activity hook and the <c>SessionStart</c>/resume
 /// hook wins, user activity first at equal times, and gives <see cref="SelectionConfidence.Confirmed"/>. JSONL
 /// activity of another thread never overrides a live hook signal, so background work does not steal the display.
@@ -21,6 +25,14 @@ public sealed class ActiveThreadResolver
 {
     private HookSignal? _userActivity;
     private HookSignal? _sessionStart;
+    private CodexRoute? _route;
+
+    /// <summary>Records the page Codex Desktop shows, or forgets it when its log is lost (another Codex process, no log).</summary>
+    /// <param name="route">The latest route, or <see langword="null"/> when none is known.</param>
+    public void OnRoute(CodexRoute? route)
+    {
+        _route = route;
+    }
 
     /// <summary>Records a user-activity hook (<c>UserPromptSubmit</c>) for a thread.</summary>
     /// <param name="threadId">The thread the hook belongs to, resolved from <c>transcript_path</c>.</param>
@@ -59,12 +71,22 @@ public sealed class ActiveThreadResolver
     /// <summary>Chooses the thread to show.</summary>
     /// <param name="registry">The live threads.</param>
     /// <param name="codexWindows">The number of Codex windows found.</param>
-    /// <returns>The chosen thread, or <see langword="null"/> when there is none.</returns>
+    /// <returns>The chosen thread, or <see langword="null"/> when there is none or the route names none to show.</returns>
     public ResolvedThread? Resolve(ThreadRegistry registry, int codexWindows)
     {
         ArgumentNullException.ThrowIfNull(registry);
 
-        SelectionConfidence confirmed = codexWindows >= 2 ? SelectionConfidence.Inferred : SelectionConfidence.Confirmed;
+        SelectionConfidence confirmed = Confirmed(codexWindows);
+
+        if (_route is { } route)
+        {
+            return route.Kind == CodexRouteKind.LocalThread
+                && registry.TryGet(route.ThreadId!, out ThreadPulseState routed)
+                && routed.Kind != ThreadKind.Subagent
+                    ? new ResolvedThread(routed, new ThreadSelection(confirmed, SelectionReasons.DesktopRoute))
+                    : null;
+        }
+
         ThreadPulseState? userActivity = Live(registry, _userActivity);
         ThreadPulseState? sessionStart = Live(registry, _sessionStart);
 
@@ -96,6 +118,30 @@ public sealed class ActiveThreadResolver
             ? null
             : new ResolvedThread(latest, new ThreadSelection(SelectionConfidence.Inferred, SelectionReasons.LatestJsonlActivity));
     }
+
+    /// <summary>
+    /// Says why <see cref="Resolve"/> chose no thread: the route's page when one is known (confirmed, capped like a
+    /// thread), otherwise <see cref="SelectionReasons.NoThread"/> with an unknown confidence.
+    /// </summary>
+    /// <param name="codexWindows">The number of Codex windows found.</param>
+    /// <returns>The selection to show with no thread.</returns>
+    public ThreadSelection EmptySelection(int codexWindows)
+    {
+        string? reason = _route?.Kind switch
+        {
+            CodexRouteKind.NewChat => SelectionReasons.DesktopRouteNewChat,
+            CodexRouteKind.Other => SelectionReasons.DesktopRouteNoLocalData,
+            CodexRouteKind.LocalThread => SelectionReasons.DesktopRouteNotLoaded,
+            _ => null,
+        };
+
+        return reason is null
+            ? new ThreadSelection(SelectionConfidence.Unknown, SelectionReasons.NoThread)
+            : new ThreadSelection(Confirmed(codexWindows), reason);
+    }
+
+    private static SelectionConfidence Confirmed(int codexWindows) =>
+        codexWindows >= 2 ? SelectionConfidence.Inferred : SelectionConfidence.Confirmed;
 
     private static HookSignal Newer(HookSignal? current, HookSignal candidate)
     {

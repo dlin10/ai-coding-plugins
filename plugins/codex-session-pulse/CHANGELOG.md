@@ -14,6 +14,22 @@ not run, and an overlay started by hand says `Auto · inferred`.
   text. As with a screen reader, this turns on Chromium's accessibility tree inside Codex. Each search of the tree
   costs Codex 16–80 ms of CPU. An A/B test with two Codex restarts could not separate the tree's own cost from noise. On
   pages without an input box, such as Settings, the line sits by the window as in 0.1.0.
+- **`Avg speed` shows tokens per second**: output tokens over the time of the thread's last 10 model requests, each
+  from sending the request (after the previous answer's tools ran) to the end of its answer. Codex records no
+  first-token time, so the wait for it is included and the figure is below the model's own generation speed.
+- **A shorter line**: the state, the bar, `~N min`, `Avg speed` and the Auto Warm button. Cached/input tokens,
+  `Auto · confirmed` and `JSONL` are gone; how the thread was chosen, the source and the hook count moved to the
+  state's tooltip, the token counts to Copy diagnostics. Over the input box the line is as wide as the box, with Auto
+  Warm at its right end.
+- **The line steps out of the way of Codex's menus and panels** that open upward over it, such as the model menu and
+  the "+" panel: menus by UI Automation's menu events, panels by asking twice a second which element lies just above
+  the line, only when Codex's own window is there (about 3 ms a call).
+- **The line follows the thread you open**, a click in the sidebar without a prompt included. Codex sends no hook for
+  that, but its main process logs the route of the page it shows (`/local/<thread id>`, `/` for New chat); the overlay
+  reads that one line from Codex Desktop's log, every 250 ms, and nothing else of the file. A thread with no rollout on
+  this computer (a remote host's thread, a ChatGPT project chat, a cloud task) and New chat hide the line: in 0.1.0
+  both kept the previous thread's numbers. A thread opened in Codex that the reader
+  had left out is read on demand. Hooks and JSONL choose only while the log names no page.
 - **Settings → Position**: `AboveCodexInput` (default) or `BottomOfCodexWindow`. `BottomOfCodexWindow` reads nothing
   of the window and centres the line 170 DIP above its bottom edge. The offsets now shift either position.
 - **0.1.0 settings**: a 0.1.0 `settings.json` gets the default position and drops its offsets, which were measured from

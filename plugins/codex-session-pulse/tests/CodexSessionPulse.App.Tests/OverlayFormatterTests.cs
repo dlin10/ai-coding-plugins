@@ -11,7 +11,7 @@ public sealed class OverlayFormatterTests
     private static readonly DateTimeOffset Now = new(2026, 11, 7, 10, 0, 0, TimeSpan.Zero);
     private static readonly TimeZoneInfo Utc = TimeZoneInfo.Utc;
 
-    /// <summary>The warm line: label, ~TTL, cached/input with one decimal, speed as a dash, the selection, the source.</summary>
+    /// <summary>The warm line: the state, the bar, ~TTL and speed as a dash; no tokens, selection or source.</summary>
     [Fact]
     public void Warm_ShowsTheReferenceLine()
     {
@@ -19,25 +19,22 @@ public sealed class OverlayFormatterTests
 
         Assert.Equal(("cache", OverlayTone.Warm, true), (view.StateText, view.Tone, view.ShowMetrics));
         Assert.Equal("~24 min", view.TtlText);
-        Assert.Equal("245.1k/245.3k", view.TokensText);
         Assert.Equal("Avg speed —", view.SpeedText);
-        Assert.Equal("Auto · confirmed", view.SelectionText);
-        Assert.Equal("JSONL", view.SourceText);
         Assert.Equal(0.8, view.BarFraction);
         Assert.True(view.BarKnown);
         Assert.False(view.ShowChooseFolder);
         Assert.Equal("Timing data unavailable", view.SpeedTooltip);
     }
 
-    /// <summary>The tokens tooltip has the two-decimal percentage of §11.1 and the cache write; the state tooltip has the model.</summary>
+    /// <summary>The state tooltip has the model, the source and the confirmed selection; the TTL tooltip says it estimates.</summary>
     [Fact]
-    public void Tooltips_CarryPercentageCacheWriteAndModel()
+    public void Tooltips_CarryModelSourceSelectionAndEstimate()
     {
         OverlayView view = Format(StubSnapshotScript.At(2, Now));
 
-        Assert.Contains("(99.91%)", view.TokensTooltip, StringComparison.Ordinal);
-        Assert.Contains("Cache write: 1,024 tokens", view.TokensTooltip, StringComparison.Ordinal);
         Assert.Contains("Model: gpt-5.5-codex", view.StateTooltip, StringComparison.Ordinal);
+        Assert.Contains("Source: JSONL", view.StateTooltip, StringComparison.Ordinal);
+        Assert.Contains("Thread: Auto · confirmed", view.StateTooltip, StringComparison.Ordinal);
         Assert.Contains("Estimate", view.TtlTooltip, StringComparison.Ordinal);
     }
 
@@ -59,8 +56,7 @@ public sealed class OverlayFormatterTests
 
         Assert.Equal("TTL unknown", view.TtlText);
         Assert.False(view.BarKnown);
-        Assert.Equal("Auto · inferred", view.SelectionText);
-        Assert.Contains("Cache write: unknown", view.TokensTooltip, StringComparison.Ordinal);
+        Assert.Contains("Thread: Auto · inferred", view.StateTooltip, StringComparison.Ordinal);
     }
 
     /// <summary>Each state has its §3.2 wording and colour.</summary>
@@ -101,36 +97,23 @@ public sealed class OverlayFormatterTests
     {
         OverlayView view = OverlayFormatter.Format(StubSnapshotScript.At(2, Now), 2, 0, Now, Utc);
 
-        Assert.Equal("Auto · inferred", view.SelectionText);
-        Assert.Contains("2 Codex windows", view.SelectionTooltip, StringComparison.Ordinal);
+        Assert.Contains("Thread: Auto · inferred", view.StateTooltip, StringComparison.Ordinal);
+        Assert.Contains("2 Codex windows", view.StateTooltip, StringComparison.Ordinal);
         Assert.Equal(SelectionConfidence.Unknown, OverlayFormatter.EffectiveConfidence(SelectionConfidence.Unknown, 3));
     }
 
-    /// <summary>The source tooltip counts hooks; with none while JSONL is live it says to open Review hooks (spec §4.4 item 7).</summary>
+    /// <summary>The state tooltip counts hooks; with none while JSONL is live it says to open Review hooks (spec §4.4 item 7).</summary>
     [Fact]
-    public void SourceTooltip_CountsHooksOrHintsAtReview()
+    public void StateTooltip_CountsHooksOrHintsAtReview()
     {
         CacheSnapshot snapshot = StubSnapshotScript.At(2, Now);
 
-        string none = OverlayFormatter.Format(snapshot with { Source = snapshot.Source with { Status = SourceStatus.Available } }, 1, 0, Now, Utc).SourceTooltip;
-        string some = OverlayFormatter.Format(snapshot, 1, 3, Now, Utc).SourceTooltip;
+        string none = OverlayFormatter.Format(snapshot with { Source = snapshot.Source with { Status = SourceStatus.Available } }, 1, 0, Now, Utc).StateTooltip;
+        string some = OverlayFormatter.Format(snapshot, 1, 3, Now, Utc).StateTooltip;
 
         Assert.EndsWith("Hooks not observed: after a plugin update, open Review hooks in Codex", none, StringComparison.Ordinal);
         Assert.EndsWith("Hook events since start: 3", some, StringComparison.Ordinal);
         Assert.Equal("Hook events since start: none", OverlayFormatter.HookLine(0, SourceStatus.NotFound));
-    }
-
-    /// <summary>Token counts: plain below 1000, one decimal with k or M above, a dash when unknown.</summary>
-    /// <param name="tokens">The count.</param>
-    /// <param name="expected">The expected text.</param>
-    [Theory]
-    [InlineData(null, "—")]
-    [InlineData(512L, "512")]
-    [InlineData(245_120L, "245.1k")]
-    [InlineData(1_260_000L, "1.3M")]
-    public void FormatTokens_UsesSuffixes(long? tokens, string expected)
-    {
-        Assert.Equal(expected, OverlayFormatter.FormatTokens(tokens));
     }
 
     /// <summary>Long estimates read in hours and minutes.</summary>
@@ -147,6 +130,54 @@ public sealed class OverlayFormatterTests
         HashSet<CacheState> states = Enumerable.Range(0, StubSnapshotScript.Count).Select(step => StubSnapshotScript.At(step, Now).State).ToHashSet();
 
         Assert.Equal(Enum.GetValues<CacheState>().ToHashSet(), states);
+    }
+
+    /// <summary>
+    /// A page Codex's log names with nothing to show (New chat, a remote host's thread, a thread not loaded) has no
+    /// content, so the overlay hides; a plain "no session" keeps its line and the Choose folder button.
+    /// </summary>
+    /// <param name="reason">The route reason.</param>
+    [Theory]
+    [InlineData(SelectionReasons.DesktopRouteNewChat)]
+    [InlineData(SelectionReasons.DesktopRouteNoLocalData)]
+    [InlineData(SelectionReasons.DesktopRouteNotLoaded)]
+    public void RoutedEmptyPage_HasNoContent(string reason)
+    {
+        CacheSnapshot snapshot = StubSnapshotScript.At(0, Now) with { Selection = new ThreadSelection(SelectionConfidence.Confirmed, reason) };
+
+        OverlayView view = Format(snapshot);
+        OverlayView noSession = Format(StubSnapshotScript.At(0, Now));
+
+        Assert.False(view.HasContent);
+        Assert.False(view.ShowChooseFolder);
+        Assert.True(noSession.HasContent);
+        Assert.True(noSession.ShowChooseFolder);
+    }
+
+    /// <summary>A timed speed shows in whole tokens per second, and its tooltip says the first-token wait is included.</summary>
+    [Fact]
+    public void Speed_ShowsTokensPerSecond()
+    {
+        OverlayView view = Format(StubSnapshotScript.At(2, Now) with { Speed = 31.6 });
+
+        Assert.Equal("Avg speed 32 tok/s", view.SpeedText);
+        Assert.Contains("wait for the first token is included", view.SpeedTooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>A thread Codex's log names is credited to the log in the state tooltip, not to a hook.</summary>
+    [Fact]
+    public void RoutedThread_TooltipCreditsTheLog()
+    {
+        CacheSnapshot snapshot = StubSnapshotScript.At(2, Now) with
+        {
+            Selection = new ThreadSelection(SelectionConfidence.Confirmed, SelectionReasons.DesktopRoute),
+        };
+
+        OverlayView view = Format(snapshot);
+
+        Assert.True(view.HasContent);
+        Assert.Contains("Thread: Auto · confirmed", view.StateTooltip, StringComparison.Ordinal);
+        Assert.Contains("Codex Desktop's log names the page on screen.", view.StateTooltip, StringComparison.Ordinal);
     }
 
     private static OverlayView Format(CacheSnapshot snapshot) => OverlayFormatter.Format(snapshot, 1, 0, Now, Utc);

@@ -7,7 +7,7 @@ namespace CodexSessionPulse.Core;
 /// </summary>
 /// <remarks>
 /// Hook callers (#252) pass the thread id resolved from <c>transcript_path</c>, never the hook <c>session_id</c>,
-/// which a fork or subagent shares. Speed is always <see langword="null"/> in P0. A shown thread with no activity for
+/// which a fork or subagent shares. Speed comes from <see cref="ApplyTiming"/>. A shown thread with no activity for
 /// <see cref="StaleAfter"/> is <see cref="CacheState.Stale"/>; <see cref="Prune"/> drops threads idle for
 /// <see cref="PruneAfter"/>, so a thread whose <c>SessionEnd</c> was missed does not live on.
 /// </remarks>
@@ -57,6 +57,18 @@ public sealed class PulseEngine
         lock (_gate)
         {
             _registry.Apply(usage);
+            return PublishLocked();
+        }
+    }
+
+    /// <summary>Adds a model request's timing to its thread's output speed.</summary>
+    /// <param name="timing">The request.</param>
+    /// <returns>The published snapshot.</returns>
+    public CacheSnapshot ApplyTiming(RequestTiming timing)
+    {
+        lock (_gate)
+        {
+            _registry.ApplyTiming(timing);
             return PublishLocked();
         }
     }
@@ -126,6 +138,21 @@ public sealed class PulseEngine
                 _resolver.Forget(threadId);
             }
 
+            return PublishLocked();
+        }
+    }
+
+    /// <summary>
+    /// Records the page Codex Desktop shows, from its log. While one is known it alone chooses the thread; a page with
+    /// nothing to show (New chat, no local data, a thread not loaded) gives NoSession with the route's reason.
+    /// </summary>
+    /// <param name="route">The latest route, or <see langword="null"/> when none is known; hooks and JSONL choose then.</param>
+    /// <returns>The published snapshot.</returns>
+    public CacheSnapshot OnRoute(CodexRoute? route)
+    {
+        lock (_gate)
+        {
+            _resolver.OnRoute(route);
             return PublishLocked();
         }
     }
@@ -218,8 +245,7 @@ public sealed class PulseEngine
         {
             CacheState empty = _sourceStatus == SourceStatus.Failed ? CacheState.Error : CacheState.NoSession;
 
-            return new CacheSnapshot(nowUtc, empty, null, ThreadKind.Unknown,
-                                     new ThreadSelection(SelectionConfidence.Unknown, SelectionReasons.NoThread),
+            return new CacheSnapshot(nowUtc, empty, null, ThreadKind.Unknown, _resolver.EmptySelection(_codexWindows),
                                      null, null, null, null, new CacheTtl(_options.EstimatedTtl, null, TtlBasis.Unknown),
                                      null, new SourceInfo(_sourceStatus, null, null), _sourceDiagnostics, null, null);
         }
@@ -236,6 +262,7 @@ public sealed class PulseEngine
             ThreadId = thread.ThreadId,
             Kind = thread.Kind,
             Selection = resolved.Selection,
+            Speed = thread.Speed.TokensPerSecond,
             Source = new SourceInfo(_sourceStatus, thread.SourcePath, thread.CliVersion),
             Diagnostics = failed ? _sourceDiagnostics : null,
             Model = tracked.Model ?? thread.Model,

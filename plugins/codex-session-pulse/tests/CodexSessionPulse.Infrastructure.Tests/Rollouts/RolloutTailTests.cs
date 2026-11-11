@@ -221,6 +221,66 @@ public sealed class RolloutTailTests : IDisposable
         Assert.DoesNotContain(all.Observations, o => o.ThreadId == "00000000-0000-7000-8000-0000000002d1");
     }
 
+    /// <summary>
+    /// A thread opened in Codex that discovery left out (older than the newest MaxFiles) is tracked on Follow, its
+    /// session_meta and last usage read in the same poll; a second Follow of a tracked thread changes nothing.
+    /// </summary>
+    [Fact]
+    public void Poll_Follow_TracksAThreadDiscoveryLeftOut()
+    {
+        string old = _root.RolloutPath(ThreadA, daysAgo: 2);
+        File.WriteAllText(old, Meta(ThreadA) + "\n" + TokenCount(1, 1, 10000, 9000) + "\n");
+        File.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        File.WriteAllText(_root.RolloutPath(ThreadB), Meta(ThreadB) + "\n");
+        RolloutTail tail = _root.CreateTail(o => o with { MaxFiles = 1 });
+        RolloutPollResult discovered = tail.Poll();
+
+        tail.Follow(ThreadA);
+        RolloutPollResult followed = tail.Poll();
+        tail.Follow(ThreadA);
+        RolloutPollResult again = tail.Poll();
+
+        Assert.Equal([ThreadB], discovered.Observations.Select(o => o.ThreadId));
+        Assert.Equal([ThreadA], followed.Observations.Select(o => o.ThreadId));
+        Assert.Equal([10000L], followed.Usages.Select(u => u.InputTokens));
+        Assert.Empty(again.Observations);
+        Assert.Equal(1, tail.TrackedFiles);
+    }
+
+    /// <summary>
+    /// A request runs from the turn's task_started, or from the token_count written after the previous answer's tools,
+    /// to its token_usage_record; a record with no start since the previous one (after a compaction) is not timed, and a
+    /// re-read file does not time a request twice.
+    /// </summary>
+    [Fact]
+    public void Poll_TimesRequestsFromTheirStartToTheirRecord()
+    {
+        string path = _root.RolloutPath(ThreadA);
+        File.WriteAllText(path, Meta(ThreadA) + "\n"
+                              + TaskStarted(1, 0) + "\n"
+                              + UsageRecord(2, 10, 500) + "\n"
+                              + TokenCount(3, 11, 10000, 9000) + "\n"
+                              + UsageRecord(4, 31, 400) + "\n"
+                              + UsageRecord(5, 40, 300) + "\n");
+        RolloutTail tail = _root.CreateTail();
+
+        RolloutPollResult result = tail.Poll();
+        tail.MarkChanged(path);
+        RolloutPollResult again = tail.Poll();
+
+        Assert.Equal([(500L, TimeSpan.FromSeconds(10)), (400L, TimeSpan.FromSeconds(20))],
+                     result.Timings.Select(t => (t.OutputTokens, t.Duration)));
+        Assert.All(result.Timings, t => Assert.Equal(ThreadA, t.ThreadId));
+        Assert.Empty(again.Timings);
+    }
+
+    private static string TaskStarted(int ordinal, int second) =>
+        $$$"""{"timestamp":"2026-11-07T10:01:{{{second:00}}}.000Z","type":"event_msg","ordinal":{{{ordinal}}},"payload":{"type":"task_started","turn_id":"t1"}}""";
+
+    private static string UsageRecord(int ordinal, int second, long output) =>
+        $$$"""{"timestamp":"2026-11-07T10:01:{{{second:00}}}.000Z","type":"token_usage_record","ordinal":{{{ordinal}}},"payload":{"response_id":"r{{{ordinal}}}","turn_id":"t1","thread_id":"{{{ThreadA}}}","usage":{"input_tokens":10000,"cached_input_tokens":9000,"output_tokens":{{{output}}}""" + "}}}";
+
     /// <summary>A missing root is NotFound and recovers once Codex creates it.</summary>
     [Fact]
     public void Poll_MissingRoot_IsNotFoundUntilCreated()

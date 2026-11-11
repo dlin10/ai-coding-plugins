@@ -64,6 +64,9 @@ public sealed class CodexInputLocator : IDisposable
     /// <summary>How far the card's horizontal centre may be from the editor's, in DIP (measured: 0).</summary>
     private const double MaxCentreSkewDip = 2;
 
+    /// <summary>How much taller than the editor the visible box must be to hold the buttons row, in DIP (measured: 58).</summary>
+    private const double MinBoxExtraHeightDip = 24;
+
     /// <summary>How many raw-view ancestors of the editor are considered (the card measured fifth).</summary>
     private const int MaxAncestors = 10;
 
@@ -92,6 +95,7 @@ public sealed class CodexInputLocator : IDisposable
     private nint _cachedHwnd;
     private AutomationElement? _editor;
     private AutomationElement? _card;
+    private AutomationElement? _box;
     private long _lastSearchTimestamp;
     private int _searchDelayMs;
     private InputSighting? _lastSeen;
@@ -240,6 +244,31 @@ public sealed class CodexInputLocator : IDisposable
         return card;
     }
 
+    /// <summary>
+    /// Picks the visible input box among the editor's ancestors up to the card: the nearest one that fits around the
+    /// editor and is at least <see cref="MinBoxExtraHeightDip"/> taller, so it holds the buttons row. The card around it
+    /// adds side padding (measured: 961 px wide against the box's 921 at 125 %) and, on New chat, the project chips.
+    /// </summary>
+    /// <param name="editor">The editor's rectangle.</param>
+    /// <param name="ancestors">The editor's ancestors' rectangles, nearest first; <see langword="null"/> for one without a rectangle.</param>
+    /// <param name="card">The card's index from <see cref="PickCard"/>; the search stops there.</param>
+    /// <param name="dpiScale">The window's DPI scale, where 1.0 is 96 DPI.</param>
+    /// <returns>The index of the box, or -1 when none below the card qualifies and the card is the box.</returns>
+    internal static int PickBox(WindowBounds editor, IReadOnlyList<WindowBounds?> ancestors, int card, double dpiScale)
+    {
+        int minExtraHeight = (int)Math.Round(MinBoxExtraHeightDip * dpiScale);
+
+        for (int i = 0; i <= card && i < ancestors.Count; i++)
+        {
+            if (ancestors[i] is { } ancestor && FitsAround(ancestor, editor, dpiScale) && ancestor.Height - editor.Height >= minExtraHeight)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     /// <summary>Whether a card rectangle contains the editor and is centred on it, as Codex's composer is.</summary>
     /// <param name="card">The card's rectangle.</param>
     /// <param name="editor">The editor's rectangle.</param>
@@ -298,6 +327,7 @@ public sealed class CodexInputLocator : IDisposable
             // This is a thread-pool callback: an escaping exception would end the process.
             _editor = null;
             _card = null;
+            _box = null;
             error = exception.GetType().Name;
         }
 
@@ -365,6 +395,7 @@ public sealed class CodexInputLocator : IDisposable
             _cachedHwnd = hwnd;
             _editor = null;
             _card = null;
+            _box = null;
             _searchDelayMs = 0;
             _lastSeen = null;
         }
@@ -376,7 +407,9 @@ public sealed class CodexInputLocator : IDisposable
                 if (ToBounds(_card.Current.BoundingRectangle) is { } known && Contains(window, known)
                     && ToBounds(_editor.Current.BoundingRectangle) is { } editor && FitsAround(known, editor, geometry.DpiScale))
                 {
-                    return Seen(new InputSighting(known, window));
+                    WindowBounds? box = _box is null ? null : ToBounds(_box.Current.BoundingRectangle);
+
+                    return Seen(new InputSighting(known, window, box is { } inner && FitsAround(inner, editor, geometry.DpiScale) ? inner : null));
                 }
             }
             catch (ElementNotAvailableException)
@@ -387,6 +420,7 @@ public sealed class CodexInputLocator : IDisposable
             // Lost a card that was there, or it no longer fits its editor: search in this same read.
             _editor = null;
             _card = null;
+            _box = null;
             _searchDelayMs = 0;
             _lostTimestamp = Stopwatch.GetTimestamp();
         }
@@ -401,9 +435,9 @@ public sealed class CodexInputLocator : IDisposable
 
         long started = Stopwatch.GetTimestamp();
         _lastSearchTimestamp = started;
-        WindowBounds? cardBounds = Search(hwnd, window, geometry.DpiScale);
+        InputSighting? searched = Search(hwnd, window, geometry.DpiScale);
         double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-        _searchDelayMs = cardBounds is null ? Math.Clamp(_searchDelayMs * 2, ReadIntervalMs, SearchIntervalMs) : 0;
+        _searchDelayMs = searched is null ? Math.Clamp(_searchDelayMs * 2, ReadIntervalMs, SearchIntervalMs) : 0;
 
         lock (_gate)
         {
@@ -411,7 +445,7 @@ public sealed class CodexInputLocator : IDisposable
             _lastSearchMs = elapsed;
         }
 
-        return cardBounds is { } found ? Seen(new InputSighting(found, window)) : Held();
+        return searched is { } found ? Seen(found) : Held();
     }
 
     /// <summary>Remembers a card that was just seen.</summary>
@@ -441,12 +475,12 @@ public sealed class CodexInputLocator : IDisposable
         return null;
     }
 
-    /// <summary>Searches the window for the editor and its card, and keeps both elements for the following reads.</summary>
+    /// <summary>Searches the window for the editor, its card and its box, and keeps the elements for the following reads.</summary>
     /// <param name="hwnd">The Codex window.</param>
     /// <param name="window">Its bounds.</param>
     /// <param name="dpiScale">Its DPI scale.</param>
-    /// <returns>The card's rectangle, or <see langword="null"/> when there is no editor.</returns>
-    private WindowBounds? Search(nint hwnd, WindowBounds window, double dpiScale)
+    /// <returns>The sighting, or <see langword="null"/> when there is no editor.</returns>
+    private InputSighting? Search(nint hwnd, WindowBounds window, double dpiScale)
     {
         AutomationElementCollection edits = AutomationElement.FromHandle(hwnd).FindAll(TreeScope.Descendants, EditCondition);
         List<AutomationElement> elements = [];
@@ -480,9 +514,11 @@ public sealed class CodexInputLocator : IDisposable
         }
 
         int card = PickCard(editorBounds, ancestorBounds, dpiScale);
+        int box = PickBox(editorBounds, ancestorBounds, card, dpiScale);
         _editor = editor;
         _card = card < 0 ? editor : ancestors[card];
+        _box = box < 0 ? null : ancestors[box];
 
-        return card < 0 ? editorBounds : ancestorBounds[card];
+        return new InputSighting(card < 0 ? editorBounds : ancestorBounds[card]!.Value, window, box < 0 ? null : ancestorBounds[box]);
     }
 }

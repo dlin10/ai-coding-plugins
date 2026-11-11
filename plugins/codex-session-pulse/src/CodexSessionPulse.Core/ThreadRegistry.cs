@@ -100,6 +100,24 @@ public sealed class ThreadRegistry
     }
 
     /// <summary>
+    /// Adds a request's timing to its thread's speed. A thread not live here (unknown, ended or pruned) is not created
+    /// for it: the request's own usage, read with it, brings the thread back where that is allowed.
+    /// </summary>
+    /// <param name="timing">The request.</param>
+    /// <returns>The thread, or <see langword="null"/> when it is not live.</returns>
+    public ThreadPulseState? ApplyTiming(RequestTiming timing)
+    {
+        if (!TryGet(timing.ThreadId, out ThreadPulseState state))
+        {
+            return null;
+        }
+
+        state.Speed.Apply(timing);
+
+        return state;
+    }
+
+    /// <summary>
     /// Handles a hook that shows the thread is in use (<c>SessionStart</c>, resume, user activity): clears a tombstone
     /// older than the hook and makes sure the thread is live.
     /// </summary>

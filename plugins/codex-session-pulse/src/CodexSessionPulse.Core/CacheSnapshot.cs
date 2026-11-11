@@ -14,7 +14,7 @@ namespace CodexSessionPulse.Core;
 /// <param name="Input">Input tokens of the last request, when known.</param>
 /// <param name="CacheRatio">The share of cached input in total input, from 0 to 1, when known.</param>
 /// <param name="Ttl">The TTL estimate.</param>
-/// <param name="Speed">Output tokens per second; always <see langword="null"/> in P0.</param>
+/// <param name="Speed">Output tokens per second over the thread's last requests (<see cref="SpeedTracker"/>), or <see langword="null"/> before one is timed.</param>
 /// <param name="Source">The data source behind the snapshot.</param>
 /// <param name="Diagnostics">A machine-readable diagnostic code for the Error and Stale states, or <see langword="null"/>.</param>
 /// <param name="Model">The model of the last request, or <see langword="null"/> when unknown.</param>

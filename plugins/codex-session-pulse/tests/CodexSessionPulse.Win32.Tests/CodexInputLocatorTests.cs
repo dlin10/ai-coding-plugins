@@ -56,6 +56,73 @@ public sealed class CodexInputLocatorTests
         Assert.Equal(4, CodexInputLocator.PickCard(Editor, ancestors, 1.25));
     }
 
+    /// <summary>
+    /// The visible box is the nearest ancestor that holds the buttons row: 920 px against the card's 960 with its side
+    /// padding, in a thread and in a new chat (where the card also holds the chips).
+    /// </summary>
+    [Fact]
+    public void PickBox_TakesTheBoxInsideTheCard()
+    {
+        WindowBounds?[] thread =
+        [
+            Body, Body, Body, Body, new WindowBounds(952, 1029, 960, 123), new WindowBounds(749, 1029, 1366, 143),
+        ];
+        WindowBounds?[] newChat =
+        [
+            Body, Body, Body, new WindowBounds(972, 969, 920, 183), new WindowBounds(952, 959, 960, 193),
+            new WindowBounds(762, 952, 1340, 220),
+        ];
+
+        Assert.Equal(0, CodexInputLocator.PickBox(Editor, thread, CodexInputLocator.PickCard(Editor, thread, 1.25), 1.25));
+        Assert.Equal(0, CodexInputLocator.PickBox(Editor, newChat, CodexInputLocator.PickCard(Editor, newChat, 1.25), 1.25));
+        Assert.Equal(920, thread[0]!.Value.Width);
+    }
+
+    /// <summary>Without an ancestor taller than the editor up to the card, there is no box apart from the card.</summary>
+    [Fact]
+    public void PickBox_NoneTallerThanTheEditor_IsNone()
+    {
+        WindowBounds?[] ancestors = [new WindowBounds(982, 1042, 900, 60), new WindowBounds(749, 1029, 1366, 143)];
+
+        Assert.Equal(-1, CodexInputLocator.PickBox(Editor, ancestors, CodexInputLocator.PickCard(Editor, ancestors, 1.25), 1.25));
+    }
+
+    /// <summary>
+    /// The point just above the line, as measured at 125 %: the thread's scroll container (wider than the box) is no
+    /// panel; a "+" item whose ancestors are 909, 921 and 921 px wide and then the window-sized layer is; thread text
+    /// whose walk up meets the 2129 px scroll container before any window-sized layer is not.
+    /// </summary>
+    [Fact]
+    public void IsPanelAt_TellsThePlusPanelFromTheThread()
+    {
+        WindowBounds window = new(0, 0, 2560, 1380);
+        WindowBounds box = new(1030, 1232, 921, 123);
+        WindowBounds scroll = new(426, 120, 2129, 1255);
+
+        bool thread = CodexMenuWatcher.IsPanelAt(scroll, [], box, window);
+        bool plus = CodexMenuWatcher.IsPanelAt(new WindowBounds(1036, 1154, 896, 37),
+                                               [new WindowBounds(1036, 833, 909, 389), new WindowBounds(1030, 827, 921, 401),
+                                                new WindowBounds(1030, 827, 921, 401), window], box, window);
+        bool text = CodexMenuWatcher.IsPanelAt(new WindowBounds(1040, 1150, 600, 22),
+                                               [new WindowBounds(1030, 900, 921, 300), null, scroll, window], box, window);
+
+        Assert.False(thread);
+        Assert.True(plus);
+        Assert.False(text);
+    }
+
+    /// <summary>A window-sized layer more than six levels up does not count.</summary>
+    [Fact]
+    public void IsPanelAt_LooksOnlySixLevelsUp()
+    {
+        WindowBounds window = new(0, 0, 2560, 1380);
+        WindowBounds box = new(1030, 1232, 921, 123);
+        WindowBounds narrow = new(1030, 900, 921, 300);
+
+        Assert.False(CodexMenuWatcher.IsPanelAt(new WindowBounds(1040, 1150, 600, 22),
+                                                [narrow, narrow, narrow, narrow, narrow, narrow, window], box, window));
+    }
+
     /// <summary>In a new chat the card also holds the row of project chips above the editor.</summary>
     [Fact]
     public void PickCard_NewChat_TakesTheBoxWithTheChips()

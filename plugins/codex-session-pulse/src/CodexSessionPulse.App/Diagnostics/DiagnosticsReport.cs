@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using CodexSessionPulse.App.Overlay;
 using CodexSessionPulse.Core;
+using CodexSessionPulse.Infrastructure.Desktop;
 using CodexSessionPulse.Infrastructure.Settings;
 using CodexSessionPulse.Win32;
 
@@ -25,6 +26,7 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="OverlayExtendedStyle">The overlay window's extended style.</param>
 /// <param name="Pipeline">The hook pipe, the job and the rollout reader, or <see langword="null"/> before they exist.</param>
 /// <param name="Input">The input card locator, or <see langword="null"/> before it exists.</param>
+/// <param name="DesktopLog">The Codex Desktop log reader, or <see langword="null"/> while it follows no process or under <c>--stub</c>.</param>
 internal sealed record DiagnosticsInput(string AppVersion,
                                         string OsDescription,
                                         PulseSettings Settings,
@@ -41,7 +43,8 @@ internal sealed record DiagnosticsInput(string AppVersion,
                                         bool UserHidden,
                                         long OverlayExtendedStyle,
                                         PipelineDiagnostics? Pipeline = null,
-                                        InputLocatorDiagnostics? Input = null);
+                                        InputLocatorDiagnostics? Input = null,
+                                        DesktopLogDiagnostics? DesktopLog = null);
 
 /// <summary>The process side of the overlay for "Copy diagnostics": hook pipe, job object, rollout reader and exit rule.</summary>
 /// <param name="PipeListening">Whether the hook pipe is open; without it the overlay runs on JSONL alone.</param>
@@ -120,6 +123,16 @@ internal static class DiagnosticsReport
         else
         {
             text.AppendLine("rollout source: not running");
+        }
+
+        if (input.DesktopLog is { } desktop)
+        {
+            string last = desktop.LastKind is { } kind ? $"{kind} at {desktop.LastRouteAtUtc?.ToString("O", invariant)}" : "none yet";
+            text.AppendLine(invariant, $"codex page: desktop log {(desktop.FileFound ? "found" : "not found")}, route lines {desktop.Markers}, malformed {desktop.Malformed}, last {last}{(desktop.LastError is { } logError ? $", last error {logError}" : string.Empty)}");
+        }
+        else
+        {
+            text.AppendLine("codex page: not followed, hooks and JSONL choose the thread");
         }
 
         if (input.Hooks.CountsByHookType.Count == 0)

@@ -8,7 +8,11 @@ namespace CodexSessionPulse.Win32;
 /// </summary>
 /// <param name="Card">The input card (editor, project chips and buttons) in physical pixels.</param>
 /// <param name="Window">The Codex window's extended frame bounds at the time of the read.</param>
-public readonly record struct InputSighting(WindowBounds Card, WindowBounds Window);
+/// <param name="Box">
+/// The visible input box inside the card (editor and buttons, without the card's side padding), whose width the
+/// overlay takes; <see langword="null"/> when it was not told apart from the card.
+/// </param>
+public readonly record struct InputSighting(WindowBounds Card, WindowBounds Window, WindowBounds? Box = null);
 
 /// <summary>The geometry of the overlay against the Codex window. Pure, so it is tested without windows.</summary>
 public static class OverlayPlacement

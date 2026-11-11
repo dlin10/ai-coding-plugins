@@ -1,15 +1,15 @@
 # Codex Session Pulse 0.2.0
 
-Codex Session Pulse puts one small line over the **Codex Desktop** window on Windows: the cached-input and input
-tokens of the last request in the active thread and an estimate of how long the prompt cache stays warm. It reads the
-rollout JSONL files Codex already writes; the plugin's lifecycle hooks only tell it sooner which thread is active.
+Codex Session Pulse puts one small line over the **Codex Desktop** window on Windows: an estimate of how long the
+prompt cache of the open thread stays warm. It reads the rollout JSONL files Codex already writes and, to know which
+thread is open, one line of Codex Desktop's log; the plugin's lifecycle hooks only tell it sooner.
 Codex-only and Windows-only: it is not in the Claude Code or Cursor catalogs. For Claude Code, see the
 [Session Pulse mod](../../mods/session-pulse).
 
 ## The line
 
 ```text
-cache  ▮▮▮▮▮▯▯▯  ~18 min   40.4k/40.8k   Avg speed —   Auto · confirmed   JSONL   Auto Warm
+cache  ▮▮▮▮▮▯▯▯  ~18 min · Avg speed 31 tok/s                                      Auto Warm
 ```
 
 - **State and TTL bar.** `cache` with the bar while the estimate runs, `Cache may have expired` after it, `Observed
@@ -17,12 +17,17 @@ cache  ▮▮▮▮▮▯▯▯  ~18 min   40.4k/40.8k   Avg speed —   Auto ·
   without activity, `Waiting for token usage…` for a new thread and `Codex session not found` without one.
 - **`~N min`** is an estimate counted from the last observed request with the configured TTL (30 minutes by default).
   OpenAI publishes no exact TTL, so it is never shown as a fact; a missing request is never shown as a miss.
-- **cached/input** are the last request's `cached_input_tokens` and `input_tokens`.
-- **`Avg speed —`**: output speed is not measured in this release.
-- **`Auto · confirmed` / `inferred` / `unknown`**: the thread is chosen automatically, never by hand. A hook confirms
-  it; without hooks, or with two or more Codex windows open, the choice is the newest JSONL activity and says
-  `inferred`. Switching tabs in Codex without sending anything leaves it inferred: Codex reports no tab switch.
-- **JSONL** is the source; its tooltip counts the hook events received since the overlay started.
+- **Which thread.** It is chosen automatically, never by hand. Codex Desktop's own log names the page on screen at
+  every switch, a click in the sidebar included, and the line follows it. On New chat, or on a thread with no rollout
+  on this computer (a remote host's thread, a ChatGPT project chat, a cloud task), the line hides instead of showing
+  another thread's time. Until the log names a page, a hook confirms the thread; without either, the choice is the
+  newest JSONL activity.
+- **Hover the state** for the last request's time, the model, the source, how the thread was chosen (`Auto ·
+  confirmed`, `inferred` or `unknown`; two or more Codex windows cap it at `inferred`) and the hook events received
+  since the overlay started. Cached and input tokens are in Copy diagnostics.
+- **`Avg speed N tok/s`**: output tokens per second over the thread's last 10 model requests, each from sending the
+  request to the end of its answer. Tool time is left out, but the wait for the first token is in, since Codex does
+  not record when it came, so the model itself generates faster. `—` until a request has been timed.
 - **Auto Warm** is disabled. It sends nothing; the plugin never calls a model.
 
 The overlay never takes focus, is not in Alt+Tab, follows the foreground Codex window across monitors and DPI scales,
@@ -31,7 +36,8 @@ windows, Settings, Copy diagnostics, Exit.
 
 ### Where it sits
 
-Just above the Codex input box, centred on it. It follows the box when you open or collapse the side panels, when the
+Just above the Codex input box, centred on it and as wide as it; it hides while one of Codex's menus or panels, such as
+the model menu or the "+" panel, opens upward over that spot. It follows the box when you open or collapse the side panels, when the
 row of project chips appears, and when the prompt grows to several lines. UI Automation finds the box; see "What it
 will not do". On pages without an input box, such as Codex's Settings, the line sits centred on the window, 170 DIP
 above its bottom edge.
@@ -120,11 +126,17 @@ The rollouts are read from `%CODEX_HOME%\sessions` (`%USERPROFILE%\.codex\sessio
   overlay makes no connection at all; Auto Warm is off and sends nothing.
 - **No exact TTL**: the time left is an estimate from a setting; the `cached_input_tokens` of the next request is the
   only proof that the cache was warm.
-- **No output speed** in this release (`Avg speed —`).
+- **No pure generation speed**: `Avg speed` includes the wait for the first token, which Codex does not record.
 - **Not under 80 MB of working set yet**: measured at rest with a Codex window open, the overlay's working set is
   113–118 MB, of which 56 MB is its own memory and the rest shared WPF and .NET images (`docs/compatibility.md`
   §13.1). CPU at rest stays under 0.5 % of one core.
-- **No manual thread choice**: a tab switch without a prompt is not seen until the next hook or JSONL write.
+- **No manual thread choice**: the open thread comes from Codex Desktop's log, whose format is undocumented. If a Codex
+  update drops the line, the overlay falls back to hooks and JSONL, and a tab switch without a prompt is not seen until
+  the next hook or JSONL write.
+- **One line of Codex Desktop's log.** To know the open thread, the overlay reads the log of Codex's main process in its
+  package folder. It decodes only the route line Codex writes at each page switch and keeps only its time and route
+  (`/local/<thread id>`, `/` for New chat); other lines are never turned into text, and the overlay's own log records
+  the page kind, never the id (`docs/compatibility.md` §6.3).
 - **No reading of the Codex window's text.** To sit above the input box, the overlay asks UI Automation where Codex's
   input card is. It reads element types, classes and rectangles, never names, values or text, and only while the line
   is shown. As with a screen reader, this turns on Chromium's accessibility tree inside Codex. Each search of the tree

@@ -8,7 +8,9 @@ namespace CodexSessionPulse.Infrastructure.Rollouts;
 /// <param name="Usage">A usage event to emit.</param>
 /// <param name="Observation">The file's own thread, from its first <c>session_meta</c>.</param>
 /// <param name="Diagnostic">A <see cref="DiagnosticCodes"/> value for a skipped line.</param>
-internal readonly record struct ParsedLine(TokenUsageSnapshot? Usage, ThreadObservation? Observation, string? Diagnostic);
+/// <param name="Timing">A model request's output and duration, from a <c>token_usage_record</c>.</param>
+internal readonly record struct ParsedLine(TokenUsageSnapshot? Usage, ThreadObservation? Observation, string? Diagnostic,
+                                           RequestTiming? Timing = null);
 
 /// <summary>
 /// Turns the lines of one rollout file into usage events. It reads metadata only, never keeps or reports text.
@@ -23,7 +25,12 @@ internal readonly record struct ParsedLine(TokenUsageSnapshot? Usage, ThreadObse
 /// <para><b>Usage</b>: only <c>info.last_token_usage</c>, never re-summed totals. <c>info: null</c>, a missing
 /// counter, an invalid one, the all-zero record after a compaction, and an exact repeat of the previous
 /// <c>token_count</c> (same last and total usage) are skipped with a diagnostic code. <c>token_usage_record</c>
-/// is ignored: its <c>token_count</c> follows 1–5 records later with the same numbers (§7.3).</para>
+/// gives no usage: its <c>token_count</c> follows 1–5 records later with the same numbers (§7.3).</para>
+/// <para><b>Request time</b> (spec §6.4): a <c>token_usage_record</c> is written when an answer ends; Codex writes the
+/// <c>token_count</c> after the answer's tool calls ran, just before it sends the next request, and
+/// <c>task_started</c> before a turn's first request. So a request runs from the latest of those two to its
+/// <c>token_usage_record</c>; tool time stays outside, the wait for the first token inside. A record with no start
+/// since the previous record (the first one in the history window, a request after a compaction) is not timed.</para>
 /// </remarks>
 internal sealed class RolloutFileParser
 {
@@ -33,6 +40,7 @@ internal sealed class RolloutFileParser
         "\"turn_context\""u8.ToArray(),
         "\"task_started\""u8.ToArray(),
         "\"token_count\""u8.ToArray(),
+        "\"token_usage_record\""u8.ToArray(),
     ];
 
     private readonly string _path;
@@ -49,6 +57,7 @@ internal sealed class RolloutFileParser
     private string? _model;
     private string? _turnId;
     private UsageKey? _previousUsage;
+    private DateTimeOffset? _requestStartUtc;
 
     /// <summary>Creates a parser for one file.</summary>
     /// <param name="path">The rollout path; its name gives the thread id until the meta is read.</param>
@@ -95,8 +104,9 @@ internal sealed class RolloutFileParser
             {
                 ("session_meta", _) => ReadMeta(root, payload),
                 ("turn_context", _) => Remember(ref _model, Text(payload, "model")),
-                ("event_msg", "task_started") => Remember(ref _turnId, Text(payload, "turn_id")),
+                ("event_msg", "task_started") => StartTurn(root, payload),
                 ("event_msg", "token_count") => ReadUsage(root, payload, byteStart),
+                ("token_usage_record", _) => ReadTiming(root, payload),
                 _ => default,
             };
         }
@@ -207,6 +217,34 @@ internal sealed class RolloutFileParser
                                                          _cliVersion, _ownMetaAtUtc.Value), null);
     }
 
+    private ParsedLine StartTurn(JsonElement root, JsonElement payload)
+    {
+        if (!IsInherited(Number(root, "ordinal"), Timestamp(root)))
+        {
+            _requestStartUtc = Timestamp(root) ?? _requestStartUtc;
+        }
+
+        return Remember(ref _turnId, Text(payload, "turn_id"));
+    }
+
+    private ParsedLine ReadTiming(JsonElement root, JsonElement payload)
+    {
+        DateTimeOffset? at = Timestamp(root);
+        DateTimeOffset? start = _requestStartUtc;
+        _requestStartUtc = null;
+
+        if (IsInherited(Number(root, "ordinal"), at)
+            || start is null || at is null || at <= start
+            || !payload.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object
+            || Number(usage, _schema.OutputTokens) is not { } output || output <= 0
+            || (_threadId ?? _fileThreadId) is not { } threadId)
+        {
+            return default;
+        }
+
+        return new ParsedLine(null, null, null, new RequestTiming(threadId, at.Value, output, at.Value - start.Value));
+    }
+
     private ParsedLine ReadUsage(JsonElement root, JsonElement payload, long byteStart)
     {
         long? ordinal = Number(root, "ordinal");
@@ -216,6 +254,9 @@ internal sealed class RolloutFileParser
         {
             return new ParsedLine(null, null, DiagnosticCodes.InheritedPrefix);
         }
+
+        // Written after the answer's tool calls ran: the next request is sent from here.
+        _requestStartUtc = at ?? _requestStartUtc;
 
         if (!payload.TryGetProperty("info", out JsonElement info))
         {

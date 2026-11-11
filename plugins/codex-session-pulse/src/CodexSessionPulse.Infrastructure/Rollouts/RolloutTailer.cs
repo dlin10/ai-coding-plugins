@@ -38,6 +38,9 @@ public sealed class RolloutTailer : ISessionEventSource
     /// <summary>Raised for each thread first seen in a <c>session_meta</c>.</summary>
     public event Action<ThreadObservation>? ThreadObserved;
 
+    /// <summary>Raised for each model request timed in a poll, after the poll's usage events.</summary>
+    public event Action<RequestTiming>? RequestTimed;
+
     /// <summary>Gets whether the sessions folder was found at the last poll.</summary>
     public SourceStatus Status => _tail.Status;
 
@@ -62,11 +65,28 @@ public sealed class RolloutTailer : ISessionEventSource
                 yield return usage;
             }
 
+            // After the usages, so the request's thread exists by now.
+            foreach (RequestTiming timing in result.Timings)
+            {
+                RequestTimed?.Invoke(timing);
+            }
+
             if (!await WaitAsync(token).ConfigureAwait(false))
             {
                 yield break;
             }
         }
+    }
+
+    /// <summary>
+    /// Has the next poll track the newest rollout of a thread, so a thread opened in Codex is read even when discovery
+    /// left it out (older than the newest <see cref="RolloutTailerOptions.MaxFiles"/>); see <see cref="RolloutTail.Follow"/>.
+    /// </summary>
+    /// <param name="threadId">The thread id, as a GUID.</param>
+    public void Follow(string threadId)
+    {
+        _tail.Follow(threadId);
+        Wake();
     }
 
     /// <inheritdoc/>

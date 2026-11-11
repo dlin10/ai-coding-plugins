@@ -14,6 +14,18 @@ public static class SelectionReasons
 
     /// <summary>There is no thread to show.</summary>
     public const string NoThread = "no-thread";
+
+    /// <summary>Codex Desktop's log named this thread as the one on screen.</summary>
+    public const string DesktopRoute = "desktop-route";
+
+    /// <summary>Codex Desktop shows the New chat page: no thread is open.</summary>
+    public const string DesktopRouteNewChat = "desktop-route-new-chat";
+
+    /// <summary>Codex Desktop shows a page with no rollout on this computer (remote host thread, project chat, cloud task).</summary>
+    public const string DesktopRouteNoLocalData = "desktop-route-no-local-data";
+
+    /// <summary>Codex Desktop shows a local thread whose rollout is not loaded: older than discovery reaches, missing, or ended.</summary>
+    public const string DesktopRouteNotLoaded = "desktop-route-not-loaded";
 }
 
 /// <summary>
