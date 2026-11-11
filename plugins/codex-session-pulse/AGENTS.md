@@ -16,7 +16,8 @@ tokens and a TTL estimate. The source of truth is `docs/spec.md` (Russian); the 
   it), `measure-hook.ps1` and `measure-overlay.ps1` (the numbers in `docs/compatibility.md` §13).
 - `src/CodexSessionPulse.Core` – domain contract, trackers, state. No WPF, no I/O, no formatted strings.
 - `src/CodexSessionPulse.Infrastructure` – JSONL tailer, settings, filesystem. References Core.
-- `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry.
+- `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry, and `CodexInputLocator`, which finds Codex's input card
+  through UI Automation (`UseWPF` is there only for `UIAutomationClient`).
 - `tests/<Project>.Tests` – xUnit, one test project per source project.
 
 ## Build and test
@@ -73,6 +74,9 @@ or stop the exact PID.
 - **The spec §4.3 public records in Core are frozen** (`TokenUsageSnapshot`, `CacheSnapshot`, `AnchorSnapshot`, the
   interfaces and enums): do not rename, reorder or add members; changes go through the orchestrator. Additive types
   are allowed and listed below.
+- **The overlay reads no text of the Codex window.** `CodexInputLocator` asks UI Automation only for control types,
+  classes and bounding rectangles: never `Name`, `Value`, `HelpText` or a text pattern. The README and spec §10 promise
+  this; a need for more is the owner's decision, not a code change.
 - The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0. The launcher
   keeps that promise too: a missing exe, a failed download or a missing .NET runtime ends a `--hook` with 0.
 - **The launcher's fast path is `if exist` and nothing else.** No PowerShell, no `call` per manifest line, no process

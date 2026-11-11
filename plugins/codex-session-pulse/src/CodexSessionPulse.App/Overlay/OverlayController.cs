@@ -14,7 +14,8 @@ using CodexSessionPulse.Win32;
 namespace CodexSessionPulse.App.Overlay;
 
 /// <summary>
-/// Wires the overlay together on the UI thread: settings, the Codex window anchor, the overlay window and its placement,
+/// Wires the overlay together on the UI thread: settings, the Codex window anchor, the input card locator, the overlay
+/// window and its placement,
 /// the tray, diagnostics and the 1 s display clock, and the pipeline behind it: the <see cref="RolloutTailer"/> (the
 /// foundation) and the hook pipe (an accelerator) feed one <see cref="PulseEngine"/>, whose snapshots reach
 /// <see cref="UpdateCache"/> through the dispatcher. <c>--stub</c> replaces the pipeline with <see cref="StubSnapshotScript"/>.
@@ -46,6 +47,8 @@ internal sealed class OverlayController : IDisposable
     private OverlayWindow? _window;
     private CodexWindowAnchor? _anchor;
     private IDisposable? _anchorSubscription;
+    private CodexInputLocator? _input;
+    private bool _loggedInputFound;
     private TrayIcon? _tray;
     private SettingsWindow? _settingsWindow;
     private bool _userHidden;
@@ -91,6 +94,7 @@ internal sealed class OverlayController : IDisposable
 
         _anchor = new CodexWindowAnchor(ToDetectorOptions(_settings), SynchronizationContext.Current!);
         _anchorSubscription = _anchor.Snapshots.Subscribe(new Observer<AnchorSnapshot>(OnAnchor));
+        _input = new CodexInputLocator(SynchronizationContext.Current!, OnInputChanged);
 
         _tray = new TrayIcon("Codex Session Pulse",
         [
@@ -158,6 +162,7 @@ internal sealed class OverlayController : IDisposable
         StopPipeline();
         _anchorSubscription?.Dispose();
         _anchor?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _input?.Dispose();
         _tray?.Dispose();
         _window?.Close();
         _log.Info("overlay stop");
@@ -205,6 +210,20 @@ internal sealed class OverlayController : IDisposable
         }
 
         _viewModel.Update(snapshot);
+        Reposition();
+    }
+
+    /// <summary>The input card was found, moved, resized or lost: place the overlay again.</summary>
+    private void OnInputChanged()
+    {
+        bool found = _input?.Current is not null;
+
+        if (found != _loggedInputFound)
+        {
+            _loggedInputFound = found;
+            _log.Info(found ? "input card found; placing above it" : "input card not seen; placing by the window");
+        }
+
         Reposition();
     }
 
@@ -385,7 +404,11 @@ internal sealed class OverlayController : IDisposable
         UpdateCache(latest);
     }
 
-    /// <summary>Shows, hides and places the overlay for the current anchor and settings.</summary>
+    /// <summary>
+    /// Shows, hides and places the overlay for the current anchor and settings. While it is shown with
+    /// <see cref="OverlayAnchor.AboveCodexInput"/>, the input locator follows the anchor window; otherwise it stops, so no
+    /// UI Automation call reaches Codex while the overlay is hidden.
+    /// </summary>
     private void Reposition()
     {
         if (_window is null || _anchor is null)
@@ -398,6 +421,8 @@ internal sealed class OverlayController : IDisposable
         if (!OverlayVisibility.ShouldShow(anchor.State, _settings.HideWhenCodexInactive, _userHidden)
             || anchor.Bounds is not { } codex || anchor.WorkArea is not { } workArea)
         {
+            _input?.Stop();
+
             if (_window.IsVisible)
             {
                 _window.Hide();
@@ -406,9 +431,21 @@ internal sealed class OverlayController : IDisposable
             return;
         }
 
+        InputSighting? input = null;
+
+        if (_settings.Anchor == OverlayAnchor.AboveCodexInput && _input is not null)
+        {
+            _input.Track(anchor.Hwnd);
+            input = _input.Current;
+        }
+        else
+        {
+            _input?.Stop();
+        }
+
         FrameworkElement content = (FrameworkElement)_window.Content;
         content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        WindowBounds bounds = OverlayPlacement.Compute(codex, workArea, content.DesiredSize.Width, content.DesiredSize.Height,
+        WindowBounds bounds = OverlayPlacement.Compute(codex, input, workArea, content.DesiredSize.Width, content.DesiredSize.Height,
                                                        anchor.DpiScale, _settings.OffsetX, _settings.OffsetY);
 
         OverlayWindowInterop.PlaceAbove(_window.Handle, anchor.Hwnd, bounds.Left, bounds.Top);
@@ -512,7 +549,7 @@ internal sealed class OverlayController : IDisposable
         DiagnosticsInput input = new(AppVersion, RuntimeInformation.OSDescription + " " + RuntimeInformation.OSArchitecture,
                                      _settings, _settingsProblems, _paths.SettingsFile, _log.CurrentFile, _anchor.GetDiagnostics(),
                                      _anchor.Current, _viewModel.Cache, Hooks.Snapshot(), _stub, _tray?.IsAdded == true, _window.IsVisible, _userHidden,
-                                     _window.ExtendedStyle, pipeline);
+                                     _window.ExtendedStyle, pipeline, _input?.GetDiagnostics());
         string report = DiagnosticsReport.Build(input, _userProfile, Environment.UserName);
 
         for (int attempt = 0; ; attempt++)

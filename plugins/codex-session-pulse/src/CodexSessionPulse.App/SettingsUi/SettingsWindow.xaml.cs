@@ -31,6 +31,8 @@ internal partial class SettingsWindow : Window
         ProcessNames.Text = string.Join(", ", current.CodexProcessNames);
         PathFilters.Text = string.Join("; ", current.CodexExecutablePathFilters);
         TitleFilter.Text = current.CodexWindowTitleFilter ?? string.Empty;
+        Anchor.ItemsSource = Enum.GetValues<OverlayAnchor>();
+        Anchor.SelectedItem = current.Anchor;
         OffsetX.Text = current.OffsetX.ToString(CultureInfo.InvariantCulture);
         OffsetY.Text = current.OffsetY.ToString(CultureInfo.InvariantCulture);
         Theme.ItemsSource = Enum.GetValues<OverlayTheme>();
@@ -128,6 +130,7 @@ internal partial class SettingsWindow : Window
             CodexProcessNames = Split(ProcessNames.Text, ','),
             CodexExecutablePathFilters = Split(PathFilters.Text, ';'),
             CodexWindowTitleFilter = string.IsNullOrWhiteSpace(TitleFilter.Text) ? null : TitleFilter.Text.Trim(),
+            Anchor = Anchor.SelectedItem is OverlayAnchor anchor ? anchor : _current.Anchor,
             OffsetX = offsetX,
             OffsetY = offsetY,
             Theme = Theme.SelectedItem is OverlayTheme theme ? theme : OverlayTheme.System,

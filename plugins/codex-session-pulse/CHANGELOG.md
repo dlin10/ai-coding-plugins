@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.0
+
+**After updating, open Review hooks in Codex Desktop again** (Settings → Hooks): Codex trusts hooks per plugin
+content, so a new version needs its hooks reviewed even though `hooks.json` did not change. Until then the hooks do
+not run, and an overlay started by hand says `Auto · inferred`.
+
+- **The line sits above the Codex input box** (#392). It is centred over the input card with its bottom edge 8 DIP above
+  it, wherever the left and right panels put the chat column, and it moves with the card when the row of project
+  chips appears or the prompt grows to several lines. In 0.1.0 the line was centred on the whole window: with the side
+  panel open it sat 170 DIP left of the input box, over the Recents list.
+- **UI Automation finds the input card**, reading only element types, classes and rectangles, never names, values or
+  text. As with a screen reader, this turns on Chromium's accessibility tree inside Codex. Each search of the tree
+  costs Codex 16–80 ms of CPU. An A/B test with two Codex restarts could not separate the tree's own cost from noise. On
+  pages without an input box, such as Settings, the line sits by the window as in 0.1.0.
+- **Settings → Position**: `AboveCodexInput` (default) or `BottomOfCodexWindow`. `BottomOfCodexWindow` reads nothing
+  of the window and centres the line 170 DIP above its bottom edge. The offsets now shift either position.
+- **0.1.0 settings**: a 0.1.0 `settings.json` gets the default position and drops its offsets, which were measured from
+  the window's bottom edge (`schemaVersion` 2). Copy diagnostics reports `settings-v1-offsets-dropped` when they were
+  not the defaults.
+
 ## 0.1.0
 
 Initial release.

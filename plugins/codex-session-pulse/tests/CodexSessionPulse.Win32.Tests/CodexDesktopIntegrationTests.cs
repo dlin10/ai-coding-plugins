@@ -65,4 +65,31 @@ public sealed class CodexDesktopIntegrationTests(ITestOutputHelper output)
         Assert.NotNull(snapshot.WorkArea);
         Assert.NotEqual(0, snapshot.Hwnd);
     }
+
+    /// <summary>
+    /// With a thread or a new chat open in Codex, the locator finds the input card inside the window and reports how long
+    /// the search took. The test host is made PerMonitorV2-aware first, as the overlay is, so UI Automation and DWM agree
+    /// on physical pixels.
+    /// </summary>
+    [IntegrationFact]
+    public async Task InputLocator_FindsTheInputCard()
+    {
+        _ = SetProcessDpiAwarenessContext(-4);
+        nint hwnd = WindowEnumerator.EnumerateCodexWindows(WindowDetectorOptions.Default)[0].Hwnd;
+        TaskCompletionSource found = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CodexInputLocator locator = new(new SynchronizationContext(), () => found.TrySetResult());
+
+        locator.Track(hwnd);
+        await found.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        InputLocatorDiagnostics diagnostics = locator.GetDiagnostics();
+
+        output.WriteLine($"card {locator.Current?.Card}, window {locator.Current?.Window}; searches {diagnostics.Searches}, " +
+                         $"last search {diagnostics.LastSearchMs:F1} ms, error {diagnostics.LastError ?? "none"}");
+
+        Assert.NotNull(locator.Current);
+        Assert.True(diagnostics.Found);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetProcessDpiAwarenessContext(nint value);
 }

@@ -1,4 +1,4 @@
-# Codex Session Pulse 0.1.0
+# Codex Session Pulse 0.2.0
 
 Codex Session Pulse puts one small line over the **Codex Desktop** window on Windows: the cached-input and input
 tokens of the last request in the active thread and an estimate of how long the prompt cache stays warm. It reads the
@@ -28,6 +28,21 @@ cache  ▮▮▮▮▮▯▯▯  ~18 min   40.4k/40.8k   Avg speed —   Auto ·
 The overlay never takes focus, is not in Alt+Tab, follows the foreground Codex window across monitors and DPI scales,
 hides with it, and exits 3–4 seconds after the last Codex window closes. Tray icon: Show/Hide, Re-detect Codex
 windows, Settings, Copy diagnostics, Exit.
+
+### Where it sits
+
+Just above the Codex input box, centred on it. It follows the box when you open or collapse the side panels, when the
+row of project chips appears, and when the prompt grows to several lines. UI Automation finds the box; see "What it
+will not do". On pages without an input box, such as Codex's Settings, the line sits centred on the window, 170 DIP
+above its bottom edge.
+
+Settings → **Position** chooses between the two:
+
+- `AboveCodexInput`, the default: above the input box, or by the window while there is none.
+- `BottomOfCodexWindow`: always by the window, without UI Automation.
+
+**Offset X** and **Offset Y** shift either position in DIP. After an update from 0.1.0 the offsets start at 0 again:
+0.1.0 measured them from the window's bottom edge.
 
 ## Requirements
 
@@ -73,13 +88,13 @@ yourself. Through the launcher (it downloads the exe if this version has none ye
 while the launcher waits for the overlay):
 
 ```powershell
-Start-Process -WindowStyle Hidden "$env:USERPROFILE\.codex\plugins\cache\dlin10-ai-coding-plugins\codex-session-pulse\0.1.0\bin\codex-session-pulse-launcher.cmd" --overlay
+Start-Process -WindowStyle Hidden "$env:USERPROFILE\.codex\plugins\cache\dlin10-ai-coding-plugins\codex-session-pulse\0.2.0\bin\codex-session-pulse-launcher.cmd" --overlay
 ```
 
 or the exe directly, once it is there (PowerShell does not wait for it):
 
 ```powershell
-& "$env:USERPROFILE\.codex-session-pulse\bin\0.1.0\CodexSessionPulse.exe" --overlay
+& "$env:USERPROFILE\.codex-session-pulse\bin\0.2.0\CodexSessionPulse.exe" --overlay
 ```
 
 A second start exits at once; one overlay runs per user. Started by hand, it waits for a Codex window rather than
@@ -92,7 +107,7 @@ and Windows redirects `%LOCALAPPDATA%` writes of the processes it starts into th
 
 | Path | What |
 |---|---|
-| `settings.json` | Tray → Settings writes it: TTL estimate, minimum cached tokens, rollouts folder, theme, offsets, keep visible. A broken field falls back to its default. |
+| `settings.json` | Tray → Settings writes it: TTL estimate, minimum cached tokens, rollouts folder, theme, position, offsets, keep visible. A broken field falls back to its default. |
 | `logs\overlay.log` | The overlay's log, plus `overlay.1.log`…`overlay.4.log`, 1 MB each. No prompts, no rollout text. |
 | `logs\hook.log` | Hook outcomes that need a look (an overlay started, a pipe that did not answer). |
 | `bin\<version>\CodexSessionPulse.exe` | The downloaded release, one folder per version. Nothing removes old ones: delete a version's folder once no overlay of that version runs (tray → Exit, then `Remove-Item -Recurse "$env:USERPROFILE\.codex-session-pulse\bin\<old version>"`). |
@@ -109,8 +124,12 @@ The rollouts are read from `%CODEX_HOME%\sessions` (`%USERPROFILE%\.codex\sessio
 - **Not under 80 MB of working set yet**: measured at rest with a Codex window open, the overlay's working set is
   113–118 MB, of which 56 MB is its own memory and the rest shared WPF and .NET images (`docs/compatibility.md`
   §13.1). CPU at rest stays under 0.5 % of one core.
-- **No manual thread choice**, and no reading of the Codex window's content: a tab switch without a prompt is not
-  seen until the next hook or JSONL write.
+- **No manual thread choice**: a tab switch without a prompt is not seen until the next hook or JSONL write.
+- **No reading of the Codex window's text.** To sit above the input box, the overlay asks UI Automation where Codex's
+  input card is. It reads element types, classes and rectangles, never names, values or text, and only while the line
+  is shown. As with a screen reader, this turns on Chromium's accessibility tree inside Codex. Each search of the tree
+  costs Codex 16–80 ms of CPU. An A/B test with two Codex restarts could not separate the tree's own cost from noise
+  (`docs/compatibility.md` §6.2). Settings → Position → `BottomOfCodexWindow` turns it off.
 - **No `SessionEnd` on window close**: Codex sends it only when a thread is archived or ended, so closing Codex
   leaves the threads to age out; the overlay itself exits with the last window.
 

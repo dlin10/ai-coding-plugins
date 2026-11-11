@@ -24,6 +24,7 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="UserHidden">Whether the user hid it from the tray.</param>
 /// <param name="OverlayExtendedStyle">The overlay window's extended style.</param>
 /// <param name="Pipeline">The hook pipe, the job and the rollout reader, or <see langword="null"/> before they exist.</param>
+/// <param name="Input">The input card locator, or <see langword="null"/> before it exists.</param>
 internal sealed record DiagnosticsInput(string AppVersion,
                                         string OsDescription,
                                         PulseSettings Settings,
@@ -39,7 +40,8 @@ internal sealed record DiagnosticsInput(string AppVersion,
                                         bool OverlayVisible,
                                         bool UserHidden,
                                         long OverlayExtendedStyle,
-                                        PipelineDiagnostics? Pipeline = null);
+                                        PipelineDiagnostics? Pipeline = null,
+                                        InputLocatorDiagnostics? Input = null);
 
 /// <summary>The process side of the overlay for "Copy diagnostics": hook pipe, job object, rollout reader and exit rule.</summary>
 /// <param name="PipeListening">Whether the hook pipe is open; without it the overlay runs on JSONL alone.</param>
@@ -83,6 +85,12 @@ internal static class DiagnosticsReport
         text.AppendLine(invariant, $"anchor bounds: {input.Anchor.Bounds?.ToString() ?? "none"}, work area: {input.Anchor.WorkArea?.ToString() ?? "none"}, dpi scale: {input.Anchor.DpiScale.ToString(invariant)}");
         text.AppendLine(invariant, $"hooks: global {(input.Detector.GlobalHooksInstalled ? "installed" : "missing")}, per-process {input.Detector.ProcessHooks}, polling {(input.Detector.PollingActive ? "on" : "off")}, refreshes {input.Detector.Refreshes}");
         text.AppendLine(invariant, $"overlay: {(input.OverlayVisible ? "visible" : "hidden")}{(input.UserHidden ? " (hidden from the tray)" : string.Empty)}, ex-style 0x{input.OverlayExtendedStyle:X8}, tray {(input.TrayAdded ? "added" : "not added")}");
+
+        if (input.Input is { } locator)
+        {
+            text.AppendLine(invariant, $"input card: {(locator.Tracking ? "tracking" : "idle")}, {(locator.Found ? "found" : "not found, placed by the window")}, searches {locator.Searches}, last search {locator.LastSearchMs.ToString("F1", invariant)} ms{(locator.LastError is { } error ? $", last error {error}" : string.Empty)}");
+        }
+
         text.AppendLine();
 
         text.AppendLine("[cache]");

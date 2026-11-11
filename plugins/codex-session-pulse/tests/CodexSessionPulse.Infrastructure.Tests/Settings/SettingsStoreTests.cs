@@ -26,7 +26,8 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Empty(result.Problems);
         Assert.Equal(30, result.Settings.EstimatedCacheTtlMinutes);
-        Assert.Equal(-170, result.Settings.OffsetY);
+        Assert.Equal(OverlayAnchor.AboveCodexInput, result.Settings.Anchor);
+        Assert.Equal((0, 0), (result.Settings.OffsetX, result.Settings.OffsetY));
         Assert.True(result.Settings.HideWhenCodexInactive);
         Assert.Equal(["Codex", "ChatGPT"], result.Settings.CodexProcessNames);
         Assert.False(File.Exists(SettingsPath));
@@ -42,6 +43,7 @@ public sealed class SettingsStoreTests : IDisposable
             CodexProcessNames = ["ChatGPT"],
             CodexWindowTitleFilter = "Chat",
             CodexExecutablePathFilters = [],
+            Anchor = OverlayAnchor.BottomOfCodexWindow,
             OffsetX = 12,
             OffsetY = -40,
             HideWhenCodexInactive = false,
@@ -60,7 +62,8 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Empty(loaded.Settings.CodexExecutablePathFilters);
         Assert.Equal((12, -40, false, OverlayTheme.Dark, 60),
                      (loaded.Settings.OffsetX, loaded.Settings.OffsetY, loaded.Settings.HideWhenCodexInactive, loaded.Settings.Theme, loaded.Settings.EstimatedCacheTtlMinutes));
-        Assert.Contains("\"schemaVersion\": 1", json, StringComparison.Ordinal);
+        Assert.Equal(OverlayAnchor.BottomOfCodexWindow, loaded.Settings.Anchor);
+        Assert.Contains("\"schemaVersion\": 2", json, StringComparison.Ordinal);
         Assert.Contains("\"theme\": \"Dark\"", json, StringComparison.Ordinal);
         Assert.Contains("\"anchor\": \"BottomOfCodexWindow\"", json, StringComparison.Ordinal);
         Assert.False(File.Exists(SettingsPath + ".tmp"));
@@ -76,7 +79,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(["ttl-out-of-range"], Store().Save(new PulseSettings { EstimatedCacheTtlMinutes = minutes }));
         Assert.False(File.Exists(SettingsPath));
 
-        WriteRaw($$"""{ "schemaVersion": 1, "estimatedCacheTtlMinutes": {{minutes}}, "offsetY": -10 }""");
+        WriteRaw($$"""{ "schemaVersion": 2, "estimatedCacheTtlMinutes": {{minutes}}, "offsetY": -10 }""");
         SettingsLoadResult loaded = Store().Load();
 
         Assert.Equal(["ttl-out-of-range"], loaded.Problems);
@@ -90,13 +93,14 @@ public sealed class SettingsStoreTests : IDisposable
     {
         WriteRaw("""
             {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "sessionRootOverride": null,
               "codexProcessNames": ["Codex", "ChatGPT"],
               "codexWindowTitleFilter": null,
-              "anchor": "BottomOfCodexWindow",
+              "codexExecutablePathFilters": ["\\WindowsApps\\OpenAI.Codex_"],
+              "anchor": "AboveCodexInput",
               "offsetX": 0,
-              "offsetY": -170,
+              "offsetY": 0,
               "hideWhenCodexInactive": true,
               "theme": "System",
               "estimatedCacheTtlMinutes": 30,
@@ -109,7 +113,35 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Empty(loaded.Problems);
         Assert.Equal(OverlayTheme.System, loaded.Settings.Theme);
+        Assert.Equal(OverlayAnchor.AboveCodexInput, loaded.Settings.Anchor);
         Assert.Equal([@"\WindowsApps\OpenAI.Codex_"], loaded.Settings.CodexExecutablePathFilters);
+    }
+
+    /// <summary>
+    /// A version 1 file (0.1.0) takes the input anchor and drops its offsets, which were measured from the window's bottom
+    /// edge; only offsets other than version 1's defaults are reported as dropped. Its other fields are kept.
+    /// </summary>
+    /// <param name="offsetX">The version 1 horizontal offset.</param>
+    /// <param name="offsetY">The version 1 vertical offset.</param>
+    /// <param name="dropped">Whether the drop is reported.</param>
+    [Theory]
+    [InlineData(0, -170, false)]
+    [InlineData(170, -130, true)]
+    public void Load_Version1File_TakesTheInputAnchorAndDropsTheOffsets(int offsetX, int offsetY, bool dropped)
+    {
+        WriteRaw($$"""
+            { "schemaVersion": 1, "anchor": "BottomOfCodexWindow", "offsetX": {{offsetX}}, "offsetY": {{offsetY}},
+              "theme": "Dark", "estimatedCacheTtlMinutes": 45 }
+            """);
+
+        SettingsLoadResult loaded = Store().Load();
+        string[] problems = dropped ? ["settings-v1-offsets-dropped"] : [];
+
+        Assert.Equal(problems, loaded.Problems);
+        Assert.Equal(OverlayAnchor.AboveCodexInput, loaded.Settings.Anchor);
+        Assert.Equal((0, 0), (loaded.Settings.OffsetX, loaded.Settings.OffsetY));
+        Assert.Equal((OverlayTheme.Dark, 45), (loaded.Settings.Theme, loaded.Settings.EstimatedCacheTtlMinutes));
+        Assert.Equal(PulseSettings.CurrentSchemaVersion, loaded.Settings.SchemaVersion);
     }
 
     /// <summary>Broken JSON, an unknown enum value and a newer schema fall back to the defaults with a code.</summary>
@@ -119,7 +151,7 @@ public sealed class SettingsStoreTests : IDisposable
     [InlineData("{ not json", "settings-invalid-json")]
     [InlineData("""{ "theme": "Purple" }""", "theme-invalid")]
     [InlineData("""{ "anchor": 0 }""", "anchor-invalid")]
-    [InlineData("""{ "schemaVersion": 2, "offsetY": 5 }""", "settings-schema-newer")]
+    [InlineData("""{ "schemaVersion": 3, "offsetY": 5 }""", "settings-schema-newer")]
     [InlineData("""{ "codexProcessNames": [] }""", "process-names-invalid")]
     public void Load_InvalidFile_FallsBackToDefaults(string json, string problem)
     {
@@ -128,7 +160,7 @@ public sealed class SettingsStoreTests : IDisposable
         SettingsLoadResult loaded = Store().Load();
 
         Assert.Equal([problem], loaded.Problems);
-        Assert.Equal(-170, loaded.Settings.OffsetY);
+        Assert.Equal(0, loaded.Settings.OffsetY);
         Assert.Equal(["Codex", "ChatGPT"], loaded.Settings.CodexProcessNames);
     }
 
