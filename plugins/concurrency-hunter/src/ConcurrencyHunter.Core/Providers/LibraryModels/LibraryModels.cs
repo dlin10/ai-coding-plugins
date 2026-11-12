@@ -42,6 +42,7 @@ public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
 public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects,
                                   ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null, string? Receiver = null)
 {
+    internal string? Family { get; init; }
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
@@ -207,6 +208,10 @@ public sealed class LibraryModels
         ImmutableTypes = source.ImmutableTypes;
     }
 
+    internal LibraryModels WithoutFamilies(IReadOnlySet<string> families) =>
+        new(new LibraryModels(_members.Values.SelectMany(members => members).Where(member => member.Family is null || !families.Contains(member.Family)),
+                              ImmutableTypes), _projectMembers.Values.SelectMany(members => members));
+
     internal static LibraryModels WithProject(IEnumerable<LibraryModel> project) => new(BuiltIn, project);
 
     /// <summary>The built-in models the run that regenerates the shared frameworks' census reads (TD-034c): every built-in record but the
@@ -263,7 +268,7 @@ public sealed class LibraryModels
             using var bytes = new MemoryStream();
             stream.CopyTo(bytes);
             var model = BuiltInModelReader.Read(bytes.ToArray());
-            members.AddRange(model.Members);
+            members.AddRange(model.Members.Select(member => member with { Family = file[BUILT_IN_RESOURCE_PREFIX.Length..^5] }));
             types.AddRange(model.ImmutableTypes);
         }
         return new LibraryModels(members, types);

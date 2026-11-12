@@ -1485,7 +1485,10 @@ internal sealed partial class HappensBefore
     private string? ProveHandleSource(string execution, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
         var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
-        if (regions.Length != 1 || HandleExecution(execution, regions[0]) is not { } target ||
+        var forwarded = Forwarders.Source(execution, instance, handle);
+        var source = forwarded is not null && _heap.AsyncSpawns.Any(site => site.CallerInstance == forwarded.CallerInstance &&
+            site.OperationId == forwarded.OperationId && regions.Contains(site.Handle)) ? forwarded.ChildId : null;
+        if (regions.Length != 1 || (source ?? HandleExecution(execution, regions[0])) is not { } target ||
             !SourcesExcused(execution, instance, handle, regions[0], joinOperation))
         {
             return null;
@@ -1494,37 +1497,32 @@ internal sealed partial class HappensBefore
         return target;
     }
 
-    /// <summary>The async call of a non-async body whose task every return of that body gives back, each return proven as a join's
-    /// handle is (<see cref="ProveHandleSource"/>): the body then runs as that call, which it makes synchronously in the execution
-    /// running it. Null where some return is another task, a task from elsewhere or the task of another call.</summary>
-    /// <param name="execution">The execution running the body.</param>
-    /// <param name="callee">The body's instance.</param>
-    internal (string Instance, int Operation)? ReturnedAsyncCall(string execution, string callee)
+    /// <summary>The owner of the proof of a task forwarder's returned async spawn.</summary>
+    private TaskForwarders Forwarders => _forwarders ??= new TaskForwarders(_scope, _heap, _steps, _anchorList, ProveHandleSource, KnownTaskTarget);
+
+    private TaskForwarders? _forwarders;
+
+    /// <summary>The async spawn forwarded by one run of a non-async member.</summary>
+    /// <param name="execution">The execution running the member.</param>
+    /// <param name="callee">The member's instance.</param>
+    internal SpawnAnchor? ForwardedTask(string execution, string callee) => Forwarders.Returned(execution, callee);
+
+    /// <summary>Whether the heap's targets account for a task call, including a delegate passed through a proven binding.</summary>
+    /// <param name="execution">The execution making the call.</param>
+    /// <param name="instance">The calling instance.</param>
+    /// <param name="operation">The call.</param>
+    private bool KnownTaskTarget(string execution, MethodInstance instance, int operation)
     {
-        if (!_heap.Instances.TryGetValue(callee, out var instance) || !_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
-            body.IsAsync || instance.Summary.Returns.Count == 0)
+        if (!_heap.UnresolvedCallTargets.Contains((instance.Id, operation)))
+            return true;
+        var call = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == operation);
+        if (call is null)
+            return false;
+        var receivers = call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+        return receivers is [var region] && SourcesExcused(execution, instance, new SummaryValue(call.Receivers, call.ReceiverUnknownSources)
         {
-            return null;
-        }
-        int? operation = null;
-        foreach (var returned in instance.Summary.Returns)
-        {
-            CheckCancellation();
-            var value = new SummaryValue(returned.Values, returned.UnknownSources)
-            {
-                SourceCalls = returned.SourceCalls,
-                Completions = returned.Completions,
-                CompletedCalls = returned.CompletedCalls
-            };
-            if (ProveHandleSource(execution, instance, value, returned.OperationId) is not { } target ||
-                !_anchorOfChild.TryGetValue(target, out var anchor) || anchor is not { Kind: SpawnAnchorKind.AsyncReturn } ||
-                anchor.ExecutionId != execution || anchor.CallerInstance != instance.Id || operation is { } other && other != anchor.OperationId)
-            {
-                return null;
-            }
-            operation = anchor.OperationId;
-        }
-        return (instance.Id, operation!.Value);
+            SourceCalls = call.ReceiverSourceCalls, Completions = call.ReceiverCompletions
+        }, region, operation);
     }
 
     /// <summary>Every continuation a curated call's own task waits for, with the same source proof as an async call's handle.
@@ -1570,9 +1568,51 @@ internal sealed partial class HappensBefore
             UnknownSource.SourceCall => (_handles.ContainsKey(region) || _heap.CallTasks.Values.Contains(region)) &&
                                         CallsReturn(execution, instance, value, region),
             UnknownSource.Parameter => BoundToRegion(execution, instance, value, region),
+            UnknownSource.Captured => CapturedToRegion(execution, instance, value, region),
             UnknownSource.Null => allowNull,
             _ => false
         });
+
+    private readonly HashSet<(string Instance, IrClosureCell Cell)> _provingCaptures = [];
+
+    /// <summary>Whether every definition of a captured variable carries the one region, including its declaring parameter's bindings.</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance reading the capture.</param>
+    /// <param name="value">The captured value.</param>
+    /// <param name="region">The only region allowed.</param>
+    private bool CapturedToRegion(string execution, MethodInstance instance, SummaryValue value, string region)
+    {
+        var captures = value.Values.OfType<CapturedValue>().ToArray();
+        return captures.Length != 0 && captures.All(captured => Prove(captured.Cell));
+
+        bool Prove(IrClosureCell cell)
+        {
+            if (!_provingCaptures.Add((instance.Id, cell)))
+                return false;
+            try
+            {
+                var owners = _heap.ClosureOwners(instance, cell).ToHashSet(StringComparer.Ordinal);
+                if (owners.Count == 0 || owners.Any(owner => !_heap.Instances.ContainsKey(owner)))
+                    return false;
+                foreach (var ownerId in owners)
+                {
+                    WorkCancellation.Check();
+                    var owner = _heap.Instances[ownerId];
+                    var variable = owner.Summary.Variables.FirstOrDefault(variable => variable.Cell == cell);
+                    if (variable is null || !BindingExcused(execution, owner,
+                        new SummaryValue(variable.Values, variable.UnknownSources) { SourceCalls = variable.Producers.Calls }, region, -1))
+                        return false;
+                }
+                // A write through another closure can change the captured binding after entry.
+                return !_heap.Instances.Values.Any(writer => writer.Summary.CapturedStores.Any(store => store.Cell == cell &&
+                    _heap.ClosureOwners(writer, cell).Any(owners.Contains)));
+            }
+            finally
+            {
+                _provingCaptures.Remove((instance.Id, cell));
+            }
+        }
+    }
 
     /// <summary>Whether every parameter binds to that one region, and every argument of every binding call has no unexcused source.</summary>
     /// <param name="execution">The execution proving the value.</param>
@@ -1645,6 +1685,10 @@ internal sealed partial class HappensBefore
     {
         if (depth == 0 && _heap.CallTasks.TryGetValue((instance.Id, call), out var task) && task == region)
             return true;
+        if (depth == 0 && Forwarders.Call(execution, instance.Id, call) is { } forwarded &&
+            _heap.AsyncSpawns.FirstOrDefault(site => site.CallerInstance == forwarded.CallerInstance &&
+                                                   site.OperationId == forwarded.OperationId)?.Handle == region)
+            return true;
         if (!_proving.Add((instance.Id, call)))
             return false;
 
@@ -1654,7 +1698,7 @@ internal sealed partial class HappensBefore
                                      .Select(edge => _heap.Instances.GetValueOrDefault(edge.CalleeInstance))
                                      .OfType<MethodInstance>()
                                      .ToArray();
-            return !_heap.UnresolvedCallTargets.Contains((instance.Id, call)) && callees.Length != 0 &&
+            return KnownTaskTarget(execution, instance, call) && callees.Length != 0 &&
                    callees.All(callee => (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) &&
                                           body is { IsAsync: true, IsAsyncIterator: false }) switch
                    {
@@ -2104,7 +2148,8 @@ internal sealed partial class HappensBefore
                 var instanceBody = heap.Instances[visit.InstanceId].BodyId;
                 Func<IrCallOperation, bool> faults = call => FaultsItsTask(scope, heap, body, visit.InstanceId, call, calleesAt[(visit.InstanceId, call.Id)]);
                 var waits = WaitParts(body, join => earlyWaits?.Contains((visit.InstanceId, join.Id)) != true, faults);
-                var listings = WaitParts(body, join => throwsAfter.ContainsKey((visit.InstanceId, join.CallOperationId)), faults).Parts;
+                var listings = WaitParts(body, join => throwsAfter.ContainsKey((visit.InstanceId, join.CallOperationId)), faults,
+                    awaited => throwsAfter.ContainsKey((visit.InstanceId, awaited.Id))).Parts;
                 var reads = readByForm
                     ? body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>()
                           .Where(join => join.ThrowsOnlyAfterCompletion && earlyWaits?.Contains((visit.InstanceId, join.Id)) != true)
@@ -2265,7 +2310,8 @@ internal sealed partial class HappensBefore
         /// identity and implicit reference conversions of the tasks it lists; the calls of the wait's form that give the same task
         /// (<c>GetAwaiter()</c>, <c>ConfigureAwait(bool)</c>) or the task of a <c>Task.WhenAll</c> that lists its tasks, which its
         /// <c>Wait()</c> waits on, with that group's own listing; and a call whose exception faults the task it returns
-        /// (<see cref="FaultsItsTask"/>), which the wait throws once that task completed. An exception out of one of them is not a path
+        /// (<see cref="FaultsItsTask"/>), which the blocking wait throws once that task completed. An await includes the task-preserving
+        /// operations, but keeps the existing exceptional paths of group construction and task producers. An exception out of a proven part is not a path
         /// that skipped the wait. Any other operation computing a handle or an argument — a program call, a field or element read, a later
         /// store into the array, an explicit conversion, an unboxing or a user-defined one, <c>ConfigureAwait(ConfigureAwaitOptions)</c>
         /// — may throw before the wait, whichever task the value it gives is proven to be; those that define a handle the join waits on
@@ -2273,11 +2319,16 @@ internal sealed partial class HappensBefore
         /// <param name="body">The body.</param>
         /// <param name="counts">Whether a join is such a wait.</param>
         /// <param name="faults">Whether a call's exception faults the task it returns instead of leaving the call.</param>
-        private WaitOperations WaitParts(IrBody body, Func<IrJoinOperation, bool> counts, Func<IrCallOperation, bool> faults)
+        /// <param name="countsAwaits">Whether an await is such a wait, or null to include every await.</param>
+        private WaitOperations WaitParts(IrBody body, Func<IrJoinOperation, bool> counts, Func<IrCallOperation, bool> faults,
+                                          Func<IrAwaitOperation, bool>? countsAwaits = null)
         {
             CheckCancellation();
             var joins = body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>().Where(counts)
-                            .Select(join => new Waited(join.CallOperationId, join.HandleValues, join is { Kind: IrJoinKind.WaitAll, HandlesKnown: true }))
+                            .Select(join => new Waited(join.CallOperationId, join.HandleValues, join is { Kind: IrJoinKind.WaitAll, HandlesKnown: true }, true))
+                            .Concat(body.Blocks.SelectMany(block => block.Operations).OfType<IrAwaitOperation>()
+                                        .Where(awaited => countsAwaits?.Invoke(awaited) != false)
+                                        .Select(awaited => new Waited(null, [awaited.AwaitableValue], false, false)))
                             .ToArray();
             return WaitParts(body, joins, faults);
         }
@@ -2286,9 +2337,11 @@ internal sealed partial class HappensBefore
         /// <param name="CallOperationId">The call a join marks, or null for an <c>await</c>, which marks none.</param>
         /// <param name="Handles">The values the wait is handed: a join's handles, or the awaitable of an <c>await</c>.</param>
         /// <param name="ListsTasks">Whether the marked call lists its tasks in an array or span it is given (<c>Task.WaitAll</c>).</param>
-        private sealed record Waited(int? CallOperationId, IReadOnlyList<int> Handles, bool ListsTasks);
+        /// <param name="Blocking">Whether the wait is blocking, so its parts include known group construction and calls that fault their
+        /// task; an await keeps the existing exceptional paths of those producers.</param>
+        private sealed record Waited(int? CallOperationId, IReadOnlyList<int> Handles, bool ListsTasks, bool Blocking);
 
-        /// <summary>The operations that belong to the waits given, which throw only as the waits do (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool})"/>
+        /// <summary>The operations that belong to the waits given, which throw only as the waits do (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool}, Func{IrAwaitOperation, bool})"/>
         /// for the joins of a body, to which an <c>await</c> is added as a wait of its awaitable).</summary>
         /// <param name="body">The body.</param>
         /// <param name="waits">The waits.</param>
@@ -2343,7 +2396,7 @@ internal sealed partial class HappensBefore
                                     parts.Add(call.Id);
                                 Follow(tasks);
                                 break;
-                            case IrCallOperation call when groups[value].ToArray() is { Length: > 0 } listed:
+                            case IrCallOperation call when wait.Blocking && groups[value].ToArray() is { Length: > 0 } listed:
                                 // A group that does not list its tasks may be handed a null one, which the call throws on.
                                 if (listed.All(group => group.TasksKnown))
                                 {
@@ -2352,7 +2405,7 @@ internal sealed partial class HappensBefore
                                 }
                                 Follow(listed.SelectMany(group => group.TaskValues));
                                 break;
-                            case IrCallOperation call when faults(call):
+                            case IrCallOperation call when wait.Blocking && faults(call):
                                 parts.Add(call.Id);
                                 break;
                             case IrCallOperation:
@@ -2408,7 +2461,7 @@ internal sealed partial class HappensBefore
         /// <summary>The wait at which a block waits for the task of a call at once: the first wait for that one task after the call —
         /// an <c>await</c>, also of its <c>ConfigureAwait(bool)</c>, a <c>Wait()</c>, a <c>Result</c>, a <c>GetAwaiter().GetResult()</c> or a
         /// <c>Task.WaitAll</c> of just that task — with nothing between the call and the wait that may throw, but the operations that belong
-        /// to the wait (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool})"/>). A member that returns no
+        /// to the wait (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool}, Func{IrAwaitOperation, bool})"/>). A member that returns no
         /// task is waited for by its own return, and gives the call itself. The task of a <c>Task.WhenAll</c> that lists it is another
         /// task, and so no wait for it.</summary>
         /// <param name="body">The body holding the call.</param>
@@ -2468,8 +2521,8 @@ internal sealed partial class HappensBefore
             if (wait is null)
                 return null;
             var waited = wait is IrJoinOperation join
-                ? new Waited(join.CallOperationId, join.HandleValues, join.Kind == IrJoinKind.WaitAll)
-                : new Waited(null, [((IrAwaitOperation)wait).AwaitableValue], false);
+                ? new Waited(join.CallOperationId, join.HandleValues, join.Kind == IrJoinKind.WaitAll, true)
+                : new Waited(null, [((IrAwaitOperation)wait).AwaitableValue], false, false);
             var parts = WaitParts(body, [waited], _ => false).Parts;
             return after.TakeWhile(operation => operation.Id != wait.Id).All(operation => !MayThrow(operation) || parts.Contains(operation.Id)) ? wait : null;
         }
@@ -2563,12 +2616,17 @@ internal sealed partial class HappensBefore
         }
 
         /// <summary>Whether an operation can throw where it stands: calls, awaits, field and element reads and writes, conversions,
-        /// arithmetic, locks and operations the lowering does not model. Assignments, phis, comparisons, allocations (their constructor is
-        /// a call) and the BCL marks that follow a call cannot.</summary>
+        /// arithmetic, locks and operations the lowering does not model. Identity and implicit reference conversions, assignments, phis,
+        /// comparisons, allocations (their constructor is a call) and the BCL marks that follow a call cannot.</summary>
         /// <param name="operation">The operation.</param>
-        internal static bool MayThrow(IrOperation operation) => operation is IrCallOperation or IrAwaitOperation or IrLoadFieldOperation or
-            IrStoreFieldOperation or IrLoadElementOperation or IrStoreElementOperation or IrConvertOperation or IrComputeOperation or
-            IrAcquireOperation or IrReleaseOperation or IrUnknownOperation or IrAtomicOperation;
+        internal static bool MayThrow(IrOperation operation) => operation switch
+        {
+            IrConvertOperation { ConversionKind: IrConversionKind.Identity } => false,
+            IrConvertOperation { ConversionKind: IrConversionKind.Reference, IsImplicit: true } => false,
+            _ => operation is IrCallOperation or IrAwaitOperation or IrLoadFieldOperation or IrStoreFieldOperation or IrLoadElementOperation or
+                IrStoreElementOperation or IrConvertOperation or IrComputeOperation or IrAcquireOperation or IrReleaseOperation or
+                IrUnknownOperation or IrAtomicOperation
+        };
 
         internal bool Precedes(PointKey first, PointKey second)
         {

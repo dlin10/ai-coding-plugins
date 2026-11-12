@@ -3808,9 +3808,26 @@ public static class MethodSummaryBuilder
                 return false;
             if (_index.Method(methodId) is not { } method)
                 return true;
-            if (_reachable?.HasBody(method) ?? method.HasSourceBody)
+            var route = call.CallKind is IrCallKind.Virtual or IrCallKind.Interface ? AdmissionRoute.Dispatch : AdmissionRoute.Direct;
+            if (_reachable?.HasBody(method, _body.BodyId, route) ?? method.HasSourceBody)
                 return false;
+            if (_reachable?.Admission is not null)
+                return route != AdmissionRoute.Dispatch || !_index.Methods.Any(target =>
+                    _reachable.HasBody(target, _body.BodyId, route) &&
+                    (target.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal) || Overrides(target)));
             return call.CallKind is not (IrCallKind.Virtual or IrCallKind.Interface) || !DispatchedWithBody(_index).Contains(methodId);
+
+            bool Overrides(ProgramMethod target)
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (var id = target.OverriddenMethodId; id is not null && seen.Add(id); id = _index.Method(id)?.OverriddenMethodId)
+                {
+                    WorkCancellation.Check();
+                    if (id == methodId || _index.Method(id)?.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal) == true)
+                        return true;
+                }
+                return false;
+            }
         }
 
         private bool IsValueType(string type)

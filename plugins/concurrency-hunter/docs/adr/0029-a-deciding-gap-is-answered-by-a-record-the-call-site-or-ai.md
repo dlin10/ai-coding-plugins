@@ -101,3 +101,50 @@ true.
   generated files stay readable.
 - The model evals extend to records keyed by receiver type, to the relation of runs, and to the answers of call-site
   analysis.
+
+## Amendment, 2026-11-11: the calls that made the receiver and the arguments get their bodies too
+
+A deciding gap's call often runs on an object a library factory made. In the demo's `polly-retry-attempts`, `_retry` is
+`Policy.Handle<InvalidOperationException>().RetryAsync(2)`, and `AsyncPolicy.ExecuteAsync(Func<Task>)` reaches the retry
+loop only through the virtual `ImplementationAsync` that `AsyncRetryPolicy` overrides. With the factory left an opaque
+call, the heap holds its result as a value with no object behind it: the body of `ExecuteAsync` alone dispatches
+`ImplementationAsync` on no receiver, which is unresolved dispatch, and the delegate goes to an unknown execution again.
+The gap stays.
+
+So the library's body at the call site is the body of the deciding call together with the bodies of the library calls
+whose results reach that call's receiver and arguments — for Polly, `Handle<T>()`, the retry factory and the
+constructors they run — and the receiver is the object the library made, with the fields it set. The library, compiled
+as [ADR 0028](0028-a-library-compiles-with-its-own-identity-references-and-sources.md) compiles it, joins the scope as a
+source of bodies only: the scope's own code is compiled as before, and a call it makes to a member of the library still
+names that member by its assembly and documentation id, which is the identity of the member's body in the library's
+compilation. Library bodies enter the analysis only through those calls and the calls inside the bodies they reach; the
+rest stay outside the set, as a body outside a generation's reachable set does
+([ADR 0019](0019-corelib-generation-reaches-only-the-types-it-constructs.md)), and every other call into the library in
+the scope keeps its record, its generated model or its opacity.
+
+At the call site the program is the one the scope analyses, so nothing stands in for it: no seed
+([ADR 0013](0013-a-driver-seeds-what-a-program-could-have-put-there.md)) is put into the library's fields or statics. The
+library's type initializers are inert, as in the generation of a library other than CoreLib: what they store is in the
+heap, and they make no access, gap or finding. What the library keeps follows the open-world rule as the engine applies
+it to any code: what the admitted bodies hand to a call without a body or to unresolved dispatch, or store where such
+code reaches, is reached by an unknown execution.
+
+Each of those calls in the scope's code is a place of its own. A library body reached from one carries that call's place
+into the calls it makes, so the objects library bodies create are apart per call in the scope's code, however much
+library code two calls share: on Polly, every caller's `RetryAsync(2)` reaches the same `new AsyncRetryPolicy` in the
+overload it calls, and every `ExecuteAsync(Func<Task>)` the same `new Context()`, so two independent workers would share
+one policy and one context, and each worker's delegate would run under the other's root. The library's static storage
+stays one, as it is in the process. Rejected: a deeper calling context for every body, the program's own included, and
+a static method taking its caller's context everywhere. Either changes how the program's code is analysed for a question
+only library bodies at a call site raise.
+
+Rejected: the deciding call's body alone. On Polly it answers nothing. Rejected: a body for every call of the scope into
+the library. It analyses calls that decide nothing, which this decision rejects, and a call with a body sets aside that
+library's records and generated models. Rejected: compiling the scope's code against the library's compilation, as a
+driver is. Every rule that takes a member with source for the program's own — whether a call is a library call, which
+records and generated models apply, roots and registrations, automatic properties — would then take the library for the
+program, and each would have to learn otherwise to leave the other calls into the library as they were.
+
+Whether the engine carries a factory-made receiver through the library's wrappers, virtual dispatch and delegate fields,
+and orders the retry attempts by its own pass rules rather than by a record's admission, is measured on Polly before the
+bound on bodies and time per call site is set.

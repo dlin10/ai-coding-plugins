@@ -304,6 +304,13 @@ public static class ProgramIndexBuilder
                               ?? compilations.FirstOrDefault();
             if (compilation is not CSharpCompilation csharp || csharp.GetTypeByMetadataName(name) is not { } @interface)
                 return null;
+            if (type.ContainingAssembly?.Name == csharp.AssemblyName &&
+                !SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, csharp.Assembly))
+            {
+                if (DocumentationCommentId.GetFirstSymbolForReferenceId(DocumentationCommentId.CreateReferenceId(type), csharp) is not ITypeSymbol local)
+                    return null;
+                type = local;
+            }
             var conversion = csharp.ClassifyConversion(type, @interface.Construct(type));
             answer = conversion.IsImplicit && (conversion.IsIdentity || conversion.IsReference || conversion.IsBoxing);
             answers.TryAdd((key, name), answer);

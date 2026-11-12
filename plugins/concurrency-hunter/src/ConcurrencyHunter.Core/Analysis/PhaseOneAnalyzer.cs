@@ -218,12 +218,14 @@ public static class PhaseOneAnalyzer
     /// <param name="solverFactory">Makes the solver behind the last filter.</param>
     /// <param name="generation">What the run does with the generated layer.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="callSite">The internal call-site probe input, absent in product runs.</param>
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
                                                             ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
-                                                            GenerationSetup generation, CancellationToken cancellationToken)
+                                                            GenerationSetup generation, CancellationToken cancellationToken, CallSiteAnalysis? callSite = null)
     {
+        using var callSiteCompilations = new CallSiteCompilations();
         using var work = WorkCancellation.Enter(cancellationToken);
         using var solver = solverFactory();
         // One budget for the whole run, spent scope by scope: the budget belongs to the run (TD-094).
@@ -285,8 +287,12 @@ public static class PhaseOneAnalyzer
             if (generation.BuiltIn is { } builtIn)
                 models = builtIn;
 
+            if (callSite is not null)
+                models = models.WithoutFamilies(callSite.WithheldFamilies);
+            var (libraries, rules) = callSiteCompilations.ForScope(compilations, callSite, generation, cancellationToken);
+
             var run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models, limits, lowered, null,
-                                        cancellationToken);
+                                        cancellationToken, reachability: rules, libraryCompilations: libraries);
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
             step.Restart();
             var outOfRange = compiledProjects.SelectMany(compiled => LibraryModels.BuiltIn.OutOfRangeReferences(compiled.Compilation)
@@ -353,7 +359,7 @@ public static class PhaseOneAnalyzer
 
                     previous = layer;
                     run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models.WithGenerated(layer.Table), limits,
-                                            lowered, null, cancellationToken);
+                                            lowered, null, cancellationToken, reachability: rules, libraryCompilations: libraries);
                     analyses++;
                     AddTimes(timings, run);
                     step.Restart();
@@ -365,6 +371,9 @@ public static class PhaseOneAnalyzer
             }
 
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
+            callSite?.Measurements.Add(new CallSiteMeasurement(scope.Id,
+                run.Heap!.ReachableBodies.Count(body => rules.Admission?.IsLibraryBody(body) == true),
+                rules.Admission?.BodyIds.Order(StringComparer.Ordinal).ToArray() ?? []));
             diagnostics.AddRange(run.DiscoveryDiagnostics);
             diagnostics.AddRange(outOfRange);
             diagnostics.AddRange(run.LoweringDiagnostics);

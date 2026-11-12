@@ -33,6 +33,12 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
         return reachable?.HasBody(method) ?? method.HasSourceBody;
     }
 
+    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route)
+    {
+        WorkCancellation.Check();
+        return reachable?.HasBody(method, origin, route) ?? method.HasSourceBody;
+    }
+
     public bool IsBuilt(string bodyId) => _summaries.ContainsKey(bodyId);
 
     public MethodSummary? Get(string bodyId)
@@ -110,6 +116,9 @@ public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Dis
     public bool HasExactType { get; init; }
     /// <summary>The context-free identity of an object a model creates for a destination and path, when it uses that vocabulary.</summary>
     public string? ModelCreationKey { get; init; }
+
+    /// <summary>The creation identity without context for a library value whose ordinary identity embeds its admitted site.</summary>
+    public string? ContextFreeIdentity { get; init; }
 
     /// <summary>For a struct's storage (<see cref="HeapRegionKind.StructStorage"/>), the region holding it: an object, a static
     /// storage, an array or a struct copy, never another struct's storage.</summary>
@@ -724,7 +733,7 @@ internal sealed class SolvedRegions(IReadOnlyDictionary<string, HeapRegion> solv
 /// they trigger. An instance method's context is its receiver region, a static method's its call site; allocations take the
 /// instance's context. Contexts beyond <see cref="AnalysisLimits.MaxContextsPerMethod"/>, a substitution naming an open type
 /// parameter, and a call-graph cycle that keeps changing for more than <see cref="AnalysisLimits.MaxSccIterations"/> rounds go
-/// to one merged context per body. Points-to sets only grow over a finite universe, so the rounds reach a fixpoint.
+/// to one merged context per body and admitted library site. Points-to sets only grow over a finite universe, so the rounds reach a fixpoint.
 /// </summary>
 public static partial class WholeProgram
 {
@@ -1462,7 +1471,8 @@ public static partial class WholeProgram
                 var typeArguments = (call.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, caller.Substitution)).ToArray();
                 var containing = call.TargetContainingTypeKey is null ? null : ProgramIndex.Substitute(call.TargetContainingTypeKey, caller.Substitution);
                 var callee = Instance(call.Target, $"{caller.Context}|{caller.BodyId}#{call.OperationId}",
-                                      Substitution(method, containing, typeArguments), [], [], true);
+                                      Substitution(method, containing, typeArguments), [], [], true, origin: caller.BodyId, route: AdmissionRoute.Receiverless,
+                                      site: LibrarySite(caller, call.OperationId, call.Target));
                 Bind(caller, call, callee, "exact");
                 _receiverlessFallbacks.Add((caller.Id, call.OperationId));
             }
@@ -1901,7 +1911,7 @@ public static partial class WholeProgram
         private void SeedStartup()
         {
             CheckCancellation();
-            var members = ReachableSet.StartupMembers(_program, _scope.DiIndex).Where(_scope.Reachable.Bodies.ContainsKey).ToArray();
+            var members = ReachableSet.StartupMembers(_program, _scope.DiIndex, _scope.Reachable.Admission).Where(_scope.Reachable.Bodies.ContainsKey).ToArray();
             if (members.Length == 0)
                 return;
 
@@ -1918,7 +1928,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 if (!seeds.Contains(member) || _program.Method(member) is not { } method)
                     continue;
-                var instance = Instance(member, STARTUP_CONTEXT, NO_SUBSTITUTION, [], [], !method.IsStatic);
+                var instance = Instance(member, STARTUP_CONTEXT, NO_SUBSTITUTION, [], [], !method.IsStatic, origin: null, route: AdmissionRoute.Startup);
                 if (instance is null)
                     continue;
                 instances.Add(instance.Id);
@@ -2002,7 +2012,7 @@ public static partial class WholeProgram
                 var method = _program.Method(memberId ?? bodyId);
                 var substitution = receiver is not null && method is not null ? ReceiverSubstitution(_regions[receiver], method, []) : NO_SUBSTITUTION;
                 var entry = Instance(bodyId, receiver?.Identity ?? context, substitution, receiver is null ? [] : [receiver],
-                                     memberId is null ? [] : [invocation], receiver is null && method is { IsStatic: false });
+                                     memberId is null ? [] : [invocation], receiver is null && method is { IsStatic: false }, origin: null, route: AdmissionRoute.Root);
                 if (entry is null)
                     continue;
                 _rootInstances[root.StableRootId] = entry.Id;
@@ -2035,7 +2045,11 @@ public static partial class WholeProgram
         /// <param name="scope">The resolution scope.</param>
         private RegionRef Provider(ResolutionScope scope)
         {
-            var provider = Region($"provider|{scope.Context}", HeapRegionKind.Provider, $"provider:{scope.Context}", null, scope.Context, null);
+            var created = scope.CreatedScope is { } identity && CallSiteContext.Site(scope.Context).Length != 0
+                ? _regions.GetValueOrDefault(Intern(identity)) : null;
+            var display = created?.Display ?? scope.Context;
+            var provider = Region($"provider|{scope.Context}", HeapRegionKind.Provider, $"provider:{display}", null, scope.Context, null,
+                                  contextFreeIdentity: created is null ? null : $"provider|{created.SiteBodyId}#{created.SiteOperationId}");
             _providers.TryAdd(provider, scope);
             return provider;
         }
@@ -2155,7 +2169,7 @@ public static partial class WholeProgram
             {
                 var owner = target.CellOwners.Select(id => _instances.GetValueOrDefault(id)).OfType<InstanceState>().FirstOrDefault();
                 if (Instance(target.Target, region.Identity, target.OwnerSubstitution, target.CapturedReceivers, target.CellOwners,
-                             owner?.IsReceiverless ?? false)
+                             owner?.IsReceiverless ?? false, origin: null, route: AdmissionRoute.Di)
                     is { } nested)
                 {
                     Add(nested.NestedCellOwners, target.NestedCellOwners);
@@ -2169,7 +2183,7 @@ public static partial class WholeProgram
                 yield break;
             if (method.IsStatic)
             {
-                if (Instance(method.MethodId, region.Identity, Substitution(method, target.ContainingTypeKey, target.MethodTypeArguments), [], [], false)
+                if (Instance(method.MethodId, region.Identity, Substitution(method, target.ContainingTypeKey, target.MethodTypeArguments), [], [], false, origin: null, route: AdmissionRoute.Di)
                     is { } factory)
                     yield return factory;
                 yield break;
@@ -2179,11 +2193,11 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 var implementation = _regions[receiver].TypeKey is { } typeKey && _program.Implementation(typeKey, method.MethodId, target.ContainingTypeKey) is { } found &&
-                                     found.HasSourceBody
+                                     found.HasSourceBody && _scope.Reachable.Admits(null, found.MethodId, AdmissionRoute.Di)
                     ? found
                     : method;
                 if (Instance(implementation.MethodId, $"{region}|{receiver}", ReceiverSubstitution(_regions[receiver], implementation, target.MethodTypeArguments),
-                             [receiver], [], false) is { } factory)
+                             [receiver], [], false, origin: null, route: AdmissionRoute.Di) is { } factory)
                 {
                     yield return factory;
                 }
@@ -2277,11 +2291,11 @@ public static partial class WholeProgram
 
             var type = _program.Type(typeKey);
             var bindings = type is null ? null : _scope.InjectionBindings.FirstOrDefault(candidate => candidate.TypeKey == type.TypeKey);
-            foreach (var constructor in ReachableSet.SelectedConstructors(_program, typeKey, bindings))
+            foreach (var constructor in ReachableSet.SelectedConstructors(_program, typeKey, bindings, _scope.Reachable.Admission))
             {
                 CheckCancellation();
                 var instance = Instance(constructor.MethodId, regionId.Identity, ReceiverSubstitution(_regions[regionId], constructor, []), [regionId], [],
-                                        false);
+                                        false, origin: null, route: AdmissionRoute.Di);
                 if (instance is null)
                     continue;
                 constructorInstances.Add(instance.Id);
@@ -2311,36 +2325,38 @@ public static partial class WholeProgram
 
         private InstanceState? Instance(string bodyId, string context, IReadOnlyDictionary<string, string> substitution,
                                         IEnumerable<RegionRef> receivers, IEnumerable<string> cellOwners, bool receiverless,
-                                        bool merged = false)
+                                        bool merged = false, string? origin = null, AdmissionRoute route = AdmissionRoute.Root, string site = "")
         {
-            if (!_scope.Reachable.Bodies.ContainsKey(bodyId))
+            if (!_scope.Reachable.Admits(origin, bodyId, route) || !_scope.Reachable.Bodies.ContainsKey(bodyId))
                 return null;
 
-            merged = merged || _mergedBodies.Contains(bodyId) || substitution.Values.Any(_program.IsOpen);
+            var bodyContext = bodyId + site;
+            context += site;
+            merged = merged || _mergedBodies.Contains(bodyContext) || substitution.Values.Any(_program.IsOpen);
             var key = $"{bodyId}@{context}{SubstitutionText(substitution)}";
             if (!merged && !_instances.ContainsKey(key))
             {
-                var count = _contextCounts.GetValueOrDefault(bodyId);
+                var count = _contextCounts.GetValueOrDefault(bodyContext);
                 if (count >= _limits.MaxContextsPerMethod)
                 {
-                    _mergedBodies.Add(bodyId);
+                    _mergedBodies.Add(bodyContext);
                     merged = true;
                 }
                 else
                 {
-                    _contextCounts[bodyId] = count + 1;
+                    _contextCounts[bodyContext] = count + 1;
                 }
             }
 
             if (merged)
-                key = $"{bodyId}@merged";
+                key = $"{bodyId}@merged{site}";
 
             if (!_instances.TryGetValue(key, out var instance))
             {
                 var summary = _scope.Summaries.Get(bodyId);
                 if (summary is null)
                     return null;
-                instance = new InstanceState(key, bodyId, merged ? "merged" : context, merged ? NO_SUBSTITUTION : substitution, merged,
+                instance = new InstanceState(key, bodyId, merged ? "merged" + site : context, merged ? NO_SUBSTITUTION : substitution, merged,
                                              !merged && receiverless, summary);
                 _instances.Add(key, instance);
                 _instanceOrder.Add(key);
@@ -2360,6 +2376,15 @@ public static partial class WholeProgram
             Add(instance.CellOwners, cellOwners);
             return instance;
         }
+
+        /// <summary>The admitted project call of a library target; library callers carry their own site through every route.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operation">The calling operation.</param>
+        /// <param name="target">The target body.</param>
+        private string LibrarySite(InstanceState caller, int operation, string target) =>
+            _scope.Reachable.Admission is { } admission && admission.IsLibraryBody(target)
+                ? admission.IsLibraryBody(caller.BodyId) ? CallSiteContext.Site(caller.Context) : CallSiteContext.Of(caller.BodyId, operation)
+                : "";
 
         /// <summary>The objects an instance registration's argument allocates in the registration body are the registration's own
         /// region, constructed there at startup.</summary>
@@ -2451,7 +2476,7 @@ public static partial class WholeProgram
                 // never into an object whose type of the run's own implements the member itself (ADR 0010, amendment of the phase 5b
                 // third run).
                 bool Decides(RegionRef region, IReadOnlySet<string>? kinds) =>
-                    kinds is null || ObjectKind(region, element.InterfaceMethod) is { } kind && kinds.Contains(kind);
+                    kinds is null || ObjectKind(region, element.InterfaceMethod, instance.BodyId) is { } kind && kinds.Contains(kind);
 
                 // A view an interface call makes holds what the storage it views holds in each object it is made of.
                 if (element.ViewOf is { } viewed)
@@ -2478,7 +2503,7 @@ public static partial class WholeProgram
                 {
                     foreach (var array in Eval(instance, element.Arrays).Where(array => Decides(array, element.ArrayKinds) &&
                                                                                         !(element.ExceptKinds is { } except &&
-                                                                                          ObjectKind(array, element.InterfaceMethod) is { } kind &&
+                                                                                          ObjectKind(array, element.InterfaceMethod, instance.BodyId) is { } kind &&
                                                                                           except.Contains(kind))))
                     {
                         CheckCancellation();
@@ -2586,7 +2611,7 @@ public static partial class WholeProgram
                                         .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
                                                                                            region => ObjectKind(Intern(region))))
                                         .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
-                                                                          region => ObjectKind(Intern(region), call.Target))))
+                                                                          region => ObjectKind(Intern(region), call.Target, instance.BodyId))))
                                         .Where(call => call.IsKnown))
             {
                 CheckCancellation();
@@ -2693,7 +2718,7 @@ public static partial class WholeProgram
             // call there too (UnknownCalls.Of); the dispatch itself marks where the heap records it (MarkUnresolvedDispatch).
             foreach (var direct in summary.Calls.Where(call => _rebuilding.UnresolvedDispatches.Contains((instance.Id, call.OperationId)))
                                           .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
-                                                                                             region => ObjectKind(Intern(region), call.Target)))
+                                                                                             region => ObjectKind(Intern(region), call.Target, instance.BodyId)))
                                           .Where(call => !call.IsKnown))
             {
                 CheckCancellation();
@@ -2783,7 +2808,7 @@ public static partial class WholeProgram
             // works of each role, with that member and the receivers it runs no body on (question 145).
             var bodyless = new List<BodylessWork>();
             var callees = works.Select((regions, index) => spawn.WorkMethod is { } workMethod
-                                                               ? WorkItemCallees(regions, workMethod,
+                                                               ? WorkItemCallees(caller, regions, workMethod,
                                                                                  (member, item, declaring) => bodyless.Add(new BodylessWork(index, member.DisplaySymbol,
                                                                                                                                             [(item, declaring)])))
                                                                : regions.SelectMany(region => WorkCallees(region, index)).ToTrackedList())
@@ -2878,7 +2903,7 @@ public static partial class WholeProgram
                 }
 
                 var resolved = DelegateCallees(caller, spawn.OperationId, work, () => unseen = true);
-                if (UnresolvedReceivers(work, resolved.Count != 0) is { } unresolved)
+                if (UnresolvedReceivers(work, resolved.Count != 0, caller.BodyId) is { } unresolved)
                     bodyless.Add(new BodylessWork(index, WorkCallee(work.Target), unresolved));
                 if (resolved.Count == 0)
                     unseen = true;
@@ -2898,11 +2923,12 @@ public static partial class WholeProgram
 
         /// <summary>The <c>Execute()</c> implementations a work item region runs, with the region as receiver. An item that runs one
         /// without a body is reported, with that implementation and the type declaring it, as a dispatch would be (R1, question 145).</summary>
+        /// <param name="caller">The body starting the work.</param>
         /// <param name="items">The items.</param>
         /// <param name="workMethod">The workMethod.</param>
         /// <param name="unresolved">Called for each item that runs an implementation without a body, with the implementation (or the work
         /// method, where none is found), the item and the type of the run's own declaring the implementation.</param>
-        private TrackedList<InstanceState> WorkItemCallees(IEnumerable<RegionRef> items, string workMethod, Action<ProgramMethod, RegionRef, string?> unresolved)
+        private TrackedList<InstanceState> WorkItemCallees(InstanceState caller, IEnumerable<RegionRef> items, string workMethod, Action<ProgramMethod, RegionRef, string?> unresolved)
         {
             var callees = new TrackedList<InstanceState>();
             if (ReachableSet.WorkMethodId(_program, workMethod) is not { } methodId)
@@ -2911,11 +2937,11 @@ public static partial class WholeProgram
             foreach (var item in items)
             {
                 CheckCancellation();
-                var (dispatched, resolved) = DispatchCallees(item, methodId, []);
+                var (dispatched, resolved) = DispatchCallees(item, methodId, [], origin: caller.BodyId, route: AdmissionRoute.Work, caller: caller);
                 callees.AddRange(resolved);
                 if (method is null)
                     continue;
-                var leftOut = ImplementationsWithoutBody(item, method, null, false);
+                var leftOut = ImplementationsWithoutBody(item, method, null, false, caller.BodyId, AdmissionRoute.Work);
                 foreach (var implementation in leftOut)
                 {
                     CheckCancellation();
@@ -2952,7 +2978,7 @@ public static partial class WholeProgram
                         _changes++;
                 }
                 // A callback without a body is work the analysis cannot read, in the callback's execution (question 145).
-                if (UnresolvedReceivers(_delegates[region], callees.Count != 0) is { } unresolved)
+                if (UnresolvedReceivers(_delegates[region], callees.Count != 0, caller.BodyId) is { } unresolved)
                     RecordUnresolvedWork(caller, timer.OperationId, UnresolvedWorkKind.Timer, null, WorkCallee(_delegates[region].Target), unresolved,
                                          timer.Action == IrTimerAction.Create ? state : []);
             }
@@ -3357,7 +3383,8 @@ public static partial class WholeProgram
                 case IrCallKind.LocalFunction:
                 {
                     var callee = Instance(call.Target, OwnerContext(caller.CellOwners), caller.Substitution, caller.Receivers, caller.CellOwners,
-                                          caller.IsReceiverless);
+                                          caller.IsReceiverless, origin: caller.BodyId, route: AdmissionRoute.Direct,
+                                          site: LibrarySite(caller, call.OperationId, call.Target));
                     if (callee is not null)
                         Add(callee.NestedCellOwners, caller.NestedCellOwners);
                     Bind(caller, call, callee, "exact");
@@ -3411,7 +3438,8 @@ public static partial class WholeProgram
                 {
                     if (_program.Method(call.Target) is not { } method)
                         return;
-                    var callee = Instance(call.Target, $"{caller.BodyId}#{call.OperationId}", Substitution(method, containing, typeArguments), [], [], false);
+                    var callee = Instance(call.Target, $"{caller.BodyId}#{call.OperationId}", Substitution(method, containing, typeArguments), [], [], false,
+                                          origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target));
                     Bind(caller, call, callee, "exact");
                     ActivateTypeInitializer(containing ?? method.ContainingTypeKey, caller, null);
                     return;
@@ -3438,7 +3466,8 @@ public static partial class WholeProgram
                     {
                         CheckCancellation();
                         var callee = Instance(call.Target, receiver + TypeArgumentText(typeArguments),
-                                              ReceiverSubstitution(_regions[receiver], method, typeArguments, containing), [receiver], [], false);
+                                              ReceiverSubstitution(_regions[receiver], method, typeArguments, containing), [receiver], [], false,
+                                              origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target));
                         Bind(caller, call, callee, "exact");
                     }
 
@@ -3569,7 +3598,7 @@ public static partial class WholeProgram
                     handoff.Callees.Add(callee.Id);
                 }
                 // A method group without a body runs, in the delegate's unknown execution, a member the analysis cannot read (question 145).
-                if (UnresolvedReceivers(_delegates[region], callees.Count != 0) is { } unresolved)
+                if (UnresolvedReceivers(_delegates[region], callees.Count != 0, caller.BodyId) is { } unresolved)
                     RecordUnresolvedWork(caller, operationId, UnresolvedWorkKind.Handoff, region, WorkCallee(_delegates[region].Target), unresolved, []);
             }
         }
@@ -3589,7 +3618,7 @@ public static partial class WholeProgram
                 Bind(caller, call, callee, "delegate");
             }
             // A method group whose target runs no body the analysis has is as unresolved as a call of that target (R1).
-            if (UnresolvedReceivers(state, callees.Count != 0) is { } unresolved)
+            if (UnresolvedReceivers(state, callees.Count != 0, caller.BodyId) is { } unresolved)
                 Unresolved(caller, call, unresolved);
 
             return callees;
@@ -3601,7 +3630,8 @@ public static partial class WholeProgram
         /// that implementation, any other through the target's. Null when nothing is unresolved, or the delegate is a nested body.</summary>
         /// <param name="state">The delegate.</param>
         /// <param name="ran">Whether the delegate runs some body.</param>
-        private (RegionRef Region, string? DeclaringTypeKey)[]? UnresolvedReceivers(DelegateState state, bool ran)
+        /// <param name="origin">The invoking body.</param>
+        private (RegionRef Region, string? DeclaringTypeKey)[]? UnresolvedReceivers(DelegateState state, bool ran, string? origin)
         {
             if (state.IsNestedBody)
                 return null;
@@ -3610,7 +3640,7 @@ public static partial class WholeProgram
             foreach (var receiver in state.CapturedReceivers)
             {
                 CheckCancellation();
-                var implementations = target is null ? [] : ImplementationsWithoutBody(receiver, target, state.ContainingTypeKey, state.IsNonVirtual);
+                var implementations = target is null ? [] : ImplementationsWithoutBody(receiver, target, state.ContainingTypeKey, state.IsNonVirtual, origin, AdmissionRoute.Delegate);
                 receivers.AddRange(implementations.Select(implementation => (receiver, (string?)implementation.ContainingTypeKey)));
                 if (!ran && implementations.Count == 0)
                     receivers.Add((receiver, target?.ContainingTypeKey));
@@ -3624,12 +3654,14 @@ public static partial class WholeProgram
         /// <param name="method">The method a delegate or a call names.</param>
         /// <param name="containingTypeKey">The type the method is named on.</param>
         /// <param name="isNonVirtual">Whether the delegate binds the named member without virtual dispatch.</param>
-        private IReadOnlyList<ProgramMethod> ImplementationsWithoutBody(RegionRef receiver, ProgramMethod method, string? containingTypeKey, bool isNonVirtual)
+        /// <param name="origin">The invoking body.</param>
+        /// <param name="route">The invocation route.</param>
+        private IReadOnlyList<ProgramMethod> ImplementationsWithoutBody(RegionRef receiver, ProgramMethod method, string? containingTypeKey, bool isNonVirtual, string? origin, AdmissionRoute route)
         {
             IEnumerable<ProgramMethod?> implementations = isNonVirtual ? [method] :
                 ReceiverTypes(receiver).Select(type => _program.Implementation(type, method.MethodId, containingTypeKey));
             return implementations.OfType<ProgramMethod>()
-                                  .Where(implementation => implementation.HasSourceBody && !_scope.Reachable.HasBody(implementation))
+                                  .Where(implementation => implementation.HasSourceBody && !_scope.Reachable.HasBody(implementation, origin, route))
                                   .DistinctBy(implementation => implementation.MethodId).ToArray();
         }
 
@@ -3894,7 +3926,7 @@ public static partial class WholeProgram
                     CheckCancellation();
                     var state = _delegates[region];
                     var callees = runs[fate.ParameterOrdinal].Where(run => run.Region == region).Select(run => run.Callee).ToArray();
-                    if (UnresolvedReceivers(state, callees.Length != 0) is { } receivers)
+                    if (UnresolvedReceivers(state, callees.Length != 0, caller.BodyId) is { } receivers)
                     {
                         if (sequence is not null && fate.Kind == IrFateKind.Iterator)
                             sequence.Unresolved[(fate.ParameterOrdinal, region)] = (call.Callee, inputs, receivers);
@@ -3953,7 +3985,7 @@ public static partial class WholeProgram
                     foreach (var methodId in model.MethodIds)
                     {
                         CheckCancellation();
-                        foreach (var callee in DispatchCallees(receiver, methodId, []).Callees)
+                        foreach (var callee in DispatchCallees(receiver, methodId, [], origin: caller.BodyId, caller: caller, operationId: call.OperationId).Callees)
                         {
                             CheckCancellation();
                             RunModelCall(caller, call.OperationId, inputs, callee);
@@ -5113,7 +5145,7 @@ public static partial class WholeProgram
 
                 var state = _delegates[region];
                 var callees = DelegateCallees(caller, operationId, state, () => NoReceiver(caller, invocation));
-                if (UnresolvedReceivers(state, callees.Count != 0) is { } unresolved)
+                if (UnresolvedReceivers(state, callees.Count != 0, caller.BodyId) is { } unresolved)
                     UnresolvedFate(caller, invocation, unresolved);
 
                 foreach (var instance in callees)
@@ -5346,7 +5378,8 @@ public static partial class WholeProgram
             {
                 var owner = state.CellOwners.Select(id => _instances.GetValueOrDefault(id)).OfType<InstanceState>().FirstOrDefault();
                 if (Instance(state.Target, OwnerContext(state.CellOwners), state.OwnerSubstitution, state.CapturedReceivers, state.CellOwners,
-                             owner?.IsReceiverless ?? false) is { } nested)
+                             owner?.IsReceiverless ?? false, origin: caller.BodyId, route: AdmissionRoute.Delegate,
+                             site: LibrarySite(caller, operationId, state.Target)) is { } nested)
                 {
                     Add(nested.NestedCellOwners, state.NestedCellOwners);
                     callees.Add(nested);
@@ -5360,7 +5393,8 @@ public static partial class WholeProgram
             if (method.IsStatic)
             {
                 if (Instance(method.MethodId, $"{caller.BodyId}#{operationId}", Substitution(method, state.ContainingTypeKey, state.MethodTypeArguments),
-                             [], [], false) is { } callee)
+                             [], [], false, origin: caller.BodyId, route: AdmissionRoute.Delegate,
+                             site: LibrarySite(caller, operationId, method.MethodId)) is { } callee)
                 {
                     callees.Add(callee);
                 }
@@ -5378,7 +5412,8 @@ public static partial class WholeProgram
                 CheckCancellation();
                 if (isVirtual)
                 {
-                    var dispatched = DispatchCallees(receiver, method.MethodId, state.MethodTypeArguments, state.ContainingTypeKey);
+                    var dispatched = DispatchCallees(receiver, method.MethodId, state.MethodTypeArguments, state.ContainingTypeKey, caller.BodyId,
+                                                    AdmissionRoute.Delegate, caller, operationId);
                     if (!dispatched.Dispatched)
                         noReceiver();
                     callees.AddRange(dispatched.Callees);
@@ -5386,7 +5421,8 @@ public static partial class WholeProgram
                 }
 
                 if (Instance(method.MethodId, receiver + TypeArgumentText(state.MethodTypeArguments),
-                             ReceiverSubstitution(_regions[receiver], method, state.MethodTypeArguments), [receiver], [], false) is { } callee)
+                             ReceiverSubstitution(_regions[receiver], method, state.MethodTypeArguments), [receiver], [], false,
+                             origin: caller.BodyId, route: AdmissionRoute.Delegate, site: LibrarySite(caller, operationId, method.MethodId)) is { } callee)
                 {
                     callees.Add(callee);
                 }
@@ -5402,7 +5438,8 @@ public static partial class WholeProgram
         private void Dispatch(InstanceState caller, CallTransfer call, string methodId, RegionRef receiver, IReadOnlyList<string> typeArguments,
                               string? interfaceTypeKey, string reason)
         {
-            var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments, interfaceTypeKey);
+            var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments, interfaceTypeKey, caller.BodyId,
+                                                      caller: caller, operationId: call.OperationId);
             foreach (var callee in callees)
             {
                 CheckCancellation();
@@ -5418,9 +5455,9 @@ public static partial class WholeProgram
 
             // An object the call decides as a member of the table is decided whether its type's body is metadata or one the run leaves
             // out, as CoreLib's own collections are in its generation (ADR 0010, amendment of the phase 5b third run; ADR 0019).
-            bool Decided() => CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId)) is not null;
+            bool Decided() => CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId, caller.BodyId)) is not null;
             var leftOut = _program.Method(methodId) is { } method
-                ? ImplementationsWithoutBody(receiver, method, interfaceTypeKey, false) : [];
+                ? ImplementationsWithoutBody(receiver, method, interfaceTypeKey, false, caller.BodyId, AdmissionRoute.Dispatch) : [];
             if (leftOut.Count != 0)
             {
                 if (Decided())
@@ -5453,8 +5490,9 @@ public static partial class WholeProgram
         /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
         /// <param name="regionId">The region.</param>
         /// <param name="interfaceMethod">The interface member called, if any.</param>
-        private string? ObjectKind(RegionRef regionId, string? interfaceMethod = null) =>
-            CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod);
+        /// <param name="origin">The body making the call.</param>
+        private string? ObjectKind(RegionRef regionId, string? interfaceMethod = null, string? origin = null) =>
+            CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod, origin);
 
         /// <summary>The types a receiver runs as: a registration's constructed types, or the ordinary region's type.</summary>
         /// <param name="receiver">The receiver region.</param>
@@ -5469,20 +5507,26 @@ public static partial class WholeProgram
         /// <param name="typeArguments">The typeArguments.</param>
         /// <param name="interfaceTypeKey">The interfaceTypeKey.</param>
         /// <param name="methodId">The methodId.</param>
+        /// <param name="origin">The invoking body.</param>
+        /// <param name="route">The invocation route.</param>
+        /// <param name="caller">The calling instance, when this is an invocation from a body.</param>
+        /// <param name="operationId">The calling operation.</param>
         private (bool Dispatched, TrackedList<InstanceState> Callees) DispatchCallees(RegionRef receiver, string methodId, IReadOnlyList<string> typeArguments,
-                                                                                      string? interfaceTypeKey = null)
+                                                                                      string? interfaceTypeKey = null, string? origin = null, AdmissionRoute route = AdmissionRoute.Dispatch,
+                                                                                      InstanceState? caller = null, int operationId = -1)
         {
             var dispatched = false;
             var callees = new TrackedList<InstanceState>();
             foreach (var type in ReceiverTypes(receiver))
             {
                 CheckCancellation();
-                if (_program.Implementation(type, methodId, interfaceTypeKey) is not { } implementation || !_scope.Reachable.HasBody(implementation))
+                if (_program.Implementation(type, methodId, interfaceTypeKey, _scope.Reachable.Admission, origin, route) is not { } implementation || !_scope.Reachable.HasBody(implementation, origin, route))
                     continue;
                 dispatched = true;
                 if (Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
                              Substitution(implementation, _program.ConstructedBase(type, implementation.ContainingTypeKey), typeArguments),
-                             [receiver], [], false) is { } callee)
+                             [receiver], [], false, origin: origin, route: route,
+                             site: caller is null ? "" : LibrarySite(caller, operationId, implementation.MethodId)) is { } callee)
                 {
                     callees.Add(callee);
                 }
@@ -5511,7 +5555,8 @@ public static partial class WholeProgram
             if (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body.IsIterator)
             {
                 var region = Region($"iterator|{caller.Id}|{call.OperationId}|{callee.Id}", HeapRegionKind.Allocation,
-                                    $"iterator:{call.Target}", null, ContextKey(caller), null);
+                                    $"iterator:{call.Target}", null, ContextKey(caller), null,
+                                    contextFreeIdentity: $"iterator|{caller.BodyId}#{call.OperationId}|{callee.BodyId}");
                 Add(CallResult(caller, call.OperationId), [region]);
                 _iteratorObjects.TryAdd(region, new CallEdge(caller.Id, call.OperationId, callee.Id, reason));
             }
@@ -5651,9 +5696,9 @@ public static partial class WholeProgram
         /// <param name="triggerRegion">The triggerRegion.</param>
         private void ActivateTypeInitializer(string typeKey, InstanceState? triggerInstance, RegionRef? triggerRegion)
         {
-            if (_scope.Reachable.TypeInitializersTreatment == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+            if (_scope.Reachable.TreatmentOf(typeKey) == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
                 _program.Type(typeKey) is not { } type ||
-                _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method.Kind == ProgramMethodKind.TypeInitializer && _scope.Reachable.HasBody(method)) is not { } initializer ||
+                _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method.Kind == ProgramMethodKind.TypeInitializer && _scope.Reachable.HasBody(method, triggerInstance?.BodyId, AdmissionRoute.TypeInitializer)) is not { } initializer ||
                 triggerInstance?.BodyId == initializer.MethodId)
             {
                 return;
@@ -5666,7 +5711,7 @@ public static partial class WholeProgram
                                        .ToTrackedMap(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
                 // An open type's one construction stands for every closed one, so its regions are merged.
                 var instance = Instance(initializer.MethodId, $"type-initializer:{typeKey}", substitution, [], [], false,
-                                        merged: _program.IsOpen(typeKey));
+                                        merged: _program.IsOpen(typeKey), origin: triggerInstance?.BodyId, route: AdmissionRoute.TypeInitializer);
                 construction = (instance?.Id ?? "", new TrackedSet<string>(StringComparer.Ordinal), []);
                 _typeInitializers.Add(typeKey, construction);
                 _changes++;
@@ -5681,7 +5726,7 @@ public static partial class WholeProgram
         private bool RunsTypeInitializer(string typeKey)
         {
             WorkCancellation.Check();
-            return ReachableSet.RunsTypeInitializer(_program, typeKey, _scope.Reachable.TypeInitializersTreatment, _scope.Reachable.OpenWorldAssemblies);
+            return ReachableSet.RunsTypeInitializer(_program, typeKey, _scope.Reachable.TreatmentOf(typeKey), _scope.Reachable.OpenWorldAssemblies);
         }
 
         private TrackedSet<RegionRef> Eval(InstanceState instance, IEnumerable<AbstractValue> values)
@@ -5970,7 +6015,7 @@ public static partial class WholeProgram
         /// <param name="receivers">The receiver objects it runs no body on, each with the type of the run's own declaring the implementation.</param>
         private void MarkUnresolvedDispatch(InstanceState instance, CallTransfer call, IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> receivers)
         {
-            var seen = receivers.Where(receiver => !UnknownCalls.DecidedByLibrary(call.Implementations, ObjectKind(receiver.Region, call.Target))).ToArray();
+            var seen = receivers.Where(receiver => !UnknownCalls.DecidedByLibrary(call.Implementations, ObjectKind(receiver.Region, call.Target, instance.BodyId))).ToArray();
             if (receivers.Count != 0 && seen.Length == 0)
                 return;
             var kind = UnseenWrites.OfGap(SemanticGapKinds.UNRESOLVED_DISPATCH);
@@ -6485,7 +6530,8 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 var callee = Instance(constructor.MethodId, comparer.ToString(), ReceiverSubstitution(_regions[comparer], constructor, []), [comparer],
-                                      [], false);
+                                      [], false, origin: caller.BodyId, route: AdmissionRoute.Comparer,
+                                      site: LibrarySite(caller, call.OperationId, constructor.MethodId));
                 Bind(caller, call with { Arguments = [] }, callee, "exact");
             }
             ActivateTypeInitializer(typeKey, caller, null);
@@ -6601,24 +6647,32 @@ public static partial class WholeProgram
 
         private RegionRef Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
                                  bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
-                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null)
+                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null,
+                                 string? contextFreeIdentity = null)
         {
             CheckCancellation();
             return Region(Intern(identity), kind, display, typeKey, context, group, merged, mayOverlapItself, site, exactType, modelCreationKey, holder,
-                       siteBodyId);
+                       siteBodyId, contextFreeIdentity);
         }
 
         private RegionRef Region(RegionRef identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
                                  bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
-                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null)
+                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null,
+                                 string? contextFreeIdentity = null)
         {
             if (_regions.ContainsKey(identity))
                 return identity;
+            var librarySite = CallSiteContext.Site(context);
+            contextFreeIdentity = librarySite.Length == 0 ? null : CallSiteContext.WithoutSites(contextFreeIdentity ?? group ?? display);
             group ??= identity.Identity;
+            if (librarySite.Length != 0 && !group.EndsWith(librarySite, StringComparison.Ordinal))
+                group += librarySite;
+            display = CallSiteContext.WithoutSites(display);
             var region = new HeapRegion(identity.Identity, kind, display, typeKey, context, group, typeKey is not null && _program.IsOpen(typeKey),
                                         merged, mayOverlapItself, site?.BodyId ?? siteBodyId, site?.OperationId)
             {
-                HasExactType = exactType, ModelCreationKey = modelCreationKey, Holder = holder?.Region.Identity, HolderSlot = holder?.Slot
+                HasExactType = exactType, ModelCreationKey = modelCreationKey, ContextFreeIdentity = contextFreeIdentity,
+                Holder = holder?.Region.Identity, HolderSlot = holder?.Slot
             };
             if (Querying)
             {
@@ -6712,7 +6766,8 @@ public static partial class WholeProgram
             if (!cyclic)
                 return;
 
-            _mergedBodies.UnionWith(component.Select(id => _instances[id].BodyId));
+            _mergedBodies.UnionWith(component.Select(id => _instances[id].BodyId +
+                (_scope.Reachable.Admission?.IsLibraryBody(_instances[id].BodyId) == true ? CallSiteContext.Site(_instances[id].Context) : "")));
             _counters[HeapCounters.SCC_BUDGET_EXCEEDED] = _counters.GetValueOrDefault(HeapCounters.SCC_BUDGET_EXCEEDED) + 1;
         }
 

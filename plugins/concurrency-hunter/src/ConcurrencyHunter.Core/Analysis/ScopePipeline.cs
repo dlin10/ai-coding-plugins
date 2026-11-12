@@ -89,6 +89,7 @@ public static class ScopePipeline
     /// left out.</param>
     /// <param name="fieldPropertySites">The syntax trees and spans of driver seed statements whose automatic properties stay field
     /// accesses even when the run keeps other accesses as calls; <c>null</c> for none.</param>
+    /// <param name="libraryCompilations">Additional compilations supplying bodies only.</param>
     /// <param name="accessesFilter">Builds, from the executions step's result, which executions the accesses step goes through, by
     /// execution id; <c>null</c> for every execution.</param>
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
@@ -97,7 +98,7 @@ public static class ScopePipeline
                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
                                int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null,
                                ReachabilityRules? reachability = null, IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null,
-                               Func<ExecutionAnalysis, Func<string, bool>>? accessesFilter = null)
+                               Func<ExecutionAnalysis, Func<string, bool>>? accessesFilter = null, IReadOnlyList<Compilation>? libraryCompilations = null)
     {
         var step = new Stopwatch();
         var lowering = new Stopwatch();
@@ -174,15 +175,16 @@ public static class ScopePipeline
 
             Begin(ScopeStep.ProgramIndex);
 
-            var program = ProgramIndexBuilder.Build(scopeId, compilations, rootDirectory, cancellationToken);
+            var bodyCompilations = libraryCompilations is null ? compilations : compilations.Concat(libraryCompilations).ToArray();
+            var program = ProgramIndexBuilder.Build(scopeId, bodyCompilations, rootDirectory, cancellationToken);
             var programIndex = Complete();
 
             Begin(ScopeStep.ReachableSet);
             var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             var loweringDiagnostics = new List<string>();
             var rules = reachability ?? ReachabilityRules.ClassHierarchy;
-            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, rules.SilentTypeKeys, rules.CalledPropertyKeys, fieldPropertySites ?? [],
-                                loweringCache, metadataSupertypes,
+            var lower = Members(bodyCompilations, rootDirectory, models, rules.LeftOutTypeKeys, rules.SilentTypeKeys, rules.CalledPropertyKeys, fieldPropertySites ?? [],
+                                loweringCache, metadataSupertypes, rules.Admission,
                                 loweringDiagnostics, cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
@@ -274,6 +276,7 @@ public static class ScopePipeline
     /// <param name="calledPropertyKeys">The property definitions whose accesses lowering keeps as accessor calls.</param>
     /// <param name="fieldPropertySites">The driver seed statements within which automatic properties stay field accesses.</param>
     /// <param name="lowered">The lowered methods of the whole analysis.</param>
+    /// <param name="admission">The optional call-site admission.</param>
     /// <param name="metadataSupertypes">Receives the supertypes of the metadata types the lowered methods name.</param>
     /// <param name="diagnostics">Receives one diagnostic per member whose lowering failed.</param>
     /// <param name="cancellationToken">Cancels the lowering.</param>
@@ -282,7 +285,7 @@ public static class ScopePipeline
                                                                IReadOnlySet<string> silentTypeKeys, IReadOnlySet<string> calledPropertyKeys,
                                                                IReadOnlyList<(SyntaxTree Tree, TextSpan Span)> fieldPropertySites,
                                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
-                                                               Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
+                                                               Dictionary<string, IReadOnlySet<string>> metadataSupertypes, CallSiteAdmission? admission,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
     {
         var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
@@ -307,7 +310,7 @@ public static class ScopePipeline
                 try
                 {
                     loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
-                                                     models, leftOutTypeKeys, silentTypeKeys, calledPropertyKeys, fieldPropertySites);
+                                                     models, leftOutTypeKeys, silentTypeKeys, calledPropertyKeys, fieldPropertySites, admission);
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 {

@@ -52,10 +52,11 @@ public static class CollectionObjects
     /// <param name="program">The program index, giving implementations and base types.</param>
     /// <param name="summaries">The method summaries, read to tell whether the region was made by a snapshot view.</param>
     /// <param name="interfaceMethod">The interface member being called, or null when no call is in question.</param>
-    public static string? KindOf(HeapRegion region, ProgramIndex program, SummaryCache summaries, string? interfaceMethod = null)
+    /// <param name="origin">The calling body, when classifying a dispatch.</param>
+    public static string? KindOf(HeapRegion region, ProgramIndex program, SummaryCache summaries, string? interfaceMethod = null, string? origin = null)
     {
         if (interfaceMethod is not null && region.TypeKey is { } typeKey && program.Implementation(typeKey, interfaceMethod) is { } implementation &&
-            summaries.HasBody(implementation))
+            summaries.HasBody(implementation, origin, AdmissionRoute.Dispatch))
             return null;
 
         var visited = new HashSet<string>(StringComparer.Ordinal);

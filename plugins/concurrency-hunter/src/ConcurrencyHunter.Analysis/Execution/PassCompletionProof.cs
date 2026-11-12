@@ -58,6 +58,21 @@ internal sealed partial class HappensBefore
         /// comes back to itself.</summary>
         private readonly HashSet<string> _climbing = new(StringComparer.Ordinal);
 
+        // The waits the climb passed, by the work they complete. They explain exceptional edges, but are not cuts for a caller that
+        // still has to wait for the returned task. A weaker proof of a fault must survive a stronger reading of the same wait's form.
+        private readonly Dictionary<string, Dictionary<PointKey, bool>> _completions = new(StringComparer.Ordinal);
+
+        /// <summary>Keeps a completion the climb passed, with the weakest proof of its exceptional exit.</summary>
+        /// <param name="execution">The work being completed.</param>
+        /// <param name="point">The wait.</param>
+        /// <param name="completedFault">Whether a faulted outcome still follows this work's completion.</param>
+        private void Completion(string execution, PointKey point, bool completedFault)
+        {
+            if (!_completions.TryGetValue(execution, out var waits))
+                _completions.Add(execution, waits = []);
+            waits[point] = (!waits.TryGetValue(point, out var known) || known) && completedFault;
+        }
+
         /// <summary>Where a diagnostic request collects every start the proof considers; null for the analysis itself.</summary>
         internal List<PassFrameEvidence>? Trace { get; init; }
 
@@ -219,7 +234,8 @@ internal sealed partial class HappensBefore
                 }
                 var outer = AsyncCallsAt(anchor.ExecutionId, caller, site);
                 // A synchronous entry runs the whole body in the execution making the call before that execution goes on.
-                var inline = outer.Length == 0 && !order._segments.IsAsyncSpawn(caller, site, bodyInstance) &&
+                var inline = outer.Length == 0 && order.Forwarders.Returned(anchor.ExecutionId, bodyInstance) is null &&
+                             !order._segments.IsAsyncSpawn(caller, site, bodyInstance) &&
                              (order._visits.GetValueOrDefault(anchor.ExecutionId) ?? []).Any(visit => visit.InstanceId == bodyInstance &&
                                                                                                      visit.Segment == BodySegment.Whole);
                 entriesComplete = inline || outer is [var asyncCall] && CompleteBeforeNext(asyncCall, creator, admittedPass: true) &&
@@ -267,11 +283,9 @@ internal sealed partial class HappensBefore
             }
 
             var calls = (order._steps.GetValueOrDefault(anchor.ExecutionId) ?? []).Where(step => step.Callee == body.Id).ToArray();
-            var entries = calls.Where(step => step.CalleeSegment == BodySegment.Prefix).Select(step => (step.Caller, step.OperationId)).Distinct().ToArray();
-            var tails = (order._anchors.GetValueOrDefault(anchor.ExecutionId) ?? [])
-                        .Where(candidate => candidate.Kind == SpawnAnchorKind.AsyncReturn && entries.Contains((candidate.CallerInstance, candidate.OperationId)))
-                        .GroupBy(candidate => (candidate.CallerInstance, candidate.OperationId))
-                        .ToDictionary(group => group.Key, group => group.Select(candidate => candidate.ChildId).Distinct().ToArray());
+            var entries = calls.Where(step => TaskEntry(anchor.ExecutionId, step)).Select(step => (step.Caller, step.OperationId)).Distinct().ToArray();
+            var tails = entries.Select(entry => (Entry: entry, Children: AsyncCallsAt(anchor.ExecutionId, entry.Caller, entry.OperationId)))
+                               .Where(item => item.Children.Length != 0).ToDictionary(item => item.Entry, item => item.Children);
             if (tails.Values.Any(children => children.Contains(tail)))
                 return true;
             // The delegate of an admitted call runs in the call, whose own task its caller waits for, and the work is complete for the
@@ -297,7 +311,7 @@ internal sealed partial class HappensBefore
             }
             // A body entered whole runs inside its caller's visit before the caller goes on, so the caller reaches its own suspensions
             // only through the same wait.
-            foreach (var caller in calls.Where(step => step.CalleeSegment == BodySegment.Whole).Select(step => step.Caller).Distinct(StringComparer.Ordinal))
+            foreach (var caller in calls.Where(step => step.CalleeSegment == BodySegment.Whole && !TaskEntry(anchor.ExecutionId, step)).Select(step => step.Caller).Distinct(StringComparer.Ordinal))
             {
                 WorkCancellation.Check();
                 if (order._heap.Instances.TryGetValue(caller, out var inline) && TailFollows(anchor, inline, start, waits, tail, [.. seen]))
@@ -588,6 +602,12 @@ internal sealed partial class HappensBefore
                         ("before-destination", true), ("normal-return", normal), ("exceptional-return", all), ("parent-allows", allowed)));
                     return allowed;
                 }
+                // The caller may resume in a separate async tail of the same execution. The waits passed on the climb prove which
+                // suspensions of its body follow this work; a fault that can leave the work running proves no such completion.
+                if (TailCompletes(anchor, start, destination.ExecutionId) &&
+                    ParentAllows(anchor.ExecutionId, flow.BeforeReturn(start, cuts, exceptionalExits: false),
+                                 flow.BeforeReturn(start, cuts, exceptionalExits: true), creator, []))
+                    return true;
                 if (!flow.BeforeReturn(start, cuts, exceptionalExits: false))
                 {
                     Steps?.Add(PassStepEvidence.Of("inner-pass-returns", current, anchor.ExecutionId, false,
@@ -602,6 +622,30 @@ internal sealed partial class HappensBefore
                 Steps?.Add(PassStepEvidence.Of("inner-pass-returns", current, anchor.ExecutionId, true,
                     ("before-own-start", true), ("normal-return", true), ("exceptional-return", faultCompletion)));
                 current = anchor.ExecutionId;
+            }
+            return false;
+        }
+
+        /// <summary>Whether a tail resumes only after a completion of this pass's work.</summary>
+        /// <param name="anchor">The pass's start.</param>
+        /// <param name="start">Its point in the parent's flow.</param>
+        /// <param name="tail">The resumed execution or work it starts.</param>
+        private bool TailCompletes(SpawnAnchor anchor, PointKey start, string tail)
+        {
+            var tails = new HashSet<string>(StringComparer.Ordinal);
+            for (string? current = tail; current is not null && current != anchor.ExecutionId && tails.Add(current);
+                 current = order._executions.GetValueOrDefault(current)?.ParentId)
+            {
+                WorkCancellation.Check();
+            }
+            foreach (var group in (_completions.GetValueOrDefault(anchor.ChildId) ?? []).Where(wait => wait.Value).GroupBy(wait => wait.Key.Instance))
+            {
+                WorkCancellation.Check();
+                var waits = group.Select(wait => (Point: wait.Key, CompletedFault: wait.Value)).ToList();
+                if (order._heap.Instances.TryGetValue(group.Key, out var body) &&
+                    PassFlow(anchor, waits).BeforeReturn(start, waits.Select(wait => wait.Point).ToArray(), exceptionalExits: true) &&
+                    tails.Any(candidate => TailFollows(anchor, body, start, waits, candidate, [])))
+                    return true;
             }
             return false;
         }
@@ -663,15 +707,19 @@ internal sealed partial class HappensBefore
         /// <summary>The flow of a pass's parent, in which the exception of a join of the pass that throws only after the work completed
         /// comes after that join, as <see cref="FlowOf"/> reads proven joins, an <c>await</c> among them — and so does that of a site
         /// calling such a join where the hoisting of <see cref="AtCallSites"/> says the call throws only after it: a path asking about
-        /// the pass's work stops there. The exception of an <c>await</c> that is no join of the pass is a step of the exits as it is.</summary>
+        /// the pass's work stops there. The intermediate waits the climb passed keep that reading of their exceptions without cutting
+        /// the caller's paths. The exception of an <c>await</c> that is no join of the pass is a step of the exits as it is.</summary>
         /// <param name="anchor">The start of the pass.</param>
         /// <param name="joins">The pass's joins, with whether a faulted outcome of each still follows the work's completion.</param>
         private Flow PassFlow(SpawnAnchor anchor, List<(PointKey Point, bool CompletedFault)> joins)
         {
-            var key = anchor.ExecutionId + "|" + string.Join(";", joins.Select(join => $"{join.Point}:{join.CompletedFault}").Order(StringComparer.Ordinal));
+            var local = joins.Concat((_completions.GetValueOrDefault(anchor.ChildId) ?? [])
+                .Select(wait => (Point: wait.Key, CompletedFault: wait.Value))).ToArray();
+            var key = anchor.ChildId + "|" + string.Join(";", local.Select(join => $"{join.Point}:{join.CompletedFault}").Order(StringComparer.Ordinal));
             if (_flows.TryGetValue(key, out var flow))
                 return flow;
-            var waits = joins.Select(join => new Candidate(anchor.ExecutionId, join.Point, [anchor.ChildId], join.CompletedFault)).ToArray();
+            var waits = local.GroupBy(join => join.Point)
+                             .Select(group => new Candidate(anchor.ExecutionId, group.Key, [anchor.ChildId], group.All(join => join.CompletedFault))).ToArray();
             var throwsAfter = order.ThrowingAfter(waits.Concat(order.Hoisted(waits, [anchor.ExecutionId])).Where(wait => wait.ThrowsAfter)
                                                        .Select(wait => (wait.Point, wait.Targets)).ToArray());
             _flows.Add(key, flow = order.NewFlow(anchor.ExecutionId, throwsAfter));
@@ -701,6 +749,11 @@ internal sealed partial class HappensBefore
             {
                 Trace?.Add(new PassFrameEvidence(execution, null, null, null, null, -1, [], []));
                 return false;
+            }
+            foreach (var wait in joins.Concat(suspended.Select(wait => (wait.Point, wait.CompletedFault))))
+            {
+                WorkCancellation.Check();
+                Completion(anchor.ChildId, wait.Point, wait.CompletedFault);
             }
             foreach (var (point, completedFault, instance) in suspended)
             {
@@ -810,8 +863,9 @@ internal sealed partial class HappensBefore
                                                                            List<OuterPass>? outers = null)
         {
             WorkCancellation.Check();
+            Completion(anchor.ChildId, point, completedFault);
             var entries = (order._steps.GetValueOrDefault(anchor.ExecutionId) ?? [])
-                          .Where(step => step.Callee == instance.Id && step.CalleeSegment == BodySegment.Prefix)
+                          .Where(step => step.Callee == instance.Id && TaskEntry(anchor.ExecutionId, step))
                           .Select(step => (step.Caller, step.OperationId)).Distinct().ToArray();
             if (entries.Length == 0)
                 return [(point, completedFault)];
@@ -871,6 +925,11 @@ internal sealed partial class HappensBefore
                                                ("fault-follows", faultFollows), ("entry-task-waited", waited)));
                 if (!waited)
                     return [];
+                foreach (var completion in (_completions.GetValueOrDefault(tail) ?? []).ToArray())
+                {
+                    WorkCancellation.Check();
+                    Completion(anchor.ChildId, completion.Key, completion.Value && faultFollows);
+                }
                 above.AddRange(waits.Select(wait => (wait.Point, wait.CompletedFault && faultFollows)));
             }
 
@@ -983,7 +1042,8 @@ internal sealed partial class HappensBefore
                 body.Blocks.SelectMany(block => block.Operations).FirstOrDefault(operation => operation.Id == runner.Operation) is not IrCallOperation call)
                 return null;
             var after = new PointKey(caller.Id, call.Id, true);
-            var wait = order.PlainFlow(execution).WaitAtOnce(body, call, runner.Task is not null);
+            var wait = order.PlainFlow(execution).WaitAtOnce(body, call,
+                runner.Task is not null || order.Forwarders.Call(execution, caller.Id, call.Id) is not null);
             if (wait is not null && wait.Id == call.Id)
                 return new CallWait(caller, after, true, null, false);
             if (wait is null || caller.Summary.Joins.FirstOrDefault(join => join.OperationId == wait.Id) is not { } waited)
@@ -1033,10 +1093,19 @@ internal sealed partial class HappensBefore
         /// <param name="execution">The execution making the call.</param>
         /// <param name="caller">The instance making the call.</param>
         /// <param name="operation">The call operation.</param>
-        private string[] AsyncCallsAt(string execution, string caller, int operation) =>
-            (order._anchors.GetValueOrDefault(execution) ?? [])
+        private string[] AsyncCallsAt(string execution, string caller, int operation)
+        {
+            var direct = (order._anchors.GetValueOrDefault(execution) ?? [])
                 .Where(candidate => candidate.Kind == SpawnAnchorKind.AsyncReturn && candidate.CallerInstance == caller && candidate.OperationId == operation)
                 .Select(candidate => candidate.ChildId).Distinct().ToArray();
+            return direct.Length != 0 ? direct : order.Forwarders.Call(execution, caller, operation) is { } forwarded ? [forwarded.ChildId] : [];
+        }
+
+        /// <summary>Whether a step enters a body whose work is complete where its caller waits for its task.</summary>
+        /// <param name="execution">The execution running the step.</param>
+        /// <param name="step">The entry step.</param>
+        private bool TaskEntry(string execution, ExecutionStep step) =>
+            step.CalleeSegment == BodySegment.Prefix || order.Forwarders.Returned(execution, step.Callee) is not null;
 
         /// <summary>The await at which a body waits at once for the task of one call it makes, as a suspension of its own prefix: the
         /// call is followed by that await with nothing between that may throw (<see cref="Flow.WaitAtOnce"/>). The body it enters has its
@@ -1227,6 +1296,8 @@ internal sealed partial class HappensBefore
             bool FromCall(MethodInstance caller, int operation)
             {
                 if (caller.Id == anchor.CallerInstance && operation == spawn.CallOperationId)
+                    return true;
+                if (order.Forwarders.Call(anchor.ExecutionId, caller.Id, operation) is { } forwarded && forwarded == anchor)
                     return true;
                 if (order._heap.UnresolvedCallTargets.Contains((caller.Id, operation)) || !seen.Add((caller.Id, operation)))
                     return false;

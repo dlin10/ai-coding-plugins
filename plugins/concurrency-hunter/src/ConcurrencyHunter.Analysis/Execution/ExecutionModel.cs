@@ -1,4 +1,4 @@
-﻿using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Heap;
@@ -1431,9 +1431,9 @@ public static class ExecutionModel
             return result;
         }
 
-        /// <summary>The non-async targets of a curated call's runs that each run as one async call of their body (R8), with that call:
+        /// <summary>The non-async targets of a curated call's runs that forward one async call (R8), with that call:
         /// a target entered only through this call, run as <c>sequential-awaited</c>, whose every return is proven the task of that one
-        /// call, which one run of the target makes at most once — around a loop, a recursion or a delegate run again inside the target,
+        /// call through a chain of task forwarders, which one run of the target makes at most once — around a loop, a recursion or a delegate run again inside the target,
         /// the task returned is only the last run's, and the earlier runs are work the target leaves behind. It makes the call
         /// synchronously in the one execution making the curated call, so execution and once-ness are the curated call's.</summary>
         /// <param name="site">The curated call's instance and operation.</param>
@@ -1445,7 +1445,6 @@ public static class ExecutionModel
             var result = new Dictionary<string, (string Instance, int Operation)>(StringComparer.Ordinal);
             var targets = runs.Where(run => run.Task is null).Select(run => run.Callee).Distinct(StringComparer.Ordinal)
                               .Where(callee => heap.RunRelations.Contains((site.Instance, site.Operation, callee, RunRelation.SequentialAwaited)) &&
-                                               _asyncSpawns.Keys.Any(key => key.Caller == callee) &&
                                                heap.Edges.Where(edge => edge.CalleeInstance == callee)
                                                    .All(edge => edge.CallerInstance == site.Instance && edge.OperationId == site.Operation))
                               .ToArray();
@@ -1454,10 +1453,9 @@ public static class ExecutionModel
             foreach (var target in targets)
             {
                 CheckCancellation();
-                if (HandleOrder().ReturnedAsyncCall(execution, target) is { } returned &&
-                    OnePath(execution, heap.Instances[target].BodyId, returned.Operation, roots: new HashSet<string>([target], StringComparer.Ordinal)))
+                if (HandleOrder().ForwardedTask(execution, target) is { } returned)
                 {
-                    result.Add(target, returned);
+                    result.Add(target, (returned.CallerInstance, returned.OperationId));
                 }
             }
             return result;
@@ -1754,11 +1752,6 @@ public static class ExecutionModel
             return points.Length != 0 && !FlowOf(execution).Repeats(points);
         }
 
-        /// <summary>Whether a call step runs its callee 0..n times before the call returns: a known call's <c>invoke-now</c> delegate, an
-        /// enumeration's <c>iterator</c> delegate, the delegate of a member of the collection table (SPEC TD-034a, ADR 0010).</summary>
-        /// <param name="step">The call step.</param>
-        private bool Repeated(ExecutionStep step) => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee));
-
         /// <summary>Whether no loop holds a site and the execution's call graph has at most one path to its body from its entries, or from
         /// the roots given, none through a recursion, a call inside a loop or a call that runs a delegate 0..n times, and the site itself
         /// is no such call.</summary>
@@ -1767,46 +1760,11 @@ public static class ExecutionModel
         /// <param name="operationId">The site's operation.</param>
         /// <param name="afterCall">Whether the site is the call's return, outside its repeated delegate runs.</param>
         /// <param name="roots">The instances one run of which the paths are counted from, or null for the execution's entries.</param>
+        // bounded: forwards once to the path proof of another type.
         private bool OnePath(string execution, string bodyId, int operationId, bool afterCall = false, IReadOnlySet<string>? roots = null)
         {
-            var steps = _steps.GetValueOrDefault(execution) ?? [];
-            if (InCycle(bodyId, operationId) ||
-                !afterCall && steps.Any(step => step.OperationId == operationId && Repeated(step) && heap.Instances[step.Caller].BodyId == bodyId))
-            {
-                return false;
-            }
-
             var entries = roots ?? (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
-            var incoming = steps.GroupBy(step => step.Callee, StringComparer.Ordinal)
-                                .ToDictionary(group => group.Key,
-                                              group => group.Select(step => (step.Caller, step.OperationId, Repeated: Repeated(step))).Distinct().ToArray(),
-                                              StringComparer.Ordinal);
-            var nodes = entries.Concat(incoming.Keys).ToHashSet(StringComparer.Ordinal);
-            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-            var changed = true;
-            while (changed)
-            {
-                CheckCancellation();
-                changed = false;
-                foreach (var node in nodes)
-                {
-                    CheckCancellation();
-                    var total = entries.Contains(node) ? 1 : 0;
-                    foreach (var (caller, operation, repeated) in incoming.GetValueOrDefault(node) ?? [])
-                    {
-                        CheckCancellation();
-                        total += counts.GetValueOrDefault(caller) * (repeated || InCycle(heap.Instances[caller].BodyId, operation) ? 2 : 1);
-                    }
-                    total = Math.Min(total, 2);
-                    if (total != counts.GetValueOrDefault(node))
-                    {
-                        counts[node] = total;
-                        changed = true;
-                    }
-                }
-            }
-
-            return counts.Where(pair => heap.Instances[pair.Key].BodyId == bodyId).Sum(pair => pair.Value) <= 1;
+            return TaskForwarders.OnePath(heap, _steps.GetValueOrDefault(execution) ?? [], bodyId, operationId, afterCall, entries, InCycle);
         }
 
         /// <summary>The member symbols of the shortest walk of an execution from its entries to an instance of a body, consecutive

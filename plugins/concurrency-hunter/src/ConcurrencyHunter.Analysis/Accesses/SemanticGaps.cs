@@ -90,13 +90,13 @@ public static class SemanticGaps
     /// <param name="results">The stores fed by the call's result.</param>
     private static bool FeedsShared(InterproceduralInput input, UnknownCall call, IEnumerable<SummaryResultStore> results) =>
         results.Where(store => store.ReceiverKinds is not { } kinds || store.Receivers.SelectMany(value => input.Heap.Resolve(call.Instance.Id, value))
-            .Any(region => CollectionObjects.KindOf(input.Heap.Regions[region], input.Scope.Program, input.Scope.Summaries, store.InterfaceMethod) is { } kind && kinds.Contains(kind)))
+            .Any(region => CollectionObjects.KindOf(input.Heap.Regions[region], input.Scope.Program, input.Scope.Summaries, store.InterfaceMethod, call.Instance.BodyId) is { } kind && kinds.Contains(kind)))
                .SelectMany(store => store.StaticField is { } field
                                ? [input.Heap.StaticRegionOf(call.Instance.Id, field)]
                                : store.Targets.SelectMany(value => input.Heap.Resolve(call.Instance.Id, value))
                                       .Where(region => store.TargetKinds is not { } kinds ||
                                                        CollectionObjects.KindOf(input.Heap.Regions[region], input.Scope.Program, input.Scope.Summaries,
-                                                                                store.InterfaceMethod) is { } kind && kinds.Contains(kind)))
+                                                                                store.InterfaceMethod, call.Instance.BodyId) is { } kind && kinds.Contains(kind)))
                .Any(region => IsShared(input, region));
 
     private static bool IsShared(InterproceduralInput input, string region) =>

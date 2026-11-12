@@ -137,7 +137,7 @@ public static class UnknownCalls
             {
                 WorkCancellation.Check();
                 foreach (var direct in CollectionObjects.LibraryCalls(call, value => heap.Resolve(instance.Id, value),
-                    region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, call.Target)).Where(direct => !direct.IsKnown))
+                    region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, call.Target, instance.BodyId)).Where(direct => !direct.IsKnown))
                 {
                     WorkCancellation.Check();
                     AddLibraryUnknown(direct);
@@ -160,7 +160,7 @@ public static class UnknownCalls
             }
 
             bool HasLibrary(IReadOnlyList<IrImplementation> implementations, string region, string? method) =>
-                DecidedByLibrary(implementations, CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, method));
+                DecidedByLibrary(implementations, CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, method, instance.BodyId));
 
             void AddLibraryUnknown(SummaryOpaqueCall direct) => calls.Add(new UnknownCall(instance, direct.OperationId, direct.Callee,
                 KindOf(direct.Callee), direct.Receivers, direct.DeclaringTypeKey, direct.Arguments, direct.Delegates)

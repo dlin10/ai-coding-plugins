@@ -1,4 +1,4 @@
-﻿using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Execution;
@@ -377,7 +377,7 @@ public static partial class InterproceduralAccesses
                 foreach (var region in regions)
                 {
                     WorkCancellation.Check();
-                    var kind = CollectionObjects.KindOf(heap.Regions[region], input.Scope.Program, input.Scope.Summaries, method);
+                    var kind = CollectionObjects.KindOf(heap.Regions[region], input.Scope.Program, input.Scope.Summaries, method, summary.BodyId);
                     var implementation = implementations.FirstOrDefault(candidate => candidate.Kind == kind);
                     if (implementation?.Library is { } library)
                     {
@@ -2335,7 +2335,7 @@ public static partial class InterproceduralAccesses
                               .Concat(instance.Summary.OpaqueCalls.SelectMany(call => CollectionObjects.LibraryCalls(call,
                                   value => _heap.Resolve(instance.Id, value), region => ObjectKind(region)))
                                   .Concat(instance.Summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call,
-                                      value => _heap.Resolve(instance.Id, value), region => ObjectKind(region, call.Target))))
+                                      value => _heap.Resolve(instance.Id, value), region => ObjectKind(region, call.Target, instance.BodyId))))
                                   .SelectMany(call => CollectionObjects.LibraryEffects(call, call.HeldLocks)))
                               .Where(effect => !effect.IsDeferred && input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId))
                               .ToArray();
@@ -2395,7 +2395,7 @@ public static partial class InterproceduralAccesses
                         if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, identity)))
                             continue;
                         if (access.InterfaceReceiver is { } receiver && original.Storage is { } loaded &&
-                            FoldsIntoInterfaceCall(receiver, loaded.Region, loaded.Slot))
+                            FoldsIntoInterfaceCall(receiver, loaded.Region, loaded.Slot, instance.BodyId))
                             continue;
 
                         // The cell a term binds keeps the fields of the struct it holds after it (R1).
@@ -3195,7 +3195,7 @@ public static partial class InterproceduralAccesses
                     CheckCancellation();
                     return (call.Implementations.Count == 0
                                ? call.Member
-                               : CollectionObjects.Decision(call.Implementations, ObjectKind(region, call.InterfaceMethod))?.Member) is { } decided
+                               : CollectionObjects.Decision(call.Implementations, ObjectKind(region, call.InterfaceMethod, instance.BodyId))?.Member) is { } decided
                                ? StandsFor(region).Select(collection => (Collection: collection, Member: decided))
                                : [];
                 })
@@ -3514,8 +3514,9 @@ public static partial class InterproceduralAccesses
         /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
         /// <param name="regionId">The region classified.</param>
         /// <param name="interfaceMethod">The interface method called, if any.</param>
-        private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
-            CollectionObjects.KindOf(_heap.Regions[regionId], input.Scope.Program, input.Scope.Summaries, interfaceMethod);
+        /// <param name="origin">The calling body.</param>
+        private string? ObjectKind(string regionId, string? interfaceMethod = null, string? origin = null) =>
+            CollectionObjects.KindOf(_heap.Regions[regionId], input.Scope.Program, input.Scope.Summaries, interfaceMethod, origin);
 
         /// <summary>Whether the load of a field only an interface call reads folds into that call on this object: every object the field
         /// holds is decided as a member of the table, as a direct call of that member on the field has no load of its own. An array keeps
@@ -3524,11 +3525,12 @@ public static partial class InterproceduralAccesses
         /// <param name="receiver">The interface call's implementations and method.</param>
         /// <param name="regionId">The object whose field is loaded, as the heap keeps the field.</param>
         /// <param name="slot">The field's slot of that object: the path through every struct field before it.</param>
-        private bool FoldsIntoInterfaceCall((IReadOnlyList<IrImplementation> Implementations, string Method) receiver, string regionId, string slot)
+        /// <param name="origin">The calling body.</param>
+        private bool FoldsIntoInterfaceCall((IReadOnlyList<IrImplementation> Implementations, string Method) receiver, string regionId, string slot, string origin)
         {
             var held = _heap.PointsTo(regionId, slot).ToArray();
             return held.Length != 0 &&
-                   held.All(target => CollectionObjects.Decision(receiver.Implementations, ObjectKind(target, receiver.Method)) is { } decided &&
+                   held.All(target => CollectionObjects.Decision(receiver.Implementations, ObjectKind(target, receiver.Method, origin)) is { } decided &&
                                       !decided.Member.Member.StartsWith(ARRAY_MEMBER, StringComparison.Ordinal));
         }
 
@@ -4709,7 +4711,7 @@ public static partial class InterproceduralAccesses
                 case HeapRegionKind.Receiver:
                     return $"receiver|{region.TypeKey}";
                 default:
-                    return region.Identity;
+                    return region.ContextFreeIdentity ?? region.Identity;
             }
         }
 

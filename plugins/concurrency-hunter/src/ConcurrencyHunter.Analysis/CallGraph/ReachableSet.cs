@@ -53,6 +53,14 @@ public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<strin
     /// <summary>How type initializers without open-world or open type arguments are treated.</summary>
     public TypeInitializerTreatment TypeInitializers { get; init; } = TypeInitializerTreatment.Run;
 
+    /// <summary>The optional call-site admission, absent in product runs.</summary>
+    public CallSiteAdmission? Admission { get; init; }
+
+    /// <summary>The treatment of one type's initializer.</summary>
+    /// <param name="typeKey">The assembly-qualified type key.</param>
+    public TypeInitializerTreatment TreatmentOf(string typeKey) =>
+        Admission?.IsLibraryType(typeKey) == true ? TypeInitializerTreatment.Inert : TypeInitializers;
+
     /// <summary>Class-hierarchy dispatch with no type left out.</summary>
     public static ReachabilityRules ClassHierarchy { get; } = new(DispatchRule.ClassHierarchy, new HashSet<string>(StringComparer.Ordinal));
 
@@ -191,11 +199,26 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
     public IReadOnlySet<(string BodyId, int Operation)> OpenDefaultComparerCalls { get; init; } = new HashSet<(string, int)>();
 
     /// <summary>Whether a member has a body in this run, which the lowering's, the summaries' and the heap's callees are decided by:
-    /// a source body under class-hierarchy dispatch, and a body among <see cref="Bodies"/> under constructed types, so a member the
-    /// set left out or never reached is one without a body, as a member without a source body is (ADR 0019).</summary>
+    /// a source body under class-hierarchy dispatch, and a body among <see cref="Bodies"/> for the admitted library or under
+    /// constructed types, so a member the set left out or never reached is one without a body, as a member without a source body is (ADR 0019).</summary>
     /// <param name="method">The member.</param>
     public bool HasBody(ProgramMethod method) =>
-        Dispatch == DispatchRule.ClassHierarchy ? method.HasSourceBody : Bodies.ContainsKey(method.MethodId);
+        Dispatch == DispatchRule.ClassHierarchy && Admission?.IsLibraryBody(method.MethodId) != true
+            ? method.HasSourceBody : Bodies.ContainsKey(method.MethodId);
+
+    public ReachabilityRules? Rules { get; init; }
+
+    public CallSiteAdmission? Admission => Rules?.Admission;
+
+    // bounded: forwards once to the reachability rules of another type.
+    public TypeInitializerTreatment TreatmentOf(string typeKey) => Rules?.TreatmentOf(typeKey) ?? TypeInitializersTreatment;
+
+    // bounded: forwards once to the admission rule of another type.
+    public bool Admits(string? origin, string target, AdmissionRoute route) => Admission?.Admits(origin, target, route) != false;
+
+    // bounded: calls the nonrecursive single-argument overload once.
+    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route) =>
+        HasBody(method) && Admits(origin, method.MethodId, route);
 }
 
 /// <summary>
@@ -241,13 +264,16 @@ public static class ReachableSet
 
     /// <summary>The members that run at startup as constructions of the container: the entry point, and every member holding a
     /// supported factory or instance registration, in id order.</summary>
-    public static IReadOnlyList<string> StartupMembers(ProgramIndex program, DiIndex diIndex) =>
+    /// <param name="program">The scope program index.</param>
+    /// <param name="diIndex">The project registrations.</param>
+    /// <param name="admission">The optional call-site admission.</param>
+    public static IReadOnlyList<string> StartupMembers(ProgramIndex program, DiIndex diIndex, CallSiteAdmission? admission = null) =>
         program.Methods.Where(method => method is { IsStatic: true, HasSourceBody: true, Kind: ProgramMethodKind.Ordinary, Name: "Main" or "<Main>$" })
                .Select(method => method.MethodId)
                .Concat(diIndex.Registrations.Where(registration => registration is { IsSupported: true, BodyId: not null } &&
                                                                    registration.Form != DiRegistrationForm.Type)
                               .Select(registration => registration.BodyId!))
-               .Where(member => program.Method(member) is { HasSourceBody: true })
+               .Where(member => program.Method(member) is { HasSourceBody: true } && admission?.Admits(null, member, AdmissionRoute.Startup) != false)
                .Distinct(StringComparer.Ordinal)
                .Order(StringComparer.Ordinal)
                .ToArray();
@@ -280,9 +306,13 @@ public static class ReachableSet
 
     /// <summary>The constructor the container selects: the one whose parameters the bindings list, or every source constructor of
     /// the type when the bindings name none and it has more than one.</summary>
-    internal static IReadOnlyList<ProgramMethod> SelectedConstructors(ProgramIndex program, string typeKey, TypeInjectionBindings? bindings)
+    /// <param name="program">The scope program index.</param>
+    /// <param name="typeKey">The type being constructed.</param>
+    /// <param name="bindings">The constructor injection bindings.</param>
+    /// <param name="admission">The optional call-site admission.</param>
+    internal static IReadOnlyList<ProgramMethod> SelectedConstructors(ProgramIndex program, string typeKey, TypeInjectionBindings? bindings, CallSiteAdmission? admission = null)
     {
-        var constructors = program.Constructors(typeKey).Where(constructor => constructor.HasSourceBody).ToArray();
+        var constructors = program.Constructors(typeKey).Where(constructor => constructor.HasSourceBody && admission?.Admits(null, constructor.MethodId, AdmissionRoute.Di) != false).ToArray();
         var parameterKeys = bindings?.ConstructorParameters.Select(parameter => parameter.TypeKey).ToArray() ?? [];
         var selected = constructors.Where(constructor => constructor.Parameters.Select(parameter => parameter.TypeKey)
                                                                     .SequenceEqual(parameterKeys, StringComparer.Ordinal))
@@ -429,13 +459,13 @@ public static class ReachableSet
 
         internal ReachableSetResult Run()
         {
-            foreach (var member in StartupMembers(_program, _input.DiIndex))
+            foreach (var member in StartupMembers(_program, _input.DiIndex, _input.Rules.Admission))
             {
                 WorkCancellation.Check();
                 var construction = new ConstructionState($"startup:{member}", ConstructionKind.Startup, CONTAINER_TYPE, null);
                 construction.ConstructorBodyIds.Add(member);
                 _constructions.Add(construction.Id, construction);
-                ReachBody(member, $"construction:{construction.Id}");
+                ReachBody(member, $"construction:{construction.Id}", route: AdmissionRoute.Startup);
             }
 
             var roots = _input.Roots.OrderBy(root => root.StableRootId, StringComparer.Ordinal).ToArray();
@@ -451,7 +481,7 @@ public static class ReachableSet
             {
                 WorkCancellation.Check();
                 var trigger = new ConstructionTrigger(ConstructionTriggerKind.Root, root.StableRootId);
-                ReachBody(root.Entry.BodyKey, $"root:{root.StableRootId}");
+                ReachBody(root.Entry.BodyKey, $"root:{root.StableRootId}", route: AdmissionRoute.Root);
                 if (root.InstanceBindings is { Receiver: ReceiverKind.PerInvocation, ReceiverTypeKey: { } controller })
                     Construct(ConstructionKind.Controller, controller, null, null, trigger, ResolutionContext.Execution);
                 else if (root.InstanceBindings is { Receiver: ReceiverKind.DiService, ReceiverTypeKey: { } service })
@@ -523,6 +553,7 @@ public static class ReachableSet
             {
                 ReachEdges = _reachEdges.ToArray(),
                 Dispatch = _input.Rules.Dispatch,
+                Rules = _input.Rules,
                 TypeInitializersTreatment = _input.Rules.TypeInitializers,
                 OpenWorldAssemblies = _input.Rules.OpenWorldAssemblies,
                 DefaultComparerTypes = _comparerTypes,
@@ -595,11 +626,11 @@ public static class ReachableSet
             var bindings = _program.Type(typeKey) is { } type
                 ? _input.InjectionBindings.FirstOrDefault(candidate => candidate.TypeKey == type.TypeKey)
                 : null;
-            foreach (var constructor in SelectedConstructors(_program, typeKey, bindings))
+            foreach (var constructor in SelectedConstructors(_program, typeKey, bindings, _input.Rules.Admission))
             {
                 WorkCancellation.Check();
                 construction.ConstructorBodyIds.Add(constructor.MethodId);
-                ReachBody(constructor.MethodId, $"construction:{id}");
+                ReachBody(constructor.MethodId, $"construction:{id}", route: AdmissionRoute.Di);
             }
 
             AddTypeInitializerTrigger(typeKey, id);
@@ -614,8 +645,12 @@ public static class ReachableSet
 
         private static string RegionKey(string implementationTypeKey, DiLifetime lifetime) => $"{implementationTypeKey}@{lifetime}";
 
-        private void ReachBody(string bodyId, string reason, ReachEdgeKind? edgeKind = null)
+        private void ReachBody(string bodyId, string reason, ReachEdgeKind? edgeKind = null,
+                               string? origin = null, AdmissionRoute route = AdmissionRoute.Delegate)
         {
+            origin ??= OriginOfReason(reason);
+            if (_input.Rules.Admission?.Admits(origin, bodyId, route) == false)
+                return;
             if (_input.Rules.RecordEdges)
                 RecordEdge(bodyId, reason, edgeKind);
             if (_reachedBodies.ContainsKey(bodyId) || _leftOutMembers.Contains(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId))
@@ -635,6 +670,13 @@ public static class ReachableSet
 
             _reachedBodies.Add(bodyId, reason);
             _pending.Enqueue(bodyId);
+        }
+
+        private static string? OriginOfReason(string reason)
+        {
+            var start = reason.IndexOf(':') + 1;
+            var end = reason.LastIndexOf(':');
+            return start > 0 && end > start && int.TryParse(reason.AsSpan(end + 1), out _) ? reason[start..end] : null;
         }
 
         private void RecordEdge(string target, string reason, ReachEdgeKind? edgeKind = null)
@@ -734,7 +776,7 @@ public static class ReachableSet
                         SeeType(DiIndex.TypeKey(store.Field.Assembly, store.Field.ContainingTypeId), Owner(bodyId), forBoxing: false);
                         break;
                     case IrCallOperation { CallKind: IrCallKind.LocalFunction } call:
-                        ReachBody(call.Method, reason);
+                        ReachBody(call.Method, reason, origin: bodyId, route: AdmissionRoute.Direct);
                         break;
                     case IrCallOperation { CallKind: IrCallKind.Delegate } call:
                         if (call.ReceiverValue is int receiver && values.TryGetValue(receiver, out var delegateValue))
@@ -750,7 +792,8 @@ public static class ReachableSet
                     case IrCallOperation { TargetMethodId: { } targetId } call:
                     {
                         var dispatched = call.CallKind is IrCallKind.Virtual or IrCallKind.Interface;
-                        var targets = Targets(targetId, dispatched);
+                        var route = dispatched ? AdmissionRoute.Dispatch : AdmissionRoute.Direct;
+                        var targets = Targets(targetId, dispatched, bodyId, route);
                         if (targets.Count == 0)
                         {
                             RecordOpaque(bodyId, call, definitions, work.GetValueOrDefault(call.Id) ?? []);
@@ -791,7 +834,8 @@ public static class ReachableSet
                                 foreach (var methodId in library.Calls.SelectMany(model => model.MethodIds).Distinct(StringComparer.Ordinal))
                                 {
                                     WorkCancellation.Check();
-                                    ReachTargets(Targets(methodId, true), true, target => ReachBody(target, reason, ReachEdgeKind.Other));
+                                    ReachTargets(Targets(methodId, true, bodyId, AdmissionRoute.Dispatch), true,
+                                                 target => ReachBody(target, reason, ReachEdgeKind.Other, bodyId, AdmissionRoute.Dispatch));
                                 }
                             }
                         }
@@ -815,12 +859,12 @@ public static class ReachableSet
                         // A mark whose type stays closed is the comparer it makes, and the call it replaced runs only where the type can
                         // stay open, now or once the walk learns it can.
                         if (call.DefaultComparer is not { } comparer)
-                            ReachTargets(targets, dispatched, target => ReachBody(target, reason));
+                            ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route));
                         else
                             ReachComparers(comparer, bodyId, call.Id, reason, () =>
                             {
                                 _openComparerCalls.Add((bodyId, call.Id));
-                                ReachTargets(targets, dispatched, target => ReachBody(target, reason));
+                                ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route));
                             });
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
                             Reference(call.TargetContainingTypeKey ?? method.ContainingTypeKey, bodyId);
@@ -894,7 +938,7 @@ public static class ReachableSet
             foreach (var constructor in _program.Constructors(type.TypeKey).Where(constructor => constructor is { HasSourceBody: true, Parameters.Count: 0 }))
             {
                 WorkCancellation.Check();
-                ReachBody(constructor.MethodId, reason);
+                ReachBody(constructor.MethodId, reason, origin: bodyId, route: AdmissionRoute.Comparer);
             }
             Reference(comparer, bodyId);
             SeeType(comparer, null, forBoxing: true);
@@ -928,7 +972,8 @@ public static class ReachableSet
             if (method is not null)
             {
                 if (WorkMethodId(_program, method) is { } methodId)
-                    ReachTargets(Targets(methodId, virtualDispatch: true), virtualDispatch: true, target => ReachBody(target, reason));
+                    ReachTargets(Targets(methodId, virtualDispatch: true, OriginOfReason(reason), AdmissionRoute.Work), virtualDispatch: true,
+                                 target => ReachBody(target, reason, origin: OriginOfReason(reason), route: AdmissionRoute.Work));
 
                 return;
             }
@@ -950,7 +995,7 @@ public static class ReachableSet
             {
                 var virtualDispatch = !create.IsNonVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride ||
                                                                _program.Type(method.ContainingTypeKey)?.IsInterface == true);
-                var targets = Targets(methodId, virtualDispatch);
+                var targets = Targets(methodId, virtualDispatch, bodyId, AdmissionRoute.Delegate);
                 if (method.IsStatic)
                     Reference(create.TargetContainingTypeKey ?? method.ContainingTypeKey, bodyId);
                 ReachTargets(targets, virtualDispatch, target => AddDelegateTarget(type, target));
@@ -974,7 +1019,8 @@ public static class ReachableSet
                                        .Where(candidate => Invokes(candidate.Type, type)))
             {
                 WorkCancellation.Check();
-                ReachBody(target, invocation.Reason, invocation.EdgeKind);
+                ReachBody(target, invocation.Reason, invocation.EdgeKind, OriginOfReason(invocation.Reason),
+                          invocation.EdgeKind == ReachEdgeKind.Spawn ? AdmissionRoute.Work : AdmissionRoute.Delegate);
                 if (!_input.Rules.RecordEdges)
                     break;
             }
@@ -989,7 +1035,8 @@ public static class ReachableSet
             foreach (var target in (_delegateTargets.GetValueOrDefault(shape) ?? []).Where(target => Invokes(type, target.Type)))
             {
                 WorkCancellation.Check();
-                ReachBody(target.Target, reason, edgeKind);
+                ReachBody(target.Target, reason, edgeKind, OriginOfReason(reason),
+                          edgeKind == ReachEdgeKind.Spawn ? AdmissionRoute.Work : AdmissionRoute.Delegate);
             }
         }
 
@@ -1012,14 +1059,16 @@ public static class ReachableSet
         /// nothing has no target; one whose targets wait for their types to be constructed still has them.</summary>
         /// <param name="methodId">The method the call, delegate or work names.</param>
         /// <param name="virtualDispatch">Whether the call dispatches.</param>
-        private IReadOnlyList<ProgramMethod> Targets(string methodId, bool virtualDispatch)
+        /// <param name="origin">The calling body.</param>
+        /// <param name="route">How the call reaches its target.</param>
+        private IReadOnlyList<ProgramMethod> Targets(string methodId, bool virtualDispatch, string? origin = null, AdmissionRoute route = AdmissionRoute.Delegate)
         {
             var targets = new List<ProgramMethod>();
             if (_program.Method(methodId) is { HasSourceBody: true } self)
                 targets.Add(self);
             if (virtualDispatch)
                 targets.AddRange(_dispatchTargets.GetValueOrDefault(methodId)?.Where(target => target.HasSourceBody) ?? []);
-            targets.RemoveAll(target => _leftOutMembers.Contains(target.MethodId));
+            targets.RemoveAll(target => _leftOutMembers.Contains(target.MethodId) || _input.Rules.Admission?.Admits(origin, target.MethodId, route) == false);
             return targets;
         }
 
@@ -1071,7 +1120,12 @@ public static class ReachableSet
                                operation is IrCreateDelegateOperation { IsNonVirtual: false } &&
                                (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
                 // Bind even targets still waiting for construction: their parameter edges must also receive later bindings.
-                foreach (var target in Targets(methodId, dispatch).Prepend(method).DistinctBy(target => target.MethodId))
+                foreach (var target in Targets(methodId, dispatch, bodyId, operation is IrCreateDelegateOperation ? AdmissionRoute.Delegate :
+                                                                         dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct)
+                                       .Prepend(method)
+                                       .Where(target => _input.Rules.Admission?.Admits(bodyId, target.MethodId,
+                                           operation is IrCreateDelegateOperation ? AdmissionRoute.Delegate : dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct) != false)
+                                       .DistinctBy(target => target.MethodId))
                 {
                     WorkCancellation.Check();
                     for (var ordinal = 0; ordinal < Math.Min(arguments.Count, target.TypeParameterKeys.Count); ordinal++)
@@ -1577,7 +1631,8 @@ public static class ReachableSet
             var edgeKind = reason.StartsWith("spawn:", StringComparison.Ordinal) ? ReachEdgeKind.Spawn : ReachEdgeKind.ArgumentDelegate;
             if (creation.TargetBodyId is { } nested)
             {
-                ReachBody(nested, reason, edgeKind);
+                ReachBody(nested, reason, edgeKind, OriginOfReason(reason),
+                          edgeKind == ReachEdgeKind.Spawn ? AdmissionRoute.Work : AdmissionRoute.Delegate);
                 return;
             }
 
@@ -1585,7 +1640,9 @@ public static class ReachableSet
                 return;
             var virtualDispatch = !creation.IsNonVirtual &&
                                   (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
-            ReachTargets(Targets(methodId, virtualDispatch), virtualDispatch, target => ReachBody(target, reason, edgeKind));
+            ReachTargets(Targets(methodId, virtualDispatch, OriginOfReason(reason), AdmissionRoute.Delegate), virtualDispatch,
+                         target => ReachBody(target, reason, edgeKind, OriginOfReason(reason),
+                                             edgeKind == ReachEdgeKind.Spawn ? AdmissionRoute.Work : AdmissionRoute.Delegate));
         }
 
         /// <summary>A locator call with a constant type constructs what it resolves: the bound registration, or every supported
@@ -1646,7 +1703,7 @@ public static class ReachableSet
         /// <param name="bodyId">The referencing body.</param>
         private void Reference(string typeKey, string bodyId)
         {
-            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Run || ParametersIn(typeKey, Owner(bodyId)).Count == 0)
+            if (_input.Rules.TreatmentOf(typeKey) == TypeInitializerTreatment.Run || ParametersIn(typeKey, Owner(bodyId)).Count == 0)
             {
                 ReferenceClosed(typeKey, bodyId);
                 return;
@@ -1664,13 +1721,14 @@ public static class ReachableSet
         /// <param name="bodyId">The referencing body.</param>
         private void ReferenceClosed(string typeKey, string bodyId)
         {
-            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
-                TypeInitializer(typeKey) is not { } initializer)
+            if (_input.Rules.TreatmentOf(typeKey) == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+                TypeInitializer(typeKey) is not { } initializer ||
+                _input.Rules.Admission?.Admits(bodyId, initializer.MethodId, AdmissionRoute.TypeInitializer) == false)
                 return;
             if ((_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId) == initializer.MethodId)
                 return;
 
-            var candidate = Candidate(typeKey, initializer.MethodId);
+            var candidate = Candidate(typeKey, initializer.MethodId, bodyId);
             if (!candidate.Referencing.Contains(bodyId, StringComparer.Ordinal))
                 candidate.Referencing.Add(bodyId);
             if (_input.Rules.RecordEdges)
@@ -1679,10 +1737,11 @@ public static class ReachableSet
 
         private void AddTypeInitializerTrigger(string typeKey, string constructionId)
         {
-            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
-                TypeInitializer(typeKey) is not { } initializer)
+            if (_input.Rules.TreatmentOf(typeKey) == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+                TypeInitializer(typeKey) is not { } initializer ||
+                _input.Rules.Admission?.Admits(null, initializer.MethodId, AdmissionRoute.TypeInitializer) == false)
                 return;
-            var candidate = Candidate(typeKey, initializer.MethodId);
+            var candidate = Candidate(typeKey, initializer.MethodId, null);
             if (!candidate.Constructions.Contains(constructionId, StringComparer.Ordinal))
                 candidate.Constructions.Add(constructionId);
             if (_input.Rules.RecordEdges && _constructions.TryGetValue(constructionId, out var construction))
@@ -1698,17 +1757,17 @@ public static class ReachableSet
         private bool RunsTypeInitializer(string typeKey)
         {
             WorkCancellation.Check();
-            return ReachableSet.RunsTypeInitializer(_program, typeKey, _input.Rules.TypeInitializers, _input.Rules.OpenWorldAssemblies);
+            return ReachableSet.RunsTypeInitializer(_program, typeKey, _input.Rules.TreatmentOf(typeKey), _input.Rules.OpenWorldAssemblies);
         }
 
-        private (string BodyId, List<string> Referencing, List<string> Constructions, HashSet<string> Running, HashSet<string> Closed) Candidate(string typeKey, string initializerId)
+        private (string BodyId, List<string> Referencing, List<string> Constructions, HashSet<string> Running, HashSet<string> Closed) Candidate(string typeKey, string initializerId, string? origin)
         {
             var definition = _program.Type(typeKey)!.TypeKey;
             if (!_typeInitializers.TryGetValue(definition, out var candidate))
             {
                 candidate = (initializerId, [], [], new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal));
                 _typeInitializers.Add(definition, candidate);
-                ReachBody(initializerId, $"type-initializer:{definition}");
+                ReachBody(initializerId, $"type-initializer:{definition}", origin: origin, route: AdmissionRoute.TypeInitializer);
             }
             candidate.Closed.Add(typeKey);
             if (RunsTypeInitializer(typeKey))
