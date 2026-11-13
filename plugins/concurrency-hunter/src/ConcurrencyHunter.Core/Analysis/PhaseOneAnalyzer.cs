@@ -219,11 +219,13 @@ public static class PhaseOneAnalyzer
     /// <param name="generation">What the run does with the generated layer.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="callSite">The internal call-site probe input, absent in product runs.</param>
+    /// <param name="inspectScope">Receives the final scope run and its complete refined pairs before finding folding; absent in product runs.</param>
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
                                                             ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
-                                                            GenerationSetup generation, CancellationToken cancellationToken, CallSiteAnalysis? callSite = null)
+                                                            GenerationSetup generation, CancellationToken cancellationToken, CallSiteAnalysis? callSite = null,
+                                                            Action<ScopeRun, PairAnalysis>? inspectScope = null)
     {
         using var callSiteCompilations = new CallSiteCompilations();
         using var work = WorkCancellation.Enter(cancellationToken);
@@ -384,6 +386,7 @@ public static class PhaseOneAnalyzer
             step.Restart();
             var refined = SolverRefinement.Refine(scopePairs, solver, solverBudget, SolverPolicy.QueryLimit);
             scopePairs = refined.Pairs;
+            inspectScope?.Invoke(run, scopePairs);
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
             Record(timings, SOLVER, step);
             sizes.Add(new ScopeSize(scope.Id, run.Heap.ReachableBodies.Count, run.Summaries.Built, run.Heap.Regions.Count,

@@ -80,7 +80,13 @@ _Avoid_: background execution, anonymous thread, somewhere
 **Join**:
 A point in an execution that runs only after another execution has ended: an `await`, `Wait`,
 `Join`, `WhenAll`, `.Result` or `GetAwaiter().GetResult()` on a handle proven to be that execution's,
-reached on every path including the exceptional ones. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
+reached on every path including the exceptional ones. One region of a spawn's handle may stand for several
+executions of one **Instance tree**: a body that reaches the spawn site both before it first suspends and in its
+continuation, as a retry loop does, starts it from two executions. A handle of that region is proven to be the
+execution the waiting execution itself started there — directly, or for an async call's task through a **Task
+forwarder** it calls — and only when no task another execution started can reach the wait through that handle: the
+start and the wait lie in one stretch of one run of the body, with no suspension between them; otherwise it is proven
+to be none of them. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
 not a join. Under the **Environment assumptions** an exception out of a blocking wait for a `Task` without a timeout or a token —
 `Wait`, `.Result`, `GetAwaiter().GetResult()`, `Task.WaitAll` — arrives only after the tasks it waits for have completed, so the path
 through its handler passes the join as the normal return does; in a process scope where code the analysis reaches installs a context or

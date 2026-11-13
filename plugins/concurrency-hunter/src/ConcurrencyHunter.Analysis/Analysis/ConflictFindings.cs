@@ -534,10 +534,26 @@ internal static class ConflictFindings
         $"{access.BodyId}|{access.Operation.ToWireName()}|{string.Join(".", access.Resource.AccessPath)}|{access.Source.StartLine}|{access.Source.StartColumn}|" +
         $"{access.Source.EndLine}|{access.Source.EndColumn}";
 
-    private static string FindingIdentity(Candidate candidate)
+    /// <summary>The finding identity a pair belongs to before occurrences choose representatives.</summary>
+    /// <param name="pair">A pair before folding.</param>
+    // bounded: forwards once to the identity overload that compares the two sites.
+    internal static string FindingIdentity(AccessPair pair) =>
+        FindingIdentity(GroupKey.From(OperationRule(pair.First, pair.Second), pair.Resource).Identity, pair.First, pair.Second);
+
+    /// <summary>The pre-classification identity of a completed finding, for inspecting all of its original pairs.</summary>
+    /// <param name="finding">The completed finding.</param>
+    // bounded: forwards once to the identity overload that compares the two sites.
+    internal static string FindingIdentity(Finding finding) =>
+        FindingIdentity(GroupKey.From(OperationRule(finding.AccessA, finding.AccessB), finding.Resource).Identity, finding.AccessA, finding.AccessB);
+
+    // bounded: forwards once to the identity overload that compares the two sites.
+    private static string FindingIdentity(Candidate candidate) =>
+        FindingIdentity(candidate.Key.Identity, candidate.AccessA, candidate.AccessB);
+
+    private static string FindingIdentity(string key, Access first, Access second)
     {
-        var sites = new[] { Site(candidate.AccessA), Site(candidate.AccessB) }.Order(StringComparer.Ordinal).ToArray();
-        return $"{candidate.Key.Identity}|{sites[0]}|{sites[1]}";
+        var sites = new[] { Site(first), Site(second) }.Order(StringComparer.Ordinal).ToArray();
+        return $"{key}|{sites[0]}|{sites[1]}";
     }
 
     private static string Hash(string text) =>

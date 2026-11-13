@@ -456,15 +456,108 @@ internal sealed partial class HappensBefore
         type.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal) ||
         type.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal);
 
-    /// <summary>The one execution of the joining execution's instance tree a handle region names, or null.</summary>
+    /// <summary>The execution of the joining execution's instance tree a handle region names: the only candidate, or the one the
+    /// waiting execution itself started in this body instance without passing a suspension before the wait.</summary>
     /// <param name="joining">The joining execution.</param>
     /// <param name="region">The handle region.</param>
-    private string? HandleExecution(string joining, string region)
+    /// <param name="instance">The instance expressing the handle.</param>
+    /// <param name="handle">The handle value at the wait.</param>
+    /// <param name="joinOperation">The operation the handle is judged at.</param>
+    private string? HandleExecution(string joining, string region, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
         if (!_handles.TryGetValue(region, out var candidates) || !_executions.TryGetValue(joining, out var execution))
             return null;
         var inTree = candidates.Where(candidate => _executions[candidate].TreeRootId == execution.TreeRootId).ToArray();
-        return inTree.Length == 1 ? inTree[0] : null;
+        if (inTree.Length == 1)
+            return inTree[0];
+        if (inTree.Length == 0)
+            return null;
+        var starts = _anchorList.Where(anchor => anchor.ExecutionId == joining && anchor.CallerInstance == instance.Id &&
+            inTree.Contains(anchor.ChildId) && OwnStartValue(instance, handle, anchor)).ToArray();
+        return starts is [var start] && InSameStretch(instance.BodyId, start.OperationId, joinOperation) ? start.ChildId : null;
+    }
+
+    /// <summary>Whether every source of a handle is directly the value of this start, without storage, an incoming value, a return
+    /// from another body or a task completion on the way.</summary>
+    /// <param name="instance">The instance making the start and the wait.</param>
+    /// <param name="handle">The value at the wait.</param>
+    /// <param name="anchor">The candidate start.</param>
+    private static bool OwnStartValue(MethodInstance instance, SummaryValue handle, SpawnAnchor anchor)
+    {
+        var origin = handle.Producers;
+        if (handle.Values.Count == 0 || handle.Completions.Count != 0 || handle.CompletedCalls.Count != 0 ||
+            handle.UnknownSources.Any(source => source != UnknownSource.SourceCall) ||
+            origin.Parameters.Count != 0 || origin.Fields.Count != 0 || origin.Captured.Count != 0 ||
+            origin.Elements.Count != 0 || origin.Keys.Count != 0 || origin.Kept.Count != 0)
+        {
+            return false;
+        }
+        var spawn = instance.Summary.Spawns.FirstOrDefault(spawn => spawn.OperationId == anchor.OperationId);
+        var timer = instance.Summary.Timers.FirstOrDefault(timer => timer.OperationId == anchor.OperationId);
+        var value = anchor.Kind switch
+        {
+            SpawnAnchorKind.Spawn => spawn?.Handle,
+            SpawnAnchorKind.Timer => timer?.Timer,
+            _ => new SummaryValue(new HashSet<AbstractValue> { new CallResultValue(anchor.OperationId) }, new HashSet<UnknownSource>())
+        };
+        return value is not null && handle.Values.All(item => value.Values.Contains(item) && item switch
+               {
+                   CallResultValue call => call.OperationId == (anchor.Kind == SpawnAnchorKind.AsyncReturn ? anchor.OperationId : spawn?.CallOperationId),
+                   AllocationValue allocation => allocation.Site.BodyId == instance.BodyId,
+                   _ => false
+               }) &&
+               handle.SourceCalls.All(call => anchor.Kind == SpawnAnchorKind.AsyncReturn && call == anchor.OperationId);
+    }
+
+    /// <summary>No path from a start reaches the wait after passing an await, including an earlier visit of that wait. A new visit
+    /// of the start cuts off the old value. The body's normal and exceptional edges are the ones async segmentation reads.</summary>
+    /// <param name="bodyId">The body making the start and the wait.</param>
+    /// <param name="start">The start operation.</param>
+    /// <param name="wait">The wait operation.</param>
+    private bool InSameStretch(string bodyId, int start, int wait)
+    {
+        if (!_scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
+            return false;
+        var block = body.Blocks.FirstOrDefault(block => block.Operations.Any(operation => operation.Id == start));
+        if (block is null)
+            return false;
+        var successors = body.Blocks.SelectMany(block => block.FlowPredecessors.Select(predecessor =>
+                (predecessor.BlockOrdinal, Block: block.Ordinal, Exceptional: predecessor.EdgeKind == IrEdgeKind.Exceptional)))
+            .GroupBy(edge => edge.BlockOrdinal).ToDictionary(group => group.Key, group => group.ToArray());
+        var index = block.Operations.TakeWhile(operation => operation.Id != start).Count() + 1;
+        var pending = new Stack<(int Block, int Index, bool AfterAwait)>([(block.Ordinal, index, false)]);
+        var seen = new HashSet<(int Block, int Index, bool AfterAwait)>();
+        while (pending.TryPop(out var item))
+        {
+            CheckCancellation();
+            if (!seen.Add(item))
+                continue;
+            var current = body.Blocks[item.Block];
+            var edges = successors.GetValueOrDefault(item.Block) ?? [];
+            if (item.Index == current.Operations.Count)
+            {
+                foreach (var edge in edges)
+                {
+                    CheckCancellation();
+                    pending.Push((edge.Block, 0, item.AfterAwait));
+                }
+                continue;
+            }
+            var operation = current.Operations[item.Index];
+            if (operation.Id == start)
+                continue;
+            if (operation.Id == wait && item.AfterAwait)
+                return false;
+            var afterAwait = item.AfterAwait || operation is IrAwaitOperation;
+            pending.Push((item.Block, item.Index + 1, afterAwait));
+            foreach (var edge in edges.Where(edge => edge.Exceptional))
+            {
+                CheckCancellation();
+                pending.Push((edge.Block, 0, item.AfterAwait));
+                pending.Push((edge.Block, 0, afterAwait));
+            }
+        }
+        return true;
     }
 
     // ---- inter-execution search ----
@@ -1476,8 +1569,9 @@ internal sealed partial class HappensBefore
     }
 
     /// <summary>The execution a handle value names with proven identity, whether or not it is started once: it points to exactly one
-    /// region, that region is one spawn's handle (or tail) in this instance tree, and the value comes from nowhere else. The completion
-    /// proof of a pass asks this and proves for itself that the handle is the pass's own.</summary>
+    /// region, that region identifies a spawn's handle (or tail) in this instance tree, and the value comes from nowhere else. Where
+    /// several executions share the region, only a start by the waiting execution in the same stretch, directly or through a task forwarder,
+    /// identifies one. The completion proof of a pass asks this and proves for itself that the handle is the pass's own.</summary>
     /// <param name="execution">The joining execution.</param>
     /// <param name="instance">The instance expressing the handle value.</param>
     /// <param name="handle">The handle value.</param>
@@ -1488,7 +1582,19 @@ internal sealed partial class HappensBefore
         var forwarded = Forwarders.Source(execution, instance, handle);
         var source = forwarded is not null && _heap.AsyncSpawns.Any(site => site.CallerInstance == forwarded.CallerInstance &&
             site.OperationId == forwarded.OperationId && regions.Contains(site.Handle)) ? forwarded.ChildId : null;
-        if (regions.Length != 1 || (source ?? HandleExecution(execution, regions[0])) is not { } target ||
+        if (source is not null && _handles.TryGetValue(regions[0], out var candidates) &&
+            _executions.TryGetValue(execution, out var joining) &&
+            candidates.Count(candidate => _executions[candidate].TreeRootId == joining.TreeRootId) > 1)
+        {
+            if (forwarded!.Kind != SpawnAnchorKind.AsyncReturn || forwarded.ExecutionId != execution ||
+                handle.SourceCalls.ToArray() is not [var call] ||
+                !OwnStartValue(instance, handle, forwarded with { CallerInstance = instance.Id, OperationId = call }) ||
+                !InSameStretch(instance.BodyId, call, joinOperation))
+            {
+                source = null;
+            }
+        }
+        if (regions.Length != 1 || (source ?? HandleExecution(execution, regions[0], instance, handle, joinOperation)) is not { } target ||
             !SourcesExcused(execution, instance, handle, regions[0], joinOperation))
         {
             return null;

@@ -54,6 +54,21 @@ itself, the iterations of one `Parallel` call and the callbacks of one periodic 
 one another, and runs with a `concurrent` relation or none are not passes. With it a built-in or project model's `sequential` relation proves
 order too: the runs of its delegate go one at a time in the caller's execution, each finishing with
 everything it waited for before the next one starts. A generated model still proves no order.
+Amended for a handle whose region stands for several executions of one instance tree. A body that
+reaches a spawn site both before it first suspends and in its continuation — a retry loop runs its
+first attempt in its caller and the next ones in its continuation — starts that site from two
+executions with different parents, while the site's task has one region. A handle of that region is
+proven to be the execution the waiting execution itself started at that site in the same body
+instance, and only when no task another execution started can reach the wait through that handle:
+the start and the wait lie in one stretch of one run of the body, with no suspension between them.
+Otherwise it is proven to be none of them, as before. The choice is the same for a task, a thread,
+a timer and an async call's task, whether the waiting body makes the async call itself or calls a
+task forwarder that returns its task; the start is then that call in the waiting body. Rejected: reading the wait as a wait for every execution of the region. In the first pass it
+would order the work of a later pass, which has not started yet, before the wait, and so before work
+the first pass starts after the wait and leaves running, which that later work overlaps. Rejected:
+proving a handle started before a suspension and waited after it. In a loop that starts the site
+again after the suspension, the handle at the wait may name either execution, and telling them apart
+needs the run of the body each wait belongs to.
 
 Rejected: ordering only between a spawn and its chain of parents, with siblings ordered only through
 joins in a common parent. Smaller, and it covers the demo's cases, but every new edge kind (timers,
