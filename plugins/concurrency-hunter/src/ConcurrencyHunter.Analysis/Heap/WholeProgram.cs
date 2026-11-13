@@ -433,6 +433,8 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<string, HeapRegion> Regions { get; }
     public IReadOnlyDictionary<string, MethodInstance> Instances { get; }
     public IReadOnlyList<CallEdge> Edges { get; }
+    /// <summary>Edges bound by resolving a call transfer held by the caller's summary, by caller, operation and callee.</summary>
+    public IReadOnlySet<(string Caller, int Operation, string Callee)> TransferEdges { get; init; } = new HashSet<(string, int, string)>();
     public IReadOnlyList<CallEdge> ExecutionEdges { get; init; } = [];
     public IReadOnlyList<IteratorObject> IteratorObjects { get; init; } = [];
     public IReadOnlySet<string> UnknownIterators { get; init; } = new HashSet<string>(StringComparer.Ordinal);
@@ -1711,6 +1713,7 @@ public static partial class WholeProgram
             {
                 ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
+                TransferEdges = _rebuilding.TransferEdges.ToHashSet(),
                 IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key.Identity, pair.Value)).ToArray(),
                 UnknownIterators = Identities(unknownIterators),
                 IteratorMemberReceivers = _iteratorMemberReceivers.ToTrackedMap(pair => pair.Key,
@@ -3459,6 +3462,18 @@ public static partial class WholeProgram
                         {
                             NoReceiver(caller, call);
                             _receiverlessCalls.TryAdd((caller.Id, call.OperationId), (caller, call));
+                            // Fallbacks are bound between rounds; retain their direct-edge contribution when this caller is rebuilt.
+                            if (_receiverlessFallbacks.Contains((caller.Id, call.OperationId)) &&
+                                caller.Summary.Calls.Any(transfer => ReferenceEquals(transfer, call)) &&
+                                _edgesByCall.TryGetValue((caller.Id, call.OperationId), out var fallbackEdges))
+                            {
+                                foreach (var edge in fallbackEdges)
+                                {
+                                    CheckCancellation();
+                                    if (_instances[edge.Callee].IsReceiverless)
+                                        _rebuilding.TransferEdges.Add((edge.Caller, edge.Operation, edge.Callee));
+                                }
+                            }
                         }
                     }
 
@@ -5539,6 +5554,8 @@ public static partial class WholeProgram
         {
             if (callee is null)
                 return;
+            if (caller.Summary.Calls.Any(transfer => ReferenceEquals(transfer, call)))
+                _rebuilding.TransferEdges.Add((caller.Id, call.OperationId, callee.Id));
             foreach (var argument in call.Arguments)
             {
                 CheckCancellation();

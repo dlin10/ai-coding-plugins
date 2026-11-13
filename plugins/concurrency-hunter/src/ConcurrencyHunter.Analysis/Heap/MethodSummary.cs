@@ -454,6 +454,9 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// <summary>Whether the access touches a field of a fresh object: one it reaches directly through a value whose every
     /// definition is an allocation of the same body, which two invocations never share (R12).</summary>
     public bool IsFresh { get; init; }
+
+    /// <summary>The one parameter or receiver the field's base is, through assignments, phis and conversions only.</summary>
+    public HandedSlot? HandedSlot { get; init; }
 }
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
@@ -639,6 +642,10 @@ public sealed record DelegateTransfer(int OperationId, DelegateCreationValue Del
                                       string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null,
                                       bool IsNonVirtual = false);
 
+/// <summary>A body's parameter, by ordinal, or its receiver when the ordinal is null.</summary>
+/// <param name="ParameterOrdinal">The parameter's ordinal, or null for the receiver.</param>
+public sealed record HandedSlot(int? ParameterOrdinal);
+
 /// <summary>A call argument bound to its parameter, with what its value depends on.</summary>
 /// <param name="ParameterOrdinal">The ordinal of the parameter the argument binds.</param>
 /// <param name="Values">The values the argument may be.</param>
@@ -664,6 +671,9 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
     /// <summary>Whether every definition of the argument's value is an allocation of the calling body: an unknown effect then
     /// touches the fields of a fresh object (R12).</summary>
     public bool IsFresh { get; init; }
+
+    /// <summary>The one parameter or receiver the argument is, through assignments, phis and conversions only.</summary>
+    public HandedSlot? HandedSlot { get; init; }
 
     /// <summary>Where the argument's value may come from besides <see cref="Values"/>, as <see cref="SummaryValue"/> records it: what a
     /// task argument completes with is unknown where the task itself may be one the heap does not follow (R1).</summary>
@@ -835,6 +845,12 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
                                   IReadOnlyList<CallArgument> Arguments, IReadOnlyList<HeldLockValue> HeldLocks,
                                   string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null)
 {
+    /// <summary>Whether every definition of the receiver is an allocation of this body.</summary>
+    public bool ReceiverIsFresh { get; init; }
+
+    /// <summary>The one parameter or receiver the call's receiver is.</summary>
+    public HandedSlot? ReceiverHandedSlot { get; init; }
+
     public bool IsAwaitedImmediately { get; init; }
 
     /// <summary>Where the receiver may come from besides <see cref="Receivers"/>, as <see cref="SummaryValue"/> records it: a dispatch
@@ -874,6 +890,12 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
 /// <param name="Delegates">The delegate objects passed to the call.</param>
 public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates)
 {
+    /// <summary>Whether every definition of the receiver is an allocation of this body.</summary>
+    public bool ReceiverIsFresh { get; init; }
+
+    /// <summary>The one parameter or receiver the call's receiver is.</summary>
+    public HandedSlot? ReceiverHandedSlot { get; init; }
+
     /// <summary>The locks held at this call site, also used when its receiver resolves to a direct library member.</summary>
     public IReadOnlyList<HeldLockValue> HeldLocks { get; init; } = [];
     public IReadOnlySet<AbstractValue> Receivers { get; init; } = new HashSet<AbstractValue>();
@@ -928,6 +950,8 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
         {
             Delegates = Delegates.Where(handed.Contains).ToArray(),
             Receivers = unmodelled.Receiver ? Receivers : new HashSet<AbstractValue>(),
+            ReceiverIsFresh = unmodelled.Receiver && ReceiverIsFresh,
+            ReceiverHandedSlot = unmodelled.Receiver ? ReceiverHandedSlot : null,
             Arguments = arguments,
             Collection = null,
             Implementations = [],
@@ -944,6 +968,9 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
 /// <param name="Values">The objects its receiver, arguments and assigned value may be.</param>
 public sealed record SummaryDynamicOperation(int OperationId, string Callee, IReadOnlySet<AbstractValue> Values)
 {
+    /// <summary>The operands kept separately, including how each reaches its object, for the unknown effect.</summary>
+    public IReadOnlyList<CallArgument> Operands { get; init; } = [];
+
     /// <inheritdoc cref="SummaryOpaqueCall.Provenance"/>
     public IrProvenance? Provenance { get; init; }
 

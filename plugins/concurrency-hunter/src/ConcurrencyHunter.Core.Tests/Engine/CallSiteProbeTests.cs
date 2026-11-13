@@ -16,7 +16,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 public sealed class CallSiteProbeTests(CallSiteProbeFixture fixture, ITestOutputHelper output) : IClassFixture<CallSiteProbeFixture>
 {
-    [Fact(Skip = "Waits for #402, #403 and #404: a pass in a library loop's continuation, library objects apart per call, later runs of a sequential-awaited record.")]
+    [Fact(Skip = "Waits for #402 and #404: a pass in a library loop's continuation, later runs of a sequential-awaited record.")]
     public async Task Demo_with_polly_bodies_admitted_and_records_withheld_has_the_findings_of_the_records()
     {
         var runs = await fixture.Demo.Value;

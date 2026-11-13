@@ -97,7 +97,11 @@ public static class CollectionObjects
             {
                 Callee = group.Key.Member.Member,
                 Receivers = group.Key.ReceiverParameterOrdinal is null ? receivers : new HashSet<AbstractValue>(),
-                Arguments = group.Key.ReceiverParameterOrdinal is int ordinal ? [new CallArgument(ordinal, receivers)] : call.Arguments,
+                ReceiverIsFresh = group.Key.ReceiverParameterOrdinal is null && call.ReceiverIsFresh,
+                ReceiverHandedSlot = group.Key.ReceiverParameterOrdinal is null ? call.ReceiverHandedSlot : null,
+                Arguments = group.Key.ReceiverParameterOrdinal is int ordinal
+                    ? [new CallArgument(ordinal, receivers) { IsFresh = call.ReceiverIsFresh, HandedSlot = call.ReceiverHandedSlot }]
+                    : call.Arguments,
                 Library = group.Key.Library,
                 DeclaringTypeKey = group.Key.DeclaringTypeKey,
                 Implementations = []
@@ -116,6 +120,8 @@ public static class CollectionObjects
         return LibraryCalls(new SummaryOpaqueCall(call.OperationId, call.Callee ?? call.Target, [])
             {
                 Receivers = call.Receivers,
+                ReceiverIsFresh = call.ReceiverIsFresh,
+                ReceiverHandedSlot = call.ReceiverHandedSlot,
                 Arguments = call.Arguments,
                 Implementations = call.Implementations,
                 Provenance = call.Provenance,

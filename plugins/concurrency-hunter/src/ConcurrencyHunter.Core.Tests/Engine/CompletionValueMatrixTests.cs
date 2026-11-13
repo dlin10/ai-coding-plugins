@@ -177,6 +177,14 @@ public sealed class CompletionValueMatrixTests(ClassCache cache) : IClassFixture
         "C_Opaque_Field_Await_Shared", "C_Opaque_Field_Result_Shared", "C_Opaque_Field_GetResult_Shared"
     };
 
+    /// <summary>The cells wider than their twins in freshness: the awaited <c>Use</c> call hands the twin's fresh object down
+    /// directly, while the cell gets it through a task's completion, which ADR 0034 does not carry.</summary>
+    private static readonly IReadOnlySet<string> HandedFreshRule = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "C_FromResult_Argument_Await_Fresh", "C_ValueTaskFromResult_Argument_Await_Fresh", "C_ValueTaskOfValue_Argument_Await_Fresh",
+        "C_CompletionSource_Argument_Await_Fresh", "C_CompletionSourceTry_Argument_Await_Fresh"
+    };
+
     // ---- the cells and their twins ----
 
     private static IEnumerable<Cell> Cells() =>
@@ -327,11 +335,18 @@ public sealed class CompletionValueMatrixTests(ClassCache cache) : IClassFixture
     }
 
     /// <summary>The differences of a cell that count: a cell <see cref="FieldRule"/> lists must be narrower in its unfollowed answer,
-    /// and that narrowing alone is excused.</summary>
+    /// and a cell <see cref="HandedFreshRule"/> lists must be wider in freshness; only those differences are excused.</summary>
     /// <param name="cell">The cell.</param>
     private IEnumerable<Failure> Failures(Cell cell)
     {
         var failures = Compare(cell).ToArray();
+        if (HandedFreshRule.Contains(cell.Name))
+        {
+            var wider = failures.Where(failure => failure is { Message: "fresh False, expected True", Narrower: false }).ToArray();
+            return wider.Length == 0
+                ? [.. failures, new Failure("listed as wider by the handed freshness rule (ADR 0034), but its freshness is not wider", Narrower: false)]
+                : failures.Except(wider);
+        }
         if (!FieldRule.Contains(cell.Name))
             return failures;
         var excused = failures.Where(failure => failure is { Narrower: true, Unfollowed: true }).ToArray();

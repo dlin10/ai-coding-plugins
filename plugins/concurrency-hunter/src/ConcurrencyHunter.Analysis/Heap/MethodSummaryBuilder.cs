@@ -337,6 +337,7 @@ public static class MethodSummaryBuilder
                         {
                             Atomic = atomic.TryGetValue(load.Id, out var loadMark) ? loadMark.Effect : null,
                             IsFresh = load.ReceiverValue is int loadReceiver && IsFresh(loadReceiver),
+                            HandedSlot = load.ReceiverValue is int handedLoad ? HandedSlotOf(handedLoad) : null,
                             Selector = loadStorage?.Selector,
                             SelectorTerm = loadStorage?.Term,
                             SelectorParameter = loadStorage?.Parameter,
@@ -355,6 +356,7 @@ public static class MethodSummaryBuilder
                             ComparandLoad = Comparand(atomic, store.Id),
                             StoredTerm = Term(store.Value),
                             IsFresh = store.ReceiverValue is int storeReceiver && IsFresh(storeReceiver),
+                            HandedSlot = store.ReceiverValue is int handedStore ? HandedSlotOf(handedStore) : null,
                             Selector = storeStorage?.Selector,
                             SelectorTerm = storeStorage?.Term,
                             SelectorParameter = storeStorage?.Parameter,
@@ -466,6 +468,8 @@ public static class MethodSummaryBuilder
                                                                   .Distinct().Select(value => delegates[value.Site]).ToArray())
                         {
                             Receivers = Final(Points(call.ReceiverValue), delegates),
+                            ReceiverIsFresh = call.ReceiverValue is int freshReceiver && IsFresh(freshReceiver),
+                            ReceiverHandedSlot = call.ReceiverValue is int handedReceiver ? HandedSlotOf(handedReceiver) : null,
                             Arguments = Arguments(call, delegates),
                             ServiceCall = call.ServiceCall,
                             Library = call.Library,
@@ -544,6 +548,8 @@ public static class MethodSummaryBuilder
                         {
                             Implementations = call.Implementations,
                             IsAwaitedImmediately = call.IsAwaitedImmediately,
+                            ReceiverIsFresh = call.ReceiverValue is int freshCallReceiver && IsFresh(freshCallReceiver),
+                            ReceiverHandedSlot = call.ReceiverValue is int handedCallReceiver ? HandedSlotOf(handedCallReceiver) : null,
                             ReceiverUnknownSources = call.ReceiverValue is int receiver ? _unknown[receiver] : new HashSet<UnknownSource>(),
                             ReceiverSourceCalls = call.ReceiverValue is int source ? _sourceCalls[source] : new HashSet<int>(),
                             ReceiverCompletions = call.ReceiverValue is int completed ? _completions[completed] : new HashSet<int>(),
@@ -559,6 +565,12 @@ public static class MethodSummaryBuilder
                         dynamicOperations.Add(new SummaryDynamicOperation(dynamic.Id, callee,
                                                                           Final(dynamic.OperandValues.SelectMany(operand => _points[operand]), delegates))
                         {
+                            Operands = dynamic.OperandValues.Select((operand, position) => new CallArgument(position, Final(Points(operand), delegates))
+                            {
+                                IsFresh = IsFresh(operand),
+                                HandedSlot = HandedSlotOf(operand),
+                                UnknownSources = _unknown[operand]
+                            }).ToArray(),
                             Provenance = dynamic.Provenance,
                             Conditions = Conditions(dynamic.Id)
                         });
@@ -1853,12 +1865,59 @@ public static class MethodSummaryBuilder
                         : null,
                     Producers = Producers(value),
                     IsFresh = IsFresh(value),
+                    HandedSlot = HandedSlotOf(value),
                     UnknownSources = _unknown[value],
                     SourceCalls = _sourceCalls[value],
                     Completions = _completions[value],
                     CompletedCalls = _completedCalls[value]
                 })
                 .ToArray();
+
+        private HandedSlot? HandedSlotOf(int value)
+        {
+            HandedSlot? slot = null;
+            var visited = new HashSet<int>();
+            var pending = new Stack<int>([value]);
+            while (pending.TryPop(out var current))
+            {
+                WorkCancellation.Check();
+                if (!visited.Add(current))
+                    continue;
+                var irValue = _values[current];
+                if (CapturedCell(irValue) is not null)
+                    return null;
+                var candidate = _parameterOrdinals.TryGetValue(current, out var ordinal) ? new HandedSlot(ordinal)
+                    : irValue.Kind == IrValueKind.Receiver ? new HandedSlot(null) : null;
+                if (candidate is not null)
+                {
+                    if (slot is not null && slot != candidate)
+                        return null;
+                    slot = candidate;
+                    continue;
+                }
+                if (!_definitions.TryGetValue(current, out var definition))
+                    return null;
+                switch (definition)
+                {
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        break;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        break;
+                    case IrPhiOperation { Inputs.Count: > 0 } phi:
+                        foreach (var input in phi.Inputs)
+                        {
+                            WorkCancellation.Check();
+                            pending.Push(input.Value);
+                        }
+                        break;
+                    default:
+                        return null;
+                }
+            }
+            return slot;
+        }
 
         /// <summary>Whether every definition of a value, through assignments, phis and conversions, is an allocation of this body: an
         /// object two invocations of the body never share (R12). A parameter, a capture, the receiver and anything loaded or returned

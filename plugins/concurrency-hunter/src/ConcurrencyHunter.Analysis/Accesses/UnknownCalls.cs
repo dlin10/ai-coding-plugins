@@ -7,9 +7,23 @@ namespace ConcurrencyHunter.Accesses;
 /// object, an operation on a <c>dynamic</c> value, or a locator nothing resolves. <see cref="Receivers"/> are seen only through the
 /// state of <see cref="DeclaringTypeKey"/>; <see cref="Arguments"/> are seen whole. A locator makes a semantic gap and has no unknown
 /// effect: the DI model keeps it (R1, R4).</summary>
+/// <param name="Instance">The instance making the call.</param>
+/// <param name="OperationId">The call's operation in that instance.</param>
+/// <param name="Callee">The called member's display.</param>
+/// <param name="Kind">The kind of unresolved work.</param>
+/// <param name="Receivers">The objects the call is made on.</param>
+/// <param name="DeclaringTypeKey">The type whose state a receiver exposes, when restricted.</param>
+/// <param name="Arguments">The values handed to the call.</param>
+/// <param name="Delegates">The delegate objects handed to it.</param>
 public sealed record UnknownCall(MethodInstance Instance, int OperationId, string Callee, string Kind, IReadOnlySet<AbstractValue> Receivers,
                                  string? DeclaringTypeKey, IReadOnlyList<CallArgument> Arguments, IReadOnlyList<DelegateCreationValue> Delegates)
 {
+    /// <summary>Whether the summary receiver is body-local fresh.</summary>
+    public bool ReceiverIsFresh { get; init; }
+
+    /// <summary>The one parameter or receiver the summary receiver is.</summary>
+    public HandedSlot? ReceiverHandedSlot { get; init; }
+
     public IrProvenance? Provenance { get; init; }
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
     public bool IsLocator => Kind == SemanticGapKinds.MODEL_GAP;
@@ -63,6 +77,8 @@ public static class UnknownCalls
                                               part.Delegates)
                     {
                         Provenance = part.Provenance,
+                        ReceiverIsFresh = !part.IsConstructor && part.ReceiverIsFresh,
+                        ReceiverHandedSlot = part.IsConstructor ? null : part.ReceiverHandedSlot,
                         Conditions = part.Conditions
                     });
                 }
@@ -127,6 +143,8 @@ public static class UnknownCalls
                                           call.Delegates)
                 {
                     Provenance = call.Provenance,
+                    ReceiverIsFresh = !call.IsConstructor && call.ReceiverIsFresh,
+                    ReceiverHandedSlot = call.IsConstructor ? null : call.ReceiverHandedSlot,
                     Conditions = call.Conditions
                 });
             }
@@ -155,6 +173,8 @@ public static class UnknownCalls
                                                                       group.Receivers, group.DeclaringTypeKey, call.Arguments, [])
                                                       {
                                                           Provenance = call.Provenance,
+                                                          ReceiverIsFresh = call.ReceiverIsFresh,
+                                                          ReceiverHandedSlot = call.ReceiverHandedSlot,
                                                           Conditions = call.Conditions
                                                       }));
             }
@@ -166,6 +186,8 @@ public static class UnknownCalls
                 KindOf(direct.Callee), direct.Receivers, direct.DeclaringTypeKey, direct.Arguments, direct.Delegates)
             {
                 Provenance = direct.Provenance,
+                ReceiverIsFresh = direct.ReceiverIsFresh,
+                ReceiverHandedSlot = direct.ReceiverHandedSlot,
                 Conditions = direct.Conditions
             });
             // A factory of `GetOrAdd` or `AddOrUpdate` whose body the heap has not runs as a call of the delegate would: an unresolved
@@ -180,7 +202,7 @@ public static class UnknownCalls
                 var handed = call.Arguments.Where(argument => !member.Factories.Contains(argument.ParameterOrdinal) &&
                                                               (argument.ParameterOrdinal == member.KeyArgument && inputs.Contains(IrFactoryInput.Key) ||
                                                                argument.ParameterOrdinal == member.FactoryArgument && inputs.Contains(IrFactoryInput.Argument)))
-                                 .ToList();
+                                 .Select(argument => argument with { IsFresh = false, HandedSlot = null }).ToList();
                 if (inputs.Contains(IrFactoryInput.Held))
                 {
                     handed.Add(new CallArgument(-1, call.Receivers.Select(receiver => (AbstractValue)(receiver is PathValue { IsWildcard: true }
@@ -231,7 +253,7 @@ public static class UnknownCalls
             // A `dynamic` receiver is seen whole, like the arguments and the value assigned: all of them are the operation's operands.
             calls.AddRange(summary.DynamicOperations.Select(operation => new UnknownCall(instance, operation.OperationId, operation.Callee, SemanticGapKinds.DYNAMIC,
                                                                                             new HashSet<AbstractValue>(), null,
-                                                                                            [new CallArgument(0, operation.Values)], [])
+                                                                                            operation.Operands.Count != 0 ? operation.Operands : [new CallArgument(0, operation.Values)], [])
                                                         {
                                                             Provenance = operation.Provenance,
                                                             Conditions = operation.Conditions
@@ -421,11 +443,22 @@ public static class UnknownCalls
         /// <param name="call">The unresolved call whose unknown effect starts there.</param>
         public IEnumerable<Start> Starts(UnknownCall call)
         {
+            WorkCancellation.Check();
+            return Starts(call, null);
+        }
+
+        /// <summary>The starts of an access-level unknown effect, with the scope's handed-down freshness proof where supplied.</summary>
+        /// <param name="call">The unresolved call.</param>
+        /// <param name="freshness">The access collector's proof, or null to keep body-local argument freshness.</param>
+        internal IEnumerable<Start> Starts(UnknownCall call, HandedFreshness? freshness)
+        {
+            var receiverIsFresh = freshness is not null &&
+                                  (call.ReceiverIsFresh || freshness.IsFresh(call.Instance.Id, call.ReceiverHandedSlot));
             var declaring = call.DeclaringTypeKey is { } key && scope.Program.Type(key) is { IsSource: true } ? key : null;
             if (declaring is not null)
             {
                 if (call.Receivers.Count != 0)
-                    yield return new Start(call.Receivers, null, declaring);
+                    yield return new Start(call.Receivers, null, declaring) { IsFresh = receiverIsFresh };
             }
             else
             {
@@ -434,9 +467,9 @@ public static class UnknownCalls
                 var ownObjects = call.Receivers.Where(value => heap.Resolve(call.Instance.Id, value).Any(IsSourceObject)).ToHashSet();
                 var libraryObjects = call.Receivers.Except(ownObjects).ToHashSet();
                 if (libraryObjects.Count != 0)
-                    yield return new Start(libraryObjects, null, null);
+                    yield return new Start(libraryObjects, null, null) { IsFresh = receiverIsFresh };
                 if (ownObjects.Count != 0 && call.DeclaringTypeKey is { } library)
-                    yield return new Start(ownObjects, null, library);
+                    yield return new Start(ownObjects, null, library) { IsFresh = receiverIsFresh };
             }
 
             foreach (var argument in call.Arguments)
@@ -444,7 +477,10 @@ public static class UnknownCalls
                 WorkCancellation.Check();
                 yield return argument.CreatedElements is { } elements
                     ? new Start(elements.SelectMany(element => element.Values).ToHashSet(), null, null)
-                    : new Start(argument.Values, argument.Collection, null) { IsFresh = argument.IsFresh };
+                    : new Start(argument.Values, argument.Collection, null)
+                    {
+                        IsFresh = argument.IsFresh || freshness?.IsFresh(call.Instance.Id, argument.HandedSlot) == true
+                    };
             }
             foreach (var created in call.Delegates)
             {
@@ -620,10 +656,13 @@ public static class UnknownCalls
 
     /// <summary>Where an unknown effect starts: the values, the collection an argument is where the body names one, and, for a
     /// receiver, the type of the run's own declaring the member, whose state alone it sees.</summary>
+    /// <param name="Values">The values handed to the unknown code.</param>
+    /// <param name="Collection">The collection the argument names, when known.</param>
+    /// <param name="DeclaringTypeKey">The type restricting a receiver's visible state, or null.</param>
     public sealed record Start(IReadOnlySet<AbstractValue> Values, ArgumentCollection? Collection, string? DeclaringTypeKey)
     {
-        /// <summary>Whether the start is an argument holding only objects the calling body created: the effect's accesses of their
-        /// own fields are accesses to fresh objects (R12).</summary>
+        /// <summary>Whether the start holds only fresh objects, created in the calling body or handed down through calls the creating
+        /// invocation waits for: the effect's accesses of their own fields are accesses to fresh objects.</summary>
         public bool IsFresh { get; init; }
     }
 }

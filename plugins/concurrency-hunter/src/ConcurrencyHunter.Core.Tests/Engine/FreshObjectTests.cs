@@ -2,6 +2,7 @@ using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
+using ConcurrencyHunter.Heap;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
@@ -10,8 +11,8 @@ using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
 /// <summary>Two accesses to fresh objects never pair (R12): an access that reaches a field of an object directly through a value
-/// whose every definition is an allocation of the same body touches an object no other invocation touches that way, however far
-/// the object has escaped. Every other route to the object still pairs.</summary>
+/// holding only objects one invocation created, including parameters of calls it waits for, touches an object no other invocation
+/// touches that way, however far the object has escaped. Every other route to the object still pairs.</summary>
 public sealed class FreshObjectTests
 {
     private const string POST = "HooksController.Post()";
@@ -109,12 +110,23 @@ public sealed class FreshObjectTests
     }
 
     [Fact]
-    public void Parameter_bound_to_a_fresh_object_is_not_fresh()
+    public void Parameter_bound_to_a_fresh_object_by_a_waited_call_is_fresh()
     {
         var run = Run("var hook = new Hook(); _repository.Items.Add(hook); _repository.Mark(hook);");
 
         var write = Assert.Single(run.Of("Hits"), access => access.Operation == AccessOperation.Write);
         Assert.Equal("Repository.Mark(Hook)", write.Symbol);
+        Assert.True(write.IsFresh);
+        Assert.DoesNotContain(run.PairsOn("Hits"), pair => Is(pair, write, write));
+    }
+
+    [Fact]
+    public void Parameter_bound_by_a_call_not_awaited_is_not_fresh()
+    {
+        var run = Run("var hook = new Hook(); _repository.Items.Add(hook); _repository.MarkAsync(hook);");
+
+        var write = Assert.Single(run.Of("Hits"), access => access.Operation == AccessOperation.Write);
+        Assert.Equal("Repository.MarkAsync(Hook)", write.Symbol);
         Assert.False(write.IsFresh);
         Assert.Contains(run.PairsOn("Hits"), pair => Is(pair, write, write));
     }
@@ -130,6 +142,99 @@ public sealed class FreshObjectTests
         Assert.Empty(run.PairsOn("Hits"));
         var reference = ReferencePair(run.Collection.Accesses, run.Execution.Analysis, run.Execution.Heap.Heap);
         Assert.Equal(1, reference.Skips.GetValueOrDefault(InterproceduralPairing.SKIP_FRESH_OBJECT));
+    }
+
+    [Fact]
+    public async Task Opaque_and_unresolved_receiver_effects_preserve_local_and_handed_freshness()
+    {
+        foreach (var dispatch in new[] { false, true })
+        {
+            string Touch(string value) => dispatch ? $"((IHook){value}).Touch();" : $"{value}.Touch();";
+            var source = Usings + $$"""
+                using System.Collections.Generic;
+                public interface IHook { void Touch(); }
+                public sealed class KnownHook : IHook { public void Touch() { } }
+                public sealed class Hook : IHook
+                {
+                    public int Hits;
+                    public extern void Touch();
+                    public void Mark() { {{Touch("this")}} }
+                }
+                public sealed class Repository
+                {
+                    public readonly List<Hook> Items = new();
+                    public Hook Latest = new();
+                    public void Mark(Hook hook) { {{Touch("hook")}} }
+                    public async Task MarkAsync(Hook hook) { await Task.Yield(); {{Touch("hook")}} }
+                }
+                public class HooksController(Repository repository) : ControllerBase
+                {
+                    public void PostLocal() { var hook = new Hook(); repository.Items.Add(hook); {{Touch("hook")}} }
+                    public void PostParameter() { var hook = new Hook(); repository.Items.Add(hook); repository.Mark(hook); }
+                    public void PostReceiver() { var hook = new Hook(); repository.Items.Add(hook); hook.Mark(); }
+                    public void PostLoaded() { {{Touch("repository.Latest")}} }
+                    public void PostDropped() { var hook = new Hook(); repository.Items.Add(hook); _ = repository.MarkAsync(hook); }
+                    public void PostDynamic() { var hook = new Hook(); repository.Items.Add(hook); dynamic target = hook; target.Touch(); }
+                }
+                """ + Startup("services.AddSingleton<Repository>();");
+            var solution = FixtureSolution.Create(("Case.cs", source));
+            var compilation = (await solution.Projects.Single().GetCompilationAsync())!;
+            Assert.Empty(compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+            var run = AnalyzeScope(solution, "scope:Fixture");
+            var heapRun = run.Execution.Heap;
+            var heap = heapRun.Heap;
+            var program = heapRun.Program;
+            var scope = new ScopeProgram(program.ScopeId, program.Input.Roots, program.Result, heapRun.Summaries, program.Input.Program,
+                                         program.Input.DiIndex, program.Input.InjectionBindings) { MetadataSupertypes = program.MetadataSupertypes };
+            var unknown = UnknownCalls.Of(scope, heap);
+            foreach (var (symbol, fresh, local, slot) in new (string, bool, bool, HandedSlot?)[]
+            {
+                ("HooksController.PostLocal()", true, true, null),
+                ("Repository.Mark(Hook)", true, false, new(0)),
+                ("Hook.Mark()", true, false, new(null)),
+                ("HooksController.PostLoaded()", false, false, null),
+                ("Repository.MarkAsync(Hook)", false, false, new(0))
+            })
+            {
+                var effects = run.Of("Hits").Where(access => access.Symbol == symbol).ToArray();
+                Assert.NotEmpty(effects);
+                Assert.All(effects, access =>
+                {
+                    Assert.Equal(fresh, access.IsFresh);
+                    var terminal = Assert.Single(unknown, call => call.Instance.Id == access.InstanceId && call.OperationId == access.OperationId);
+                    var hook = access.Resource.RegionId;
+                    Assert.Contains(hook, terminal.Receivers.SelectMany(value => heap.Resolve(access.InstanceId, value)));
+                    Assert.DoesNotContain(hook, terminal.Arguments.SelectMany(argument => argument.Values)
+                        .SelectMany(value => heap.Resolve(access.InstanceId, value)));
+                    Assert.Equal(local, terminal.ReceiverIsFresh);
+                    Assert.Equal(slot, terminal.ReceiverHandedSlot);
+                    if (dispatch)
+                    {
+                        Assert.Contains((access.InstanceId, access.OperationId), heap.UnresolvedDispatches);
+                        var transfer = Assert.Single(terminal.Instance.Summary.Calls, call => call.OperationId == access.OperationId);
+                        Assert.Equal(local, transfer.ReceiverIsFresh);
+                        Assert.Equal(slot, transfer.ReceiverHandedSlot);
+                    }
+                    else
+                    {
+                        var opaque = Assert.Single(terminal.Instance.Summary.OpaqueCalls, call => call.OperationId == access.OperationId);
+                        Assert.Equal(local, opaque.ReceiverIsFresh);
+                        Assert.Equal(slot, opaque.ReceiverHandedSlot);
+                    }
+                });
+                Assert.Equal(!fresh, run.PairsOn("Hits").Any(pair => effects.Contains(pair.First) && effects.Contains(pair.Second)));
+            }
+            var dynamicEffects = run.Of("Hits").Where(access => access.Symbol == "HooksController.PostDynamic()").ToArray();
+            Assert.NotEmpty(dynamicEffects);
+            Assert.All(dynamicEffects, access =>
+            {
+                var terminal = Assert.Single(unknown, call => call.Instance.Id == access.InstanceId && call.OperationId == access.OperationId);
+                Assert.Empty(terminal.Receivers);
+                Assert.Contains(access.Resource.RegionId, terminal.Arguments.SelectMany(argument => argument.Values)
+                    .SelectMany(value => heap.Resolve(access.InstanceId, value)));
+                Assert.True(access.IsFresh);
+            });
+        }
     }
 
     // ---- helpers ----
@@ -160,6 +265,8 @@ public sealed class FreshObjectTests
 
     /// <summary>A controller action, which overlaps itself, doing <paramref name="post"/>, and a hosted worker doing
     /// <paramref name="worker"/>, over one singleton repository.</summary>
+    /// <param name="post">The action's statements.</param>
+    /// <param name="worker">The worker's statements.</param>
     private static string Source(string post, string worker) => $$"""
         using System.Collections.Generic;
 
@@ -171,6 +278,7 @@ public sealed class FreshObjectTests
             public Hook Latest = new Hook();
             public void Add(Hook hook) => Items.Add(hook);
             public void Mark(Hook hook) { hook.Hits = 1; }
+            public async Task MarkAsync(Hook hook) { await Task.Yield(); hook.Hits = 1; }
         }
 
         public class HooksController(Repository repository) : ControllerBase

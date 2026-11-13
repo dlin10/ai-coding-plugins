@@ -168,7 +168,9 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     public bool IsIterationIndexed { get; init; }
 
     /// <summary>Whether the access touches a field of a fresh object, reached directly through a value holding only objects the
-    /// same invocation created: two such accesses never pair, however far the object has escaped (R12).</summary>
+    /// same invocation created, in its body or handed down through direct synchronous calls, immediately awaited async calls or
+    /// proven Task forwarders whose returned work it waits for. Only the object's own fields qualify; every load folded into a
+    /// read-modify-write or compound access must qualify too. Two fresh accesses never pair, however far the object has escaped.</summary>
     public bool IsFresh { get; init; }
 
     /// <summary>The expression naming this access's cell, in the width of its own type, for the solver to compare with another

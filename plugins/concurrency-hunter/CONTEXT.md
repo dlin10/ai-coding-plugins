@@ -283,12 +283,22 @@ never meet; one its creator alone reaches is `ThreadConfined`.
 _Avoid_: scope, lifetime (a DI lifetime is evidence for ownership, never the same thing)
 
 **Fresh object**:
-An object an access reaches directly through a value that holds only objects created by the same
-invocation of the body the access is in. Two invocations never reach each other's fresh objects that
-way, and the accesses of one invocation follow one another, so two accesses to fresh objects never make
-a candidate, however far the object has escaped. An access that reaches the same object any other way —
-through a holder, a capture, a parameter or a field of it — is not one, and pairs unless the object's
-**Ownership** keeps the two accesses apart.
+An object an access reaches directly through a value that holds only objects one invocation of a body
+created — in the body the access is in, or in an invocation that handed the value down to it. A value is
+handed down by a call the invocation waits for: the value is an argument of the call or the object the
+call is made on, and the call's work is done before the invocation goes on — a direct call, or a delegate
+the invocation runs in place, into a body that runs during the call and neither suspends nor returns a
+task it forwards; an async
+call, or a call to a **Task forwarder**, awaited right at the call; or the call whose task a Task
+forwarder returns, when the forwarder made the value or was itself called one of these ways — and so on,
+call within call, at any depth. Two invocations never reach each
+other's fresh objects that way, and the accesses of one invocation follow one another, so two accesses
+to fresh objects never make a candidate, however far the object has escaped. The **Unknown effect** of a
+call handed a fresh object touches that object's own fields as a fresh object's. An access that reaches
+the same object any other way — through a holder, a capture, a field of it, a spawn, a call awaited
+later or not at all, a body that may also be handed a value of another origin, or a value a recursive call
+hands its own body back — is not one, and pairs
+unless the object's **Ownership** keeps the two accesses apart.
 _Avoid_: new object, local object, unpublished object (it may already be published; what counts is how the access reaches it)
 
 ### Conflicts
@@ -744,8 +754,10 @@ the library made, with the fields it set. Library bodies none of those calls rea
 analysis, and every other call into the library keeps its **Library model** or stays an **Opaque
 call**. No **Seed** is added, and the library's type initializers are **Inert type initializers**.
 A library body reached from one of these calls in the program's code carries that call's place, so
-the objects library bodies create are apart per call in the program's code however much library code
-the calls share; the library's static storage stays one, as it is in the process.
+the objects library bodies create are apart per call site in the program's code however much library
+code the calls share; the library's static storage stays one, as it is in the process. The objects one
+call site's library bodies create on its successive calls share one region, and two calls touch them
+apart where the accesses reach them as **Fresh objects**.
 _Avoid_: inlining (the body is analysed in the scope, not copied into the caller), on-demand
 generation (it produces no model)
 

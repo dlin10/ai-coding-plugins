@@ -238,9 +238,29 @@ public sealed class CallSiteContextMatrixTests
                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
             }
         }
-        var pairs = InterproceduralPairing.Pair(run.Collection.Accesses, run.Executions!, heap).Pairs.Where(pair =>
+        var pairing = InterproceduralPairing.Pair(run.Collection.Accesses, run.Executions!, heap);
+        var pairs = pairing.Pairs.Where(pair =>
             pair.Resource.Member.Name == field && pair.First.Root.RootId != pair.Second.Root.RootId).ToArray();
-        Assert.Equal(Expected(cell), pairs.Length != 0);
+        var fresh = cell.Place == Place.OneSiteTwoRoots && cell.Created == Created.Object;
+        Assert.Equal(Expected(cell) && !fresh, pairs.Length != 0);
+        if (fresh)
+        {
+            Assert.All(accesses, access => Assert.True(access.IsFresh));
+            var cross = accesses.Where(access => access.Root.RootId == accesses[0].Root.RootId)
+                                .SelectMany(first => accesses.Where(second => second.Root.RootId != first.Root.RootId &&
+                                                                             second.Resource.Identity == first.Resource.Identity &&
+                                                                             (first.Operation.Conflicts() || second.Operation.Conflicts()))
+                                                             .Select(second => new[] { first, second })).ToArray();
+            Assert.NotEmpty(cross);
+            Assert.All(cross, pair =>
+            {
+                var skipped = InterproceduralPairing.Pair(pair, run.Executions!, heap);
+                Assert.Empty(skipped.Pairs);
+                var selfSkips = pair.Sum(access => InterproceduralPairing.Pair([access], run.Executions!, heap)
+                                                                       .Skips.GetValueOrDefault(InterproceduralPairing.SKIP_FRESH_OBJECT));
+                Assert.Equal(selfSkips + 1, skipped.Skips.GetValueOrDefault(InterproceduralPairing.SKIP_FRESH_OBJECT));
+            });
+        }
     }
 
     [Fact]

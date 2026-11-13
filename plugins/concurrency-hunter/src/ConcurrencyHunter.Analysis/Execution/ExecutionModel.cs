@@ -283,6 +283,15 @@ public sealed class ExecutionAnalysis
     /// <summary>The executions each instance runs in; <see cref="ExecutionModel.STARTUP"/> marks startup.</summary>
     public IReadOnlyDictionary<string, IReadOnlySet<string>> InstanceExecutions { get; }
 
+    /// <summary>The terminal async spawn forwarded by every return of this run of the instance, or null.</summary>
+    /// <param name="execution">The execution running the instance.</param>
+    /// <param name="instanceId">The instance whose returned task is proved.</param>
+    internal SpawnAnchor? ForwardedTask(string execution, string instanceId)
+    {
+        WorkCancellation.Check();
+        return _order?.ForwardedTask(execution, instanceId);
+    }
+
     public ExecutionInstance Execution(string id) => _executions[id];
 
     /// <summary>Two executions of one scope overlap; an execution overlaps itself only when its policy says so.</summary>

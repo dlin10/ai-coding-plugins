@@ -159,6 +159,7 @@ public static partial class InterproceduralAccesses
                                            .GroupBy(call => call.Instance.Id, StringComparer.Ordinal)
                                            .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
             var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
+            var freshness = new HandedFreshness(input.Scope, input.Heap, input.Executions);
             var workHosts = WorkHosts(input, unknownCalls);
             // The collectors run one after another, so they share one pool: the accesses of every execution restate the same texts.
             var strings = new StringPool();
@@ -175,7 +176,7 @@ public static partial class InterproceduralAccesses
                      workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, strings, cancellationToken);
+                                                           unknownCalls, reach, freshness, strings, cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
@@ -882,7 +883,7 @@ public static partial class InterproceduralAccesses
                                             Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
-                                            StringPool strings, CancellationToken cancellationToken)
+                                            HandedFreshness freshness, StringPool strings, CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -2176,8 +2177,9 @@ public static partial class InterproceduralAccesses
         /// <param name="Held">The protections it holds.</param>
         /// <param name="Root">The root its call path starts at.</param>
         /// <param name="Term">The expression naming its cell.</param>
+        /// <param name="Fresh">Whether this observation reaches a fresh object's own field.</param>
         private sealed record EmittedKey(string BodyId, int Operation, string Resource, AccessOperation Kind, bool Local, string Held, string Root,
-                                         string Term);
+                                         string Term, bool Fresh);
 
         /// <summary>An access the emission keeps for its key, with the numbers of its guards' keys, as bits.</summary>
         /// <param name="Conditions">The numbers of its guards' keys.</param>
@@ -2402,6 +2404,8 @@ public static partial class InterproceduralAccesses
                         var resource = selector == access.Selector || original.Selector is null || original.Storage is not { } storage ? original
                             : Resource(original.RegionId!, storage, original.IsWildcard, selector, original.CollectionId);
                         var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, identity));
+                        var isFresh = Fresh(access, source, isReference, isUnseenWrite) &&
+                                      (sources is null || sources.All(load => FreshLoad(load.Instance, load.Operation)));
                         var operation = isReference && access.ReadModifyWriteOf is not null
                             ? AccessOperation.ReadModifyWrite
                             : Operation(access, sources is { Count: > 0 },
@@ -2448,7 +2452,7 @@ public static partial class InterproceduralAccesses
                                                                           .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
                             CheckCancellation();
-                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey);
+                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey, isFresh);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
                             if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
@@ -2502,7 +2506,7 @@ public static partial class InterproceduralAccesses
                                 IsIterationIndexed = access.SelectorParameter is { } ordinal &&
                                                      IterationParameters.GetValueOrDefault(instance.BodyId, -1) == ordinal &&
                                                      (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
-                                IsFresh = access.IsFresh,
+                                IsFresh = isFresh,
                                 // Values of independent executions are independent unknowns, whatever they are called in the
                                 // body they come from (TD-092).
                                 SelectorTerm = term,
@@ -2524,6 +2528,18 @@ public static partial class InterproceduralAccesses
             }
 
             return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
+
+            bool Fresh(SummaryAccess access, MethodInstance source, bool reference, bool effect) =>
+                access.IsFresh || !reference && !effect && !access.IsOnCollection && !access.IsCompound &&
+                freshness.IsFresh(source.Id, access.HandedSlot);
+
+            bool FreshLoad(string instanceId, int operation)
+            {
+                var source = _heap.Instances[instanceId];
+                var loads = source.Summary.Accesses.Where(access => access.OperationId == operation && access.Kind == SummaryAccessKind.Load).ToArray();
+                return loads.Length != 0 && !source.Summary.ReferenceAccesses.Any(access => access.OperationId == operation) &&
+                       loads.All(access => Fresh(access, source, reference: false, effect: false));
+            }
 
             // The accesses of the members of the table an instance calls on a receiver no field of its body names, which depend on the
             // heap and not on the path that reached the instance.
@@ -2740,7 +2756,7 @@ public static partial class InterproceduralAccesses
             if (!UnresolvedBases.Contains((instance.BodyId, call.OperationId)) && HasUnresolvedOperand(call, instance))
                 UnresolvedBases.Add((instance.BodyId, call.OperationId));
             var starts = new List<(HashSet<string> Fresh, StartReads Reads)>();
-            foreach (var start in reach.Starts(call))
+            foreach (var start in reach.Starts(call, freshness))
             {
                 CheckCancellation();
                 var effect = new SummaryArgumentEffect(IrLibraryEffectKind.DeepRead, call.OperationId, start.Values, start.Collection, false,
@@ -2748,8 +2764,8 @@ public static partial class InterproceduralAccesses
                 {
                     Conditions = call.Conditions
                 };
-                // Only the fields of the objects an argument of the calling body's own creation holds are fields of fresh objects;
-                // what those fields point to is reached through them (R12).
+                // Only the fields of the objects a fresh start holds are fields of fresh objects;
+                // what those fields point to is reached through them.
                 var fresh = start.IsFresh
                     ? start.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal)
                     : [];
