@@ -95,61 +95,61 @@ that choice are written blind.
 ## Choosing the vendor and model
 
 This happens while the Impact pass runs, after the approach is sketched and before the tasks are
-written — the depth rule in `planning.md` reads the builder's selection. Without Scout it follows the
-sketch directly.
+written — the depth rule in `planning.md` reads the builder's selection.
 
-Critic/Builder selection remains at most six questions total: two Vendor questions, two
-model/effort questions, and one Fast question for each role whose choice offers it. Ask them role
-by role, the critic's first: the vendor question alone, then one call carrying that role's
-model-and-effort, Fast and instruction questions, in the order of the steps below — three questions
-at most. The vendor question never shares a call with the model-and-effort question: the questions
-in a call cannot see each other's answers, so the model options would have to span every vendor,
-and a user who chose one vendor would be offered another's models. A single just-in-time Scout
-selection round is additional; there is no numeric cap on the domain interview.
-The combinations come from the server, not from your own knowledge. Call `forge.models` (no
+Each worker's selection is at most five questions in three calls, asked role by role, the critic's
+first: the vendor question alone, then the model question alone, then one call carrying that role's
+effort, Fast and instruction questions, in the order of the steps below. The Scout's selection in
+`scout.md` takes the same steps without the instruction question. The vendor and model questions
+never share a call with the questions after them: the questions in a call cannot see each other's
+answers, so model options beside the vendor question would have to span every vendor, and effort
+options beside the model question every model. What the last call asks depends on nothing but the
+chosen model — a model offers Fast at all of its efforts or at none — so its answers always fit
+together. There is no numeric cap on the domain interview.
+The options come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
 return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
 CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once. Build
-every call from that one answer: it holds every available vendor's models, efforts and Fast tiers,
-which is what lets one call carry questions that would otherwise wait on each other's answers.
-
-The questions in a call cannot see each other's answers, so every option says what it depends on:
-the Fast question names the pairs that offer it. When the answers do not fit together — a
-free-text model the chosen vendor's catalogue does not list, Fast for a pair that has none — ask
-one follow-up question about the part that does not fit before that role's selection is used.
+every question from that one answer: it holds every available vendor's models, efforts and Fast
+tiers.
 
 1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
    vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
    tell the user why it is out and what would bring it back.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI. Then declare `phase: "done"`.
-   - If exactly one is available, do not ask either vendor question. Tell the user which vendor
-     both roles will use, and draw step 2's pairs from it alone.
-2. The model-and-effort question requests a valid combination for that role's chosen vendor, drawn
-   from that vendor's catalogue in the tool's order — it is already newest first. Offer three
-   concrete model-plus-effort pairs, your recommendation first, among them the vendor's own pick
-   where it names one (`isDefault`, `defaultEffort`), and say which that is; always leave free text
-   open. Never offer a pair from a vendor the user did not choose for that role.
+   - If exactly one is available, do not ask the vendor question. Tell the user which vendor the
+     role will use, and draw step 2's models from it alone.
+2. The model question offers up to four models from that role's chosen vendor's catalogue, in the
+   tool's order — it is already newest first — your recommendation first, among them the vendor's
+   own pick where it names one (`isDefault`), and say which that is; always leave free text open.
+   Never offer a model from a vendor the user did not choose for that role.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
    `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
    CLI into the model it currently stands for — so name that model beside the alias, because
    `displayName` carries it and the alias alone does not say which model the run would use. A
    family released since this plugin shipped appears only if the CLI knew to name it. Never offer
-   one vendor's model family under another vendor.
+   one vendor's model family under another vendor. A free-text model the catalogue does not list is
+   worth mentioning, not refusing: offer it the efforts of the vendor's own pick, say so, and do not
+   ask the Fast question for it.
 
-3. Ask the Fast question only when a pair the call offers lists its effort under `fastEfforts` —
-   any entry at all for a pair offered without an effort — with `fastUnavailable` null: should the role run at the vendor's Fast tier,
-   quicker, at a higher usage price? Name the pairs that offer it. Offer "standard speed" first, as
-   the recommendation unless the user has asked for speed, and name `fastHint` beside Fast where
-   the catalogue gives one — it is the vendor's own word on the price. Pass `fast: true` to that
-   role's tools only on a yes for a pair that offers it. A model whose `fastUnavailable` is set
+3. The effort question offers the chosen model's `efforts`, up to four, your recommendation first,
+   among them the model's `defaultEffort` where it names one, and say which that is; name any
+   effort left out, so it can be typed. A model that lists no efforts gets no effort question, and
+   its tools get no `effort`.
+
+4. Ask the Fast question only when the chosen model lists `fastEfforts` with `fastUnavailable`
+   null: should the role run at the vendor's Fast tier, quicker, at a higher usage price? Offer
+   "standard speed" first, as the recommendation unless the user has asked for speed, and name
+   `fastHint` beside Fast where the catalogue gives one — it is the vendor's own word on the price.
+   Pass `fast: true` to that role's tools only on a yes. A model whose `fastUnavailable` is set
    offers Fast but this account will not serve it: do not ask, and say why when the user asks for
    Fast anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has
    it off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
    again at the start of the worker's session; a turn claude served at standard speed for part of
    the way still counts, and its result carries `speedWarning` — tell the user.
 
-4. The instruction question asks whether the user wants to tell that role's worker anything for
+5. The instruction question asks whether the user wants to tell that role's worker anything for
    this run, offering "no instructions" first. This is their only channel to a worker besides the
    plan: a language to answer in, a class of finding this repository does not want raised, a skill
    the builder should use, a house style. Say that much before the call, and propose no wording of

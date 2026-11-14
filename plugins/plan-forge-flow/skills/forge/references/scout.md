@@ -12,20 +12,21 @@ the question has a narrow file, symbol, or caller boundary. Do not turn every lo
 Scout call. Scout also checks feasibility during the interview when acceptance is an outcome on a
 real target, and makes the Impact pass below, which every plan gets.
 
-Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
-feasibility question or Impact pass, make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
-Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
-the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
-Before the question, say in a sentence or two what Scout is for and what continuing without it
-costs: the feasibility question, when needed, and the Impact pass then fall to you.
-A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
-an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
-after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
-is still just-in-time and separate from the final refresh in `interview.md`.
-When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
-the offered combination. Offer the Fast tier for Scout by
-the same rule as for the other roles in `interview.md`, as its own yes/no after the combination is chosen, and
-pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
+Scout is lazy and independent of the separate Critic and Builder selections, but not optional:
+Every Run has a Scout. On the first broad need, feasibility question or Impact pass, make one
+just-in-time Scout selection: call `forge.models` and ask the steps of "Choosing the vendor and
+model" in `interview.md` without the instruction question — the vendor question alone, the model
+question alone, then one call carrying the effort and Fast questions — and pass the answers to
+`forge.scout.select`; Fast stays with the selection. When exactly one valid Vendor is available,
+omit the Scout Vendor question and say which Vendor Scout uses. Before the first question, say in a
+sentence or two what Scout is for. In each question, clearly mark exactly one **recommended**
+option; together they recommend the strongest model the catalogue offers at high effort — judged by
+its position in the newest-first list, not by a remembered name — because the same selection serves
+the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a
+session. Scout selection may happen before or after final Critic/Builder selection; if the first
+need occurs before it, this Scout catalogue call is still just-in-time and separate from the final
+refresh in `interview.md`. A Scout that fails is retried or reselected — another model or Vendor —
+and never replaced by your own reconnaissance.
 
 Run Scout beside your own work wherever its answer is not needed yet: start the question with
 `forge.work.start` (`act: "scout"`, `question`, `sessionMode`), go on asking and writing, and poll
@@ -41,13 +42,13 @@ subsystem, stale evidence, or a deliberate reset. A `continue` runs alone: while
 `forge.work.start` answers it with `started: false` and the running jobs in `activeJobIds`, and
 `forge.scout.run` refuses it — fetch those jobs first. Fresh jobs run side by side, and Scout turns
 that ran side by side leave no session to continue: after them, ask `fresh` and name in the question
-the earlier answers it builds on. After a failure, retry with the saved selection;
-reselect explicitly to clear the old session and failure; or explicitly choose continue without
-Scout. Never silently choose session continuity and never fall back to another Vendor. A
+the earlier answers it builds on. After a failure, retry with the saved selection, or
+reselect explicitly to clear the old session and failure. Never silently choose session continuity
+and never fall back to another Vendor. A
 `no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
 read nothing, and the same selection fails the same way until its vendor is repaired. Tell the user
-what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
-Scout. Scout may use already available internet without per-call authorization or a widened grant. Require typed
+what the failure says, and ask whether to repair the vendor and retry, or reselect.
+Scout may use already available internet without per-call authorization or a widened grant. Require typed
 repository citations (path plus positive line or non-empty symbol) and external citations (an
 absolute HTTP(S) URL). Surface `scout-answers.json` only after each successful Scout call.
 Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
@@ -96,9 +97,7 @@ Decided mechanism and constraints: <what the interview chose and what it exclude
    evidence explicitly; do not infer feasibility from a stop rule or from the intended outcome.
 ```
 
-When the Run continues without Scout, make the same feasibility check yourself and record the
-scope and evidence with `forge.log.append`. An unresolved dependency stays unresolved. Show the
-answer and bring every unmet or unsettled dependency to the user through `asking.md` before the
+An unresolved dependency stays unresolved. Show the answer and bring every unmet or unsettled dependency to the user through `asking.md` before the
 draft: change the acceptance, change the mechanism, or choose a probe first. Follow `interview.md`
 to settle and record the choice; `planning.md` gives the probe's shape. Scout supplies evidence,
 and the Orchestrator and user settle the requirements. The Impact pass still runs on the approach.
@@ -143,9 +142,7 @@ fold its complete answer into the plan — tasks for affected consumers, tests t
 re-record — before the plan is written. A plan written before its pass returns is the failure the
 pass exists to prevent. When a revision introduces a Change point no Impact pass has checked, ask
 again with `sessionMode: continue` about the new Change points only, before its review — or
-`fresh`, naming the answers it extends, after a pass split into parallel jobs. When the Run
-continues without Scout, make the same check yourself with reference and caller queries and text search, and record what
-you searched with `forge.log.append`.
+`fresh`, naming the answers it extends, after a pass split into parallel jobs.
 
 ### The Evidence check
 

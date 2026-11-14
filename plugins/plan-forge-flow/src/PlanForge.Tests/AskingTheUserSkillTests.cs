@@ -55,54 +55,56 @@ public sealed class AskingTheUserSkillTests
     [Fact]
     public void A_mechanical_question_needs_one_or_two_sentences()
     {
-        Contains("A mechanical question", "a model and effort, the Fast tier", "one or two sentences of explanation and no code", Skill());
+        Contains("A mechanical question", "a model, an effort, the Fast tier", "one or two sentences of explanation and no code", Skill());
     }
 
     [Fact]
-    public void Each_worker_role_is_asked_its_vendor_alone_then_one_call_the_critics_first()
+    public void Each_worker_role_is_asked_its_vendor_and_model_alone_then_one_call_the_critics_first()
     {
         var skill = Skill();
-        Contains("You make two batches unasked, one per worker role",
-                 "once the role's vendor is answered, its model-and-effort, Fast and instruction questions share one call",
+        Contains("You make one batch unasked per worker role",
+                 "once the role's vendor and then its model are answered, each in a call of its own, its effort, Fast and instruction questions share one call",
                  "Explain each question of a batch before the call", skill);
-        Contains("Ask them role by role, the critic's first",
-                 "the vendor question alone, then one call carrying that role's model-and-effort, Fast and instruction questions",
-                 "three questions at most", "The vendor question never shares a call with the model-and-effort question", skill);
+        Contains("at most five questions in three calls, asked role by role, the critic's first",
+                 "the vendor question alone, then the model question alone, then one call carrying that role's effort, Fast and instruction questions",
+                 "The vendor and model questions never share a call with the questions after them", skill);
+        DoesNotContain("model-and-effort", skill);
         DoesNotContain("each call carries that role's vendor", skill);
         DoesNotContain("as one round of two questions", skill);
         DoesNotContain("instruction questions of step 4 as one round", skill);
     }
 
     [Fact]
-    public void Every_call_is_built_from_the_catalogue_fetched_before_the_first()
+    public void Every_question_is_built_from_the_catalogue_fetched_before_the_first()
     {
-        Contains("again immediately before the Critic/Builder Vendor question", "Build every call from that one answer",
+        Contains("again immediately before the Critic/Builder Vendor question", "Build every question from that one answer",
                  "every available vendor's models, efforts and Fast tiers", Skill());
     }
 
     [Fact]
-    public void Model_options_come_from_the_chosen_vendor_and_a_misfit_gets_one_follow_up()
+    public void Options_come_from_the_chosen_vendor_and_model_so_the_answers_always_fit()
     {
-        Contains("every option says what it depends on", "the Fast question names the pairs that offer it",
-                 "a free-text model the chosen vendor's catalogue does not list",
-                 "ask one follow-up question about the part that does not fit", Skill());
-        Contains("a valid combination for that role's chosen vendor, drawn from that vendor's catalogue",
-                 "Never offer a pair from a vendor the user did not choose for that role",
-                 "Ask the Fast question only when a pair the call offers",
-                 "only on a yes for a pair that offers it", "propose no wording of your own", Skill());
+        Contains("What the last call asks depends on nothing but the chosen model",
+                 "a model offers Fast at all of its efforts or at none",
+                 "A free-text model the catalogue does not list", "do not ask the Fast question for it", Skill());
+        Contains("Never offer a model from a vendor the user did not choose for that role",
+                 "Ask the Fast question only when the chosen model lists `fastEfforts`",
+                 "Pass `fast: true` to that role's tools only on a yes", "propose no wording of your own", Skill());
+        DoesNotContain("ask one follow-up question about the part that does not fit", Skill());
         DoesNotContain("draw the pairs from the vendors it offers", Skill());
     }
 
     [Fact]
-    public void Steps_are_listed_in_the_order_of_the_questions_in_a_call()
+    public void Steps_are_listed_in_the_order_of_the_questions()
     {
         var skill = Collapse(Skill());
         var vendor = skill.IndexOf("1. The vendor question offers only vendors", StringComparison.Ordinal);
-        var model = skill.IndexOf("2. The model-and-effort question requests", StringComparison.Ordinal);
-        var fast = skill.IndexOf("3. Ask the Fast question only when", StringComparison.Ordinal);
-        var instructions = skill.IndexOf("4. The instruction question asks", StringComparison.Ordinal);
-        Assert.True(vendor >= 0 && vendor < model && model < fast && fast < instructions,
-                    $"steps out of order: {vendor}, {model}, {fast}, {instructions}");
+        var model = skill.IndexOf("2. The model question offers up to four models", StringComparison.Ordinal);
+        var effort = skill.IndexOf("3. The effort question offers", StringComparison.Ordinal);
+        var fast = skill.IndexOf("4. Ask the Fast question only when", StringComparison.Ordinal);
+        var instructions = skill.IndexOf("5. The instruction question asks", StringComparison.Ordinal);
+        Assert.True(vendor >= 0 && vendor < model && model < effort && effort < fast && fast < instructions,
+                    $"steps out of order: {vendor}, {model}, {effort}, {fast}, {instructions}");
     }
 
     [Fact]

@@ -1,0 +1,43 @@
+{
+  "description": "Tells the Codex Session Pulse overlay which thread is active. SessionStart and UserPromptSubmit start the overlay when it is not running; SessionEnd only cleans up and never starts anything. The rollout JSONL files stay the source of truth, so a skipped hook only makes the overlay slower to follow.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook",
+            "async": true,
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook --no-start",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

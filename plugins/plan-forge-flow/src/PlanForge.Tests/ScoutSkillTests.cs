@@ -26,31 +26,32 @@ public sealed class ScoutSkillTests
     [Fact]
     public void Scout_selection_is_lazy_and_just_in_time()
     {
-        Contains("Scout is lazy and independent", "first broad need", "just-in-time Scout selection round", Skill());
+        Contains("Scout is lazy and independent", "first broad need", "just-in-time Scout selection", Skill());
     }
 
     [Fact]
     public void Early_scout_catalogue_call_precedes_its_selection()
     {
-        Contains("call `forge.models`, offer up to three valid", "Scout selection round", Skill());
+        Contains("call `forge.models` and ask the steps of", "Scout selection round", Skill());
     }
 
     [Fact]
-    public void Early_selection_offers_at_most_three_valid_combinations()
+    public void Scout_selection_takes_the_worker_steps_without_the_instruction_question()
     {
-        Contains("up to three valid live/resolved Vendor/model/effort combinations", Skill());
+        Contains("without the instruction question — the vendor question alone, the model question alone, then one call carrying the effort and Fast questions", Skill());
     }
 
     [Fact]
     public void Early_selection_marks_exactly_one_recommendation()
     {
-        Contains("clearly mark exactly one **recommended** combination", Skill());
+        Contains("clearly mark exactly one **recommended** option", Skill());
     }
 
     [Fact]
-    public void Early_selection_includes_continue_without_scout()
+    public void Every_run_has_a_scout_and_a_failed_one_is_reselected()
     {
-        Contains("choice **continue without Scout**", Skill());
+        Contains("Every Run has a Scout", "never replaced by your own reconnaissance", Skill());
+        Assert.DoesNotContain("without Scout", Skill(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -96,15 +97,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Decline_and_later_enabling_are_explicit()
+    public void Retry_and_reselection_are_not_silent()
     {
-        Contains("A persisted decline suppresses later automatic Scout questions", "enabling it later requires an explicit `forge.scout.select` call", Skill());
-    }
-
-    [Fact]
-    public void Retry_reselection_and_continue_without_handling_are_not_silent()
-    {
-        Contains("After a failure, retry with the saved selection", "reselect explicitly", "explicitly choose continue without", "Never silently choose session continuity", Skill());
+        Contains("After a failure, retry with the saved selection", "reselect explicitly", "Never silently choose session continuity", Skill());
     }
 
     [Fact]
@@ -116,7 +111,7 @@ public sealed class ScoutSkillTests
     [Fact]
     public void Scout_is_independent_of_critic_and_builder()
     {
-        Contains("Scout is lazy and independent of the separate Critic and Builder selections", "Critic/Builder selection remains", Skill());
+        Contains("Scout is lazy and independent of the separate Critic and Builder selections", "may happen before or after final Critic/Builder selection", Skill());
     }
 
     [Fact]
@@ -212,12 +207,6 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Impact_pass_without_scout_is_made_by_the_orchestrator()
-    {
-        Contains("When the Run continues without Scout, make the same check yourself", Skill());
-    }
-
-    [Fact]
     public void Scout_question_template_names_goal_tooling_subquestions_and_scope()
     {
         Contains("**Goal**", "**Workspace and tooling**", "**Numbered, narrow sub-questions.**",
@@ -232,9 +221,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Scout_recommendation_is_the_strongest_catalogue_combination_at_high_effort()
+    public void Scout_recommendation_is_the_strongest_catalogue_model_at_high_effort()
     {
-        Contains("Recommend the strongest combination the catalogue offers at high effort", Skill());
+        Contains("the strongest model the catalogue offers at high effort", Skill());
     }
 
     [Fact]
@@ -244,9 +233,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Budget_has_six_plus_two_and_one_scout_round_without_domain_cap()
+    public void Each_selection_is_five_questions_at_most_and_the_scout_has_no_instruction_question()
     {
-        Contains("at most six questions total: two Vendor questions, two model/effort questions, and one Fast question for each role whose choice offers it", "Ask them role by role, the critic's first", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
+        Contains("Each worker's selection is at most five questions in three calls", "asked role by role, the critic's first", "The Scout's selection in `scout.md` takes the same steps without the instruction question", "no numeric cap on the domain interview", Skill());
     }
 
     /// <summary>The README lists both Scout tools within the twenty-two-tool surface.</summary>

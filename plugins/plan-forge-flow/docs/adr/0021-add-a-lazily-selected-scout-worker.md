@@ -114,3 +114,23 @@ assertions, and orchestration skill all recognize Scout. Each Vendor must prove 
 same read-only launch boundary as a Critic. A Scout failure leaves the report and the chosen
 selection explainable and requires the Orchestrator to retry, explicitly reselect, or continue
 without Scout.
+
+## Amendment: every Run has a Scout
+
+The option to continue without Scout went unused. Across the 40 Runs on this machine whose
+`forge.log` records a Scout selection, `forge.scout.select` was called 45 times, every time with
+`enabled: true`; no Run declined. The option still cost each selection a choice to explain and the
+skill three fallbacks — orientation, the feasibility question and the Impact pass made by the
+Orchestrator itself — that put exactly the reading
+[0052](0052-keep-long-reading-out-of-the-orchestrators-context.md) measured as 31–42% of the
+Orchestrator's context growth back into its context.
+
+**The rule.** Scout selection stays lazy and independent of the Critic and Builder selections, but
+it is no longer optional. `forge.scout.select` takes no `enabled`: every call selects, and the
+Vendor and model are required. The selection question offers no decline. A Scout that fails is
+retried or explicitly reselected — another model or Vendor — and is never replaced by the
+Orchestrator's own reconnaissance; with no Vendor available the Run cannot go on at all, since the
+Critic and Builder need one too.
+
+**Earlier Runs.** A Run that recorded a decline before this change still reads, and the resume card
+still reports it; its next Scout need makes a selection, as an explicit later choice always could.

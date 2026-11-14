@@ -43,7 +43,7 @@ public sealed class MatrixCheckSkillTests
     [Fact]
     public void A_large_first_draft_offers_a_concrete_split_before_round_one()
     {
-        Contains("22,000 UTF-16", "separable tasks or task groups", "their sizes from the outline",
+        Contains("50,000 UTF-16", "separable tasks or task groups", "their sizes from the outline",
                  "R-items each serves", "review as is", "wait for the user's choice",
                  "Before round 1", "shape.splitSuggested: true", Skill());
     }

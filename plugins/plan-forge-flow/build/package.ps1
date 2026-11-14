@@ -344,15 +344,16 @@ function Test-PublishedServer([string]$Executable) {
         }
         $scoutSelect = $tools | Where-Object { $_.name -eq 'forge.scout.select' } | Select-Object -First 1
         $scoutSelectProperties = @($scoutSelect.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('workspaceRoot', 'runId', 'enabled', 'vendor', 'model', 'effort')) {
+        foreach ($parameter in @('workspaceRoot', 'runId', 'vendor', 'model', 'effort')) {
             if ($scoutSelectProperties -notcontains $parameter) { throw "forge.scout.select schema is missing $parameter" }
         }
-        foreach ($parameter in @('workspaceRoot', 'runId', 'enabled')) {
+        # Every run has a Scout (docs/adr/0021's amendment): a selection names its vendor and model, and
+        # there is no way to decline one.
+        foreach ($parameter in @('workspaceRoot', 'runId', 'vendor', 'model')) {
             if (@($scoutSelect.inputSchema.required) -notcontains $parameter) { throw "forge.scout.select schema must require $parameter" }
         }
-        foreach ($parameter in @('vendor', 'model', 'effort')) {
-            if (@($scoutSelect.inputSchema.required) -contains $parameter) { throw "forge.scout.select schema incorrectly requires $parameter" }
-        }
+        if (@($scoutSelect.inputSchema.required) -contains 'effort') { throw 'forge.scout.select schema incorrectly requires effort' }
+        if ($scoutSelectProperties -contains 'enabled') { throw 'forge.scout.select schema still publishes enabled' }
         # Speed is a third axis beside model and effort (docs/adr/0023): every tool that takes an effort
         # takes an optional boolean `fast` beside it.
         foreach ($tool in @($tools | Where-Object { @($_.inputSchema.properties.PSObject.Properties.Name) -contains 'effort' })) {
@@ -383,7 +384,7 @@ function Test-PublishedServer([string]$Executable) {
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
             'forge.begin'       = @('workerTools')
-            'forge.scout.select' = @('vendor', 'model', 'effort')
+            'forge.scout.select' = @('effort')
             'forge.work.start' = @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'question', 'sessionMode')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound', 'fallout')
             'forge.build.next'  = @('effort', 'vendor')
@@ -550,7 +551,7 @@ function Test-PluginArchive([string]$Archive) {
         }
         foreach ($marker in @(
                 'multi-module',
-                'continue without Scout',
+                'Every Run has a Scout',
                 'forge.models',
                 'sessionMode',
                 'first Scout outcome',
@@ -562,6 +563,9 @@ function Test-PluginArchive([string]$Archive) {
         }
         if ($skillScript -match 'task 1 starts from nothing') {
             throw 'the bundled forge skill still claims that task 1 starts without the Builder Brief'
+        }
+        if ($skillScript -match 'without Scout') {
+            throw 'the bundled forge skill still offers a run without Scout'
         }
         $scoutContractEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/prompts/scout-contract.md')
         $reader = [IO.StreamReader]::new($scoutContractEntry.Open())

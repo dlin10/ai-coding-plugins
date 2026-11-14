@@ -1,7 +1,8 @@
 # Session Pulse 0.4.0
 
 A Claude Code mod that shows above the prompt how long the prompt cache stays warm and how fast the
-model writes, and keeps the cache from going cold while you are away.
+model writes, and keeps the cache from going cold while you are away. Its Codex Desktop counterpart is the
+[Codex Session Pulse](../../plugins/codex-session-pulse) plugin.
 
 ```
 cache   ██░░░░░░ 18 min  Avg speed 112 tok/s                                     [Auto Warm]

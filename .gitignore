@@ -25,6 +25,10 @@ plugins/concurrency-hunter/bin/win-x64/BuildHost-*/
 plugins/concurrency-hunter/bin/win-x64/BuildHost-*/**
 !plugins/roslyn-mcp/bin/
 !plugins/roslyn-mcp/bin/**
+!plugins/codex-session-pulse/bin/
+!plugins/codex-session-pulse/bin/*.cmd
+plugins/codex-session-pulse/bin/**/*.exe
+plugins/codex-session-pulse/artifacts/
 plugins/plan-forge-flow/artifacts/
 plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user

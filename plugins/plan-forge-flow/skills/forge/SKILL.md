@@ -94,7 +94,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 |---|---|---|
 | `forge.begin` | `workerTools?: ["<MCP server pattern>"]` — no `runId` | Once, first. Returns `runId`, `client`, `profile`, `advisors`. |
 | `forge.models` | — | At the first Scout need, and again right before the critic/builder vendor question. |
-| `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first Scout need; `enabled: false` continues without Scout. |
+| `forge.scout.select` | `vendor`, `model`, `effort?`, `fast?` | Once, at the first Scout need; every Run has a Scout. Again after a Scout failure, to reselect. |
 | `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question whose answer the next question to the user waits on. |
 | `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?`, `budgetUsd?` | After the manual Evidence check that follows the first draft or an Impact pass, when an Advisor is configured. |
 | `forge.instructions.set` | `criticInstructions?`, `builderInstructions?` — the user's words verbatim | End of the interview, only if either answer was not "no instructions". |

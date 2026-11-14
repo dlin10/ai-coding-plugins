@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.76.0
+# Plan Forge Flow 0.77.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -50,7 +50,7 @@ until a full verification closes them. Either way, a run succeeds only after ful
 |---|---|
 | `forge.begin` | Opens a run, takes the baseline, starts vendor catalogue probes, reports configured Advisors |
 | `forge.models` | Returns each vendor's model catalogue, newest first, with availability and Fast efforts |
-| `forge.scout.select` | Records the Scout vendor, model, effort and speed, or a decision to continue without Scout |
+| `forge.scout.select` | Records the Scout vendor, model, effort and speed; every run has a Scout |
 | `forge.scout.run` | Runs one bounded Scout question and stores the answer in `scout-answers.json` |
 | `forge.evidence.map` | Asks a configured Advisor how Scout evidence bears on the plan; see [Advisor and Evidence map](#advisor-and-evidence-map) |
 | `forge.instructions.set` | Records what the user wants this run's Critic and Builder told |

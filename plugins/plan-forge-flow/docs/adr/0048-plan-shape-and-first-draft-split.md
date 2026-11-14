@@ -187,3 +187,27 @@ more offer, at 55,002 characters, and no second one below 110,004.
 **Limit.** The checkpoint moves only when an offer is owed. A split chosen after round 1 rewrites the
 draft smaller and leaves the checkpoint at the larger size, so the narrower plan is next offered only
 once it has doubled that size.
+
+## Amendment: raise the threshold to 50,000 characters
+
+Under the growth rule the offer became the norm rather than the exception. In the nine Concurrency
+Hunter runs with a plan from `20261101-220510-363a38` to `20261113-234322-c776af`, eight were offered
+a split, twelve offers in all: six `crossed`, as revisions took six runs' Approach past the threshold
+to between 22,207 and 28,791 characters, and six before round 1, in three runs whose drafts had
+reached it. The one answer recorded as a Decision record, in
+`20261102-202250-62f7f0`, was "continue as is". No Approach in those runs exceeded 36,485 characters.
+An offer that every run receives and every run declines tells the user nothing about the plan in
+front of them.
+
+**The rule.** Both rules above keep their form and use **50,000** characters wherever they said
+22,000: the first-draft signal before round 1, and `crossed` after it; `doubled` still counts only
+for a checkpoint at or above the threshold. No other figure changes.
+
+**Consequences.** The threshold is no longer the calibration above, which it now exceeds: no first
+draft in the 26-run table, whose largest Approach is 39,317, would be offered a split before round 1,
+and none of the nine runs above would be offered one at all. The offer becomes in practice a signal
+of growth during review. Replayed on run `20261028-115553-01bf54`, the rule fires three times instead
+of four: before round 4 (50,900, `crossed`), round 9 (126,826) and round 13 (254,374), and
+`PlanShapeTests` pins that series. Of the 15 calibration runs with at least seven rounds, the 22,000
+rule marked nine and 50,000 marks none; the Orchestrator may still propose a split below the
+threshold when the plan's content calls for one.

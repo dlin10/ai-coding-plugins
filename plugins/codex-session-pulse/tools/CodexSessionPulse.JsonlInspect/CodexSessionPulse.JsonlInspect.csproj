@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>jsonl-inspect</AssemblyName>
+    <RootNamespace>CodexSessionPulse.JsonlInspect</RootNamespace>
+  </PropertyGroup>
+
+</Project>

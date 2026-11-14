@@ -583,22 +583,14 @@ internal sealed class RunDirectory
     public void AppendFlowScoutSelection(string action, ScoutState scout)
     {
         var entry = new StringBuilder().Append("## Scout ").AppendLine(action)
-                                       .AppendLine();
+                                       .AppendLine()
+                                       .Append("Vendor: ").AppendLine(scout.Vendor)
+                                       .Append("Model: ").AppendLine(scout.Model);
 
-        if (scout.Enabled)
-        {
-            entry.Append("Vendor: ").AppendLine(scout.Vendor)
-                 .Append("Model: ").AppendLine(scout.Model);
-
-            if (scout.Effort is not null)
-                entry.Append("Effort: ").AppendLine(scout.Effort);
-            if (scout.Fast)
-                entry.AppendLine("Speed: Fast");
-        }
-        else
-        {
-            entry.AppendLine("The run will continue without Scout.");
-        }
+        if (scout.Effort is not null)
+            entry.Append("Effort: ").AppendLine(scout.Effort);
+        if (scout.Fast)
+            entry.AppendLine("Speed: Fast");
 
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }

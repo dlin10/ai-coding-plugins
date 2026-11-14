@@ -167,26 +167,24 @@ internal sealed class ForgeTools
                     model.FastEfforts, model.FastHint, model.FastUnavailable))
             ]);
 
-    [McpServerTool(Name = "forge.scout.select"), Description("Records the lazy Scout decision for this run. Pass enabled:false with no vendor, model or effort to continue without Scout; pass enabled:true with a vendor and model to select it. The vendor id is checked now, while model and effort are stored exactly for the Vendor CLI to interpret. Repeating a healthy choice keeps its session anchor; changing it or selecting after a failure starts the next Scout call fresh.")]
+    [McpServerTool(Name = "forge.scout.select"), Description("Records the run's Scout selection, made lazily at its first Scout need. Every run has a Scout: there is no declining it, and a failed Scout is replaced by selecting again. The vendor id is checked now, while model and effort are stored exactly for the Vendor CLI to interpret. Repeating a healthy choice keeps its session anchor; changing it or selecting after a failure starts the next Scout call fresh.")]
     public static async Task<string> SelectScout(CatalogCache catalogs,
                                                  SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
-                                                 [Description("Whether this run should use Scout. This decision is required; there is no silent default.")] bool enabled,
+                                                 [Description("Vendor id: claude or codex.")] string vendor,
+                                                 [Description("Model string. Stored exactly; the Vendor CLI is authoritative.")] string model,
                                                  CancellationToken ct,
-                                                 [Description("Vendor id, required when enabled is true and forbidden otherwise.")] string? vendor = null,
-                                                 [Description("Model string, required when enabled is true and forbidden otherwise. Stored exactly; the Vendor CLI is authoritative.")] string? model = null,
-                                                 [Description("Optional effort string, forbidden when enabled is false. Stored exactly; the Vendor CLI is authoritative.")] string? effort = null,
-                                                 [Description(FAST_DESCRIPTION + " Confirmed now and kept with the selection; forbidden when enabled is false.")] bool fast = false)
+                                                 [Description("Optional effort string. Stored exactly; the Vendor CLI is authoritative.")] string? effort = null,
+                                                 [Description(FAST_DESCRIPTION + " Confirmed now and kept with the selection.")] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.scout.select",
-            [("enabled", enabled ? "true" : "false"), ("vendor", vendor), ("model", model), ("effort", effort),
-             ("fast", Flag(fast))],
+            [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast))],
             async () =>
             {
                 var state = run.ReadState();
-                var outcome = await SelectScoutStateAsync(catalogs, state.Scout, enabled, vendor, model, effort, fast,
+                var outcome = await SelectScoutStateAsync(catalogs, state.Scout, vendor, model, effort, fast,
                                                           workspaceRoot, ct);
 
                 run.WriteState(state with { Scout = outcome.State });
@@ -1365,26 +1363,17 @@ internal sealed class ForgeTools
 
     private static async Task<(ScoutState State, string Action, string SessionState)> SelectScoutStateAsync(CatalogCache catalogs,
                                                                                                            ScoutState? current,
-                                                                                                           bool enabled,
-                                                                                                           string? vendor,
-                                                                                                           string? model,
+                                                                                                           string vendor,
+                                                                                                           string model,
                                                                                                            string? effort,
                                                                                                            bool fast,
                                                                                                            string workspaceRoot,
                                                                                                            CancellationToken ct)
     {
-        if (!enabled)
-        {
-            if (vendor is not null || model is not null || effort is not null || fast)
-                throw new ArgumentRejectedException("forge.scout.select rejects vendor, model, effort and fast when enabled is false");
-
-            return (new ScoutState(false), "declined", "disabled");
-        }
-
         if (string.IsNullOrWhiteSpace(vendor))
-            throw new ArgumentRejectedException("forge.scout.select requires vendor when enabled is true");
+            throw new ArgumentRejectedException("forge.scout.select requires vendor");
         if (string.IsNullOrWhiteSpace(model))
-            throw new ArgumentRejectedException("forge.scout.select requires model when enabled is true");
+            throw new ArgumentRejectedException("forge.scout.select requires model");
 
         var resolved = VendorFactory.Create(vendor, workspaceRoot);
         var selection = await FastTier.ConfirmAsync(catalogs, resolved, new Selection(model, effort, fast), workspaceRoot, ct);

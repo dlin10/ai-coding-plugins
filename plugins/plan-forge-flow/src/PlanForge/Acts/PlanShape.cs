@@ -32,7 +32,7 @@ internal sealed partial record PlanShape(int Characters, int TaskCount, int Task
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                          int? SplitCheckpoint = null)
 {
-    private const int SplitApproachCharacters = 22_000;
+    private const int SplitApproachCharacters = 50_000;
 
     public static PlanShape Of(string plan, PlanOutline outline)
     {

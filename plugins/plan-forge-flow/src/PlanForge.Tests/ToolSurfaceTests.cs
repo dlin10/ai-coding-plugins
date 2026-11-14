@@ -347,18 +347,18 @@ public sealed class ToolSurfaceTests
     }
 
     [Fact]
-    public void Scout_selection_publishes_enabled_as_required_and_selection_fields_as_optional()
+    public void Scout_selection_requires_vendor_and_model_and_publishes_no_way_to_decline()
     {
         var schema = SchemaFor(nameof(ForgeTools.SelectScout));
         var properties = schema.GetProperty("properties");
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
-        foreach (var name in new[] { "workspaceRoot", "runId", "enabled", "vendor", "model", "effort" })
+        foreach (var name in new[] { "workspaceRoot", "runId", "vendor", "model", "effort" })
             Assert.True(properties.TryGetProperty(name, out _), $"forge.scout.select is missing {name}");
-        foreach (var name in new[] { "workspaceRoot", "runId", "enabled" })
+        foreach (var name in new[] { "workspaceRoot", "runId", "vendor", "model" })
             Assert.Contains(name, required);
-        foreach (var name in new[] { "vendor", "model", "effort" })
-            Assert.DoesNotContain(name, required);
+        Assert.DoesNotContain("effort", required);
+        Assert.False(properties.TryGetProperty("enabled", out _), "forge.scout.select publishes enabled");
     }
 
     /// <summary>

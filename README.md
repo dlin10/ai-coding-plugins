@@ -40,6 +40,7 @@ Keep C# changes as simple as the contract allows. Ponytail.net steers an agent t
 | Understand code and C#/.NET concepts in plain language | **Explain Code Simply** |
 | Scan a .NET workspace for cache consistency risks | **Cache Detective** |
 | Keep C#/.NET changes simple without breaking their contracts | **Ponytail.net** |
+| Watch the prompt cache over Codex Desktop on Windows | **Codex Session Pulse** |
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 
@@ -50,7 +51,11 @@ rather than beside the cross-host plugins.
 
 ### [Session Pulse](mods/session-pulse)
 
-Keep an eye on what a session costs before it costs it. Session Pulse puts the 5-hour and weekly rate-limit windows and a countdown of the prompt cache above the prompt, warns before the cache goes cold, and keeps it warm with one click or on a timer while you are away.
+Keep an eye on what a session costs before it costs it. Session Pulse puts the 5-hour and weekly rate-limit windows and a countdown of the prompt cache above the prompt, warns before the cache goes cold, and keeps it warm with one click or on a timer while you are away. For Codex Desktop, see [Codex Session Pulse](plugins/codex-session-pulse).
+
+### [Codex Session Pulse](plugins/codex-session-pulse)
+
+The same glance for Codex Desktop on Windows. Not a mod but a Codex-only plugin, listed here beside its Claude Code counterpart: a small overlay over the Codex window shows the last request's cached and input tokens and an estimate of how long the prompt cache stays warm, read from the rollout files Codex already writes, without taking focus or sending anything anywhere.
 
 ## Learn More
 

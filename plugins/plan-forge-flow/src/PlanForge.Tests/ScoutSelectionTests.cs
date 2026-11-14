@@ -51,13 +51,12 @@ public sealed class ScoutSelectionTests : IDisposable
                                          new VendorModel("gpt-5.4-mini", ["low"])], CatalogSource.Live)
         });
 
-        await ForgeTools.SelectScout(cache, SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "codex", model: "gpt-6-astra", effort: "low", fast: true);
+        await ForgeTools.SelectScout(cache, SessionRoots.None, _workspace, run.RunId, "codex", "gpt-6-astra",
+            CancellationToken.None, effort: "low", fast: true);
         Assert.True(run.ReadState().Scout!.Fast);
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.SelectScout(cache, SessionRoots.None,
-            _workspace, run.RunId, true, CancellationToken.None, vendor: "codex", model: "gpt-5.4-mini", effort: "low",
-            fast: true));
+            _workspace, run.RunId, "codex", "gpt-5.4-mini", CancellationToken.None, effort: "low", fast: true));
         Assert.Equal("gpt-6-astra", run.ReadState().Scout!.Model);
     }
 
@@ -65,8 +64,8 @@ public sealed class ScoutSelectionTests : IDisposable
     public async Task A_selected_choice_persists_exactly_and_status_exposes_it()
     {
         var run = await NewGitRun();
-        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "codex", model: " model exactly ", effort: " effort exactly ");
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "codex",
+            " model exactly ", CancellationToken.None, effort: " effort exactly ");
 
         var state = run.ReadState().Scout;
         Assert.NotNull(state);
@@ -86,33 +85,17 @@ public sealed class ScoutSelectionTests : IDisposable
         Assert.Equal(" effort exactly ", scout.GetProperty("effort").GetString());
     }
 
+    /// <summary>
+    /// A Run that declined Scout before every Run had one still reads, and its next selection
+    /// replaces the decline — docs/adr/0021's amendment.
+    /// </summary>
     [Fact]
-    public async Task A_continue_without_scout_decline_persists_and_is_logged()
+    public async Task A_run_that_declined_scout_before_it_was_required_selects_one()
     {
-        var run = NewRun();
+        var run = NewRun(new ScoutState(false));
 
-        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
-
-        var state = run.ReadState().Scout;
-        Assert.NotNull(state);
-        Assert.False(state.Enabled);
-        Assert.Null(state.Vendor);
-        Assert.Null(state.Model);
-        Assert.Null(state.Effort);
-        Assert.Null(state.SessionId);
-        Assert.Null(state.LastFailure);
-        Assert.Contains("## Scout declined", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
-        Assert.Contains("scout.declined", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task A_declined_run_can_be_explicitly_enabled()
-    {
-        var run = NewRun();
-        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
-
-        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "claude", model: "model", effort: null);
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "claude", "model",
+            CancellationToken.None);
 
         var state = run.ReadState().Scout;
         Assert.NotNull(state);
@@ -129,8 +112,8 @@ public sealed class ScoutSelectionTests : IDisposable
         var run = NewRun(new ScoutState(true, "codex", "model", "low", "session-1"));
 
         using var result = JsonDocument.Parse(await ForgeTools.SelectScout(
-            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "codex", model: "model", effort: "low"));
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "codex", "model", CancellationToken.None,
+            effort: "low"));
 
         var state = run.ReadState().Scout;
         Assert.NotNull(state);
@@ -146,8 +129,8 @@ public sealed class ScoutSelectionTests : IDisposable
                                         new ScoutFailure("vendor_failed", "previous failure")));
 
         using var result = JsonDocument.Parse(await ForgeTools.SelectScout(
-            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "codex", model: "model", effort: "low"));
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "codex", "model", CancellationToken.None,
+            effort: "low"));
 
         var state = run.ReadState().Scout;
         Assert.NotNull(state);
@@ -163,21 +146,21 @@ public sealed class ScoutSelectionTests : IDisposable
         var run = NewRun();
 
         await Assert.ThrowsAsync<VendorException>(() => ForgeTools.SelectScout(
-            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            vendor: "unknown", model: "model"));
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "unknown", "model", CancellationToken.None));
 
         Assert.Null(run.ReadState().Scout);
         Assert.DoesNotContain("scout.selected", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task A_disabled_selection_rejects_selection_fields()
+    [Theory]
+    [InlineData(" ", "model")]
+    [InlineData("codex", " ")]
+    public async Task A_blank_vendor_or_model_is_rejected(string vendor, string model)
     {
         var run = NewRun();
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.SelectScout(
-            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None,
-            vendor: "codex"));
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, vendor, model, CancellationToken.None));
 
         Assert.Null(run.ReadState().Scout);
     }
