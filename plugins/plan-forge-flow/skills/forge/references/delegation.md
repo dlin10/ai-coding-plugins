@@ -15,8 +15,8 @@ Read-only work whose answer is a list or a short finding:
 
 - **The class, before a claim** — every caller, reference or implementation of a symbol, every
   member of a class a revision changes, every other place that decides the same rule: the listing
-  *Writing a revision* in `plan-review.md` asks for before a patch, the same listing in the sweep,
-  and the Impact pass you make yourself when the Run continues without Scout.
+  *Writing a revision* in `plan-review.md` asks for before a patch, and the same listing in the
+  sweep.
 - **A test or gate log** — which tests failed, with their messages and `path:line`, and the gate's
   exit and first error.
 - **Project documents during the interview** — the passages that bear on the questions you name.

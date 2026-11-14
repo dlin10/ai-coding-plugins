@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.77.0
+
+Every Run has a Scout, every Worker is chosen by vendor, model and effort in turn, and the split
+offer waits for a larger Approach. Issues #410 and #411; amendments to ADRs 0021 and 0048.
+
+- The split offer's threshold is an Approach of 50,000 characters instead of 22,000, for the
+  first-draft offer before round 1 and for `crossed` after it; `doubled` is unchanged. In the nine
+  latest Concurrency Hunter runs with a plan, eight were offered a split, and the recorded answer was
+  to continue; none of their Approaches reached 50,000.
+- Each Worker's selection asks the vendor alone, then the model alone, then one call carrying the
+  effort, Fast and — for the Critic and Builder — instruction questions: at most five questions in
+  three calls. The model question offers up to four of the chosen vendor's models, the effort
+  question the chosen model's efforts. A model offers Fast at all of its efforts or none, so the last
+  call's answers always fit together and need no follow-up question. The Scout takes the same steps.
+- `forge.scout.select` takes no `enabled`; `vendor` and `model` are required. The selection offers
+  no decline, a failed Scout is retried or reselected rather than replaced by the Orchestrator's own
+  reading, and the skill's fallbacks for a Run without Scout are gone. In 40 runs with a Scout
+  selection, none had declined one. A Run that recorded a decline earlier still reads, and its next
+  Scout need makes a selection.
+- The catalogue probes already start in the background at `forge.begin`: across the 25 latest runs
+  `forge.models` answered at once except where a vendor was being probed again, so #411's request
+  to load the catalogue early needed no change.
+
 ## 0.76.0
 
 The Orchestrator hands long read-only reading to a host subagent, the Scout writes its dependents

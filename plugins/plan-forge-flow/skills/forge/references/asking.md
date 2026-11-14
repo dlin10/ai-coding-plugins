@@ -15,12 +15,12 @@ frontier of the decision tree — every decision that could be asked now — but
 a time: first the one the others depend on, and the next only once that one is answered, because an
 answer can change or remove the questions behind it. This overrides the `grilling` rule to ask the
 whole frontier in one round: a delegated interview skill supplies the questions, never their
-batching. You make two batches unasked, one per worker role, both described under "Choosing the
-vendor and model" in `interview.md`: once the role's vendor is answered, its model-and-effort, Fast and instruction
-questions share one call, the critic's first. Their options come from the chosen vendor's
-catalogue, each naming what it depends on, and answers that do not fit together get one follow-up
-question. Explain each question of a batch before the call. If the user asks for questions in a
-batch, batch them as they asked.
+batching. You make one batch unasked per worker role, described under "Choosing the vendor and
+model" in `interview.md`: once the role's vendor and then its model are answered, each in a call of
+its own, its effort, Fast and instruction questions share one call — the Scout's without the
+instruction question. Their options come from the chosen model's catalogue entry, so its answers
+always fit together. Explain each question of a batch before the call. If the user asks for
+questions in a batch, batch them as they asked.
 
 Before each question, explain it in the chat:
 
@@ -36,7 +36,7 @@ Before each question, explain it in the chat:
 
 The question offers the same options. Keep their descriptions short and in agreement with the
 explanation, put the recommended option first, and end its label with "(Recommended)". A mechanical
-question — a vendor, a model and effort, the Fast tier, a value a gate needs — needs one or two
+question — a vendor, a model, an effort, the Fast tier, a value a gate needs — needs one or two
 sentences of explanation and no code.
 
 ## Scope questions
