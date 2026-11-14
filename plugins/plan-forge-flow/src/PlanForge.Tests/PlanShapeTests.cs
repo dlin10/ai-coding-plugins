@@ -46,7 +46,7 @@ public sealed class PlanShapeTests : IDisposable
     public void The_split_threshold_uses_approach_characters()
     {
         const string prefix = "## Approach\n1. A\n";
-        var small = prefix + new string('x', 22_000 - prefix.Length - 1);
+        var small = prefix + new string('x', 50_000 - prefix.Length - 1);
         var large = small + "x";
 
         Assert.False(PlanShape.Of(small, PlanOutline.Of(small)).SplitSuggested);
@@ -57,7 +57,7 @@ public sealed class PlanShapeTests : IDisposable
     public void An_empty_level_two_heading_ends_the_approach_as_the_build_parses_it()
     {
         const string approach = "## Approach\n1. A\n";
-        var plan = approach + "##\n" + new string('x', 23_000);
+        var plan = approach + "##\n" + new string('x', 51_000);
 
         var shape = PlanShape.Of(plan, PlanOutline.Of(plan));
 
@@ -70,48 +70,48 @@ public sealed class PlanShapeTests : IDisposable
     public void Before_round_one_the_first_draft_rule_stands_and_each_draft_becomes_the_checkpoint()
     {
         var (small, smallCheckpoint) = ShapeOf(21_649).Offer(0, null);
-        var (large, largeCheckpoint) = ShapeOf(22_000).Offer(0, 21_649);
+        var (large, largeCheckpoint) = ShapeOf(50_000).Offer(0, 21_649);
 
         Assert.False(small.SplitSuggested);
         Assert.Equal(21_649, smallCheckpoint);
         Assert.True(large.SplitSuggested);
         Assert.Null(large.SplitReason);
-        Assert.Equal(22_000, largeCheckpoint);
+        Assert.Equal(50_000, largeCheckpoint);
     }
 
     [Fact]
     public void A_plan_that_crosses_the_threshold_after_round_one_is_offered_a_split()
     {
-        var (shape, checkpoint) = ShapeOf(34_730).Offer(1, 21_649);
+        var (shape, checkpoint) = ShapeOf(50_900).Offer(3, 21_649);
 
         Assert.True(shape.SplitSuggested);
         Assert.Equal("crossed", shape.SplitReason);
         Assert.Equal(21_649, shape.SplitCheckpoint);
-        Assert.Equal(34_730, checkpoint);
+        Assert.Equal(50_900, checkpoint);
     }
 
     [Fact]
     public void After_an_offer_only_a_doubling_of_the_checkpoint_offers_again()
     {
-        var (below, belowCheckpoint) = ShapeOf(68_666).Offer(6, 34_730);
-        var (doubled, doubledCheckpoint) = ShapeOf(70_787).Offer(7, 34_730);
+        var (below, belowCheckpoint) = ShapeOf(96_340).Offer(7, 50_900);
+        var (doubled, doubledCheckpoint) = ShapeOf(126_826).Offer(8, 50_900);
 
         Assert.False(below.SplitSuggested);
         Assert.Null(below.SplitReason);
-        Assert.Equal(34_730, belowCheckpoint);
+        Assert.Equal(50_900, belowCheckpoint);
         Assert.True(doubled.SplitSuggested);
         Assert.Equal("doubled", doubled.SplitReason);
-        Assert.Equal(34_730, doubled.SplitCheckpoint);
-        Assert.Equal(70_787, doubledCheckpoint);
+        Assert.Equal(50_900, doubled.SplitCheckpoint);
+        Assert.Equal(126_826, doubledCheckpoint);
     }
 
     [Fact]
     public void Doubling_a_plan_that_stays_under_the_threshold_offers_nothing()
     {
-        var (shape, checkpoint) = ShapeOf(10_000).Offer(3, 4_000);
+        var (shape, checkpoint) = ShapeOf(40_000).Offer(3, 20_000);
 
         Assert.False(shape.SplitSuggested);
-        Assert.Equal(4_000, checkpoint);
+        Assert.Equal(20_000, checkpoint);
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class PlanShapeTests : IDisposable
     /// yes" after all but the first, and no question was ever asked.
     /// </summary>
     [Fact]
-    public void Replaying_the_approach_series_of_run_01bf54_offers_exactly_four_splits()
+    public void Replaying_the_approach_series_of_run_01bf54_offers_exactly_three_splits()
     {
         (int Rounds, int Approach)[] series =
         [
@@ -151,25 +151,25 @@ public sealed class PlanShapeTests : IDisposable
         }
 
         Assert.Equal(36, series.Length);
-        Assert.Equal(["34730:crossed", "70787:doubled", "160354:doubled", "327748:doubled"], offers);
+        Assert.Equal(["50900:crossed", "126826:doubled", "254374:doubled"], offers);
     }
 
     [Fact]
     public async Task A_write_that_doubles_the_approach_after_round_one_offers_a_split_and_keeps_the_approval_withdrawn()
     {
-        var run = NewRun(reviewRounds: 1, approved: true, checkpoint: 34_730);
+        var run = NewRun(reviewRounds: 1, approved: true, checkpoint: 50_900);
 
-        var json = await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, PlanWithApproach(70_000),
+        var json = await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, PlanWithApproach(110_000),
                                               CancellationToken.None);
         var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanWriteResult)!;
 
         Assert.True(result.Shape.SplitSuggested);
         Assert.Equal("doubled", result.Shape.SplitReason);
-        Assert.Equal(34_730, result.Shape.SplitCheckpoint);
-        Assert.Contains("- Offer a split: yes — doubled since 34,730", File.ReadAllText(run.FlowLogPath),
+        Assert.Equal(50_900, result.Shape.SplitCheckpoint);
+        Assert.Contains("- Offer a split: yes — doubled since 50,900", File.ReadAllText(run.FlowLogPath),
                         StringComparison.Ordinal);
         var state = run.ReadState();
-        Assert.Equal(70_000, state.SplitCheckpoint);
+        Assert.Equal(110_000, state.SplitCheckpoint);
         Assert.False(state.Approved);
     }
 

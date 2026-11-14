@@ -9,7 +9,7 @@ Before round 1, settle the first-draft split offer in `planning.md` when the fir
 chooses the narrower draft or **review as is**.
 
 After round 1, a `forge.plan.write` or `forge.plan.patch` returns `splitSuggested: true` only when the
-plan has grown since the last offer. `splitReason` is `crossed` when Approach has reached 22,000
+plan has grown since the last offer. `splitReason` is `crossed` when Approach has reached 50,000
 characters from below, or `doubled` when it has reached twice `splitCheckpoint`, the size it stood at
 when the last offer was owed. Ask the split question before the next round, in the form `planning.md`
 gives the first-draft offer: name the separable tasks or task groups with their sizes and R-items, say
