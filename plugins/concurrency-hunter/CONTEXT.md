@@ -542,7 +542,8 @@ _Avoid_: lockfile of packages, cache (the lock records a resolution, not a resul
 
 **Delegate fate**:
 Where a delegate handed to a **Known call** runs, named by an execution the engine already has:
-`invoke-now` (during the call, in the caller's execution, and not kept afterwards), `iterator` (when
+`invoke-now` (during the call, in the caller's execution — the later runs of a `sequential-awaited`
+call in the call's continuation — and not kept afterwards), `iterator` (when
 the returned sequence is enumerated, by whoever enumerates it), `holder` (wherever a member of the
 object that keeps it runs), `di-factory` (where the service it builds is resolved, as often as its
 lifetime says), `startup` (in startup), or `unknown-execution` (in an **Unknown execution**, as the
@@ -555,7 +556,10 @@ handed nothing known. An `invoke-now` fate also says how the delegate's runs rel
 where the call promises no order between them, which is what a fate that names no relation means;
 `sequential`, one run at a time, each finishing with everything it waited for before the next one
 starts; or `sequential-awaited`, for a delegate that returns a task, sequential, and the call awaits
-the task each run returns before the next run starts and before the call itself completes.
+the task each run returns before the next run starts and before the call itself completes. Only the
+first run of a `sequential-awaited` call starts in the caller's execution: a later run starts once the
+task of the run before it completes, in the call's continuation, where the earlier runs went on after
+they first suspended, and it overlaps what the caller does after a call whose task it does not wait for.
 _Avoid_: callback kind, invocation mode, effect (an effect is what happens to an argument)
 
 **Library sequence**:

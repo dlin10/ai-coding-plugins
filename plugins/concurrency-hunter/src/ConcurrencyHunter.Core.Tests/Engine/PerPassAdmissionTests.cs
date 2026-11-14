@@ -283,32 +283,44 @@ public sealed class PerPassAdmissionTests
     /// <c>Task.WhenAll</c> leave the pass's own write paired with the continuation, in a loop and out of one, and in the tail of a body
     /// that makes the call, and in a loop they leave the runs of the next call paired as well; out of a loop the next run is ordered.
     /// One awaited or blocked on at once removes every pair, and so does a synchronous outer retry whose delegate blocks on the
-    /// seeding; one whose delegate leaves the seeding running keeps them all.</summary>
+    /// seeding; one whose delegate leaves the seeding running keeps them all. The listed synchronous-part, self and after-wait expectations remain
+    /// wider: the call in the delegate's synchronous part is made by two executions and loses its admission (#414).</summary>
     /// <param name="label">What the row is.</param>
     /// <param name="pass">The statements of the worker, which stand where the pass is.</param>
     /// <param name="sync">Whether the continuation keeps a pair with the next synchronous part.</param>
     /// <param name="self">Whether the continuation keeps a pair with itself.</param>
     /// <param name="mine">Whether the continuation keeps a pair with the pass's own write after the outer call.</param>
     [Theory]
-    [InlineData("outer-unawaited", OUTER_CALL + "; Mine();", false, false, true)]
-    [InlineData("outer-awaited", "await " + OUTER_CALL + "; Mine();", false, false, false)]
-    [InlineData("outer-blocked-on", OUTER_CALL + ".Wait(); Mine();", false, false, false)]
-    [InlineData("outer-awaited-after-may-throw", "var t = " + OUTER_CALL + "; MayThrow(); await t; Mine();", false, false, true)]
-    [InlineData("outer-when-all", "await Task.WhenAll(" + OUTER_CALL + "); Mine();", false, false, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-unawaited", OUTER_CALL + "; Mine();", true, true, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-awaited", "await " + OUTER_CALL + "; Mine();", true, true, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-blocked-on", OUTER_CALL + ".Wait(); Mine();", true, true, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-awaited-after-may-throw", "var t = " + OUTER_CALL + "; MayThrow(); await t; Mine();", true, true, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-when-all", "await Task.WhenAll(" + OUTER_CALL + "); Mine();", true, true, true)]
     [InlineData("outer-in-a-loop-unawaited", "for (var pass = 0; pass < 2; pass++) { " + OUTER_CALL + "; Mine(); }", true, true, true)]
-    [InlineData("outer-in-a-loop-awaited", "for (var pass = 0; pass < 2; pass++) { await " + OUTER_CALL + "; Mine(); }", false, false, false)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("outer-in-a-loop-awaited", "for (var pass = 0; pass < 2; pass++) { await " + OUTER_CALL + "; Mine(); }", true, true, true)]
     [InlineData("outer-in-a-loop-awaited-after-may-throw", "for (var pass = 0; pass < 2; pass++) { var t = " + OUTER_CALL + "; MayThrow(); await t; Mine(); }", true, true, true)]
     [InlineData("sync-outer-detached", "_retry.Execute(() => { var d = Seed(); }); Mine();", true, true, true)]
     [InlineData("sync-outer-blocking", "_retry.Execute(() => Seed().Wait()); Mine();", false, false, false)]
-    [InlineData("tail-after-an-unawaited-outer", "var h = HelperDetached(); await h;", false, false, true)]
+    // #414: the call in the delegate's synchronous part is made by two executions and loses its admission.
+    [InlineData("tail-after-an-unawaited-outer", "var h = HelperDetached(); await h;", true, true, true)]
     public void Delegate_of_an_outer_admitted_call_completes_the_work_for_code_after_the_call_only_where_the_call_is_waited(
         string label, string pass, bool sync, bool self, bool mine)
     {
         var run = Build(pass, Chain(OUTER_MEMBERS)).Run;
 
-        Assert.True(sync == BlockingWaitAssumptionMatrixTests.Pairs(run, "Sync", "Cont"), $"{label}: the next synchronous part {(sync ? "lost" : "kept")} its pair.");
-        Assert.True(self == BlockingWaitAssumptionMatrixTests.Pairs(run, "Cont", "Cont"), $"{label}: the continuation {(self ? "lost" : "kept")} its pair with itself.");
-        Assert.True(mine == BlockingWaitAssumptionMatrixTests.Pairs(run, "Mine", "Cont"), $"{label}: the pass's write {(mine ? "lost" : "kept")} its pair.");
+        var nextSync = BlockingWaitAssumptionMatrixTests.Pairs(run, "Sync", "Cont");
+        var nextContinuation = BlockingWaitAssumptionMatrixTests.Pairs(run, "Cont", "Cont");
+        var afterWait = BlockingWaitAssumptionMatrixTests.Pairs(run, "Mine", "Cont");
+
+        Assert.True(sync == nextSync, $"{label}: the next synchronous part {(sync ? "lost" : "kept")} its pair.");
+        Assert.True(self == nextContinuation, $"{label}: the continuation {(self ? "lost" : "kept")} its pair with itself.");
+        Assert.True(mine == afterWait, $"{label}: the pass's write {(mine ? "lost" : "kept")} its pair.");
     }
 
     /// <summary>The same rule holds for the work of any pass, not only the continuations of a library's runs: a <c>Task.Run</c> whose

@@ -2237,7 +2237,8 @@ public static class ExecutionModel
         }
 
         /// <summary>Takes up a node: for each execution that arrived since it last did, the node starts what it starts and enters the
-        /// tails it enters, and then passes those executions on to its successors. Each execution arrives at a node once.</summary>
+        /// tails it enters, including the prefix of later sequential-awaited async runs in the call's continuation, and then passes those
+        /// executions on to its successors. Each execution arrives at a node once.</summary>
         /// <param name="node">The node.</param>
         private void Process(WalkNode node)
         {
@@ -2273,6 +2274,12 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     var tail = asyncOperation is { } operation ? AsyncChild(execution, instance, operation) : _tailOf[(execution, node.Tail!)];
+                    if (asyncOperation is { } awaitedOperation && SequentialAwaitedRun(node.Instance, awaitedOperation, callee))
+                    {
+                        var key = AsyncKey(instance.BodyId, awaitedOperation);
+                        _tailOf[(tail, key)] = tail;
+                        Entry(tail, new ExecutionEntry(callee, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Prefix }, key);
+                    }
                     Entry(tail, new ExecutionEntry(callee, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
                 }
             }
@@ -2284,6 +2291,13 @@ public static class ExecutionModel
                     Enqueue(successor);
             }
         }
+
+        /// <summary>Whether this delegate edge carries the sequential-awaited run relation, regardless of its model layer.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operation">The call operation.</param>
+        /// <param name="callee">The delegate target instance.</param>
+        private bool SequentialAwaitedRun(string caller, int operation, string callee) =>
+            heap.RunRelations.Contains((caller, operation, callee, RunRelation.SequentialAwaited));
 
         /// <summary>Which objects' constructions reach each node, and so each object's constructor chain: the instances of the nodes its
         /// construction reaches, from an edge that starts it or an entry inside it. Readers ask only whether an object is under
@@ -3326,8 +3340,9 @@ public static class ExecutionModel
                 .SelectMany(node => _ids.Set(node.Executions));
 
         /// <summary>The executions that create a region. An allocation or a delegate is created by the executions that run its site: an
-        /// async body's prefix runs in its caller's execution and its tail, after the first await, in the tail's, so an object the tail
-        /// creates is not created where the prefix runs. A closure is created once per run of its member, at the body's entry, by the
+        /// async body's first prefix runs in its caller's execution and its tail, after the first await, in the tail's. For a
+        /// sequential-awaited async target, each later run's prefix also runs in the call's continuation, in every record layer, so its
+        /// creations belong there too; a non-async target keeps every run in the caller. A closure is created once per run at entry, by the
         /// executions that run its first segment: an async tail of the same run does not create it again (R4, ADR 0020).</summary>
         /// <param name="region">The region.</param>
         private HashSet<string> CreationExecutions(HeapRegion region) => region.Kind switch

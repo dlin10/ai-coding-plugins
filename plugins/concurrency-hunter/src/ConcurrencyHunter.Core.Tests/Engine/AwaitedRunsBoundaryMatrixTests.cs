@@ -10,6 +10,13 @@ public sealed class AwaitedRunsBoundaryMatrixTests
         "add-same", "append-same", "combine-same", "parameter", "field", "two-awaited", "two-mixed", "sync-completed", "sync-field",
         "sync-two", "local-function"
     ];
+    /// <summary>The ordered forms whose next-run pair remains wider because one continuation of an admitted call is not ordered
+    /// against another continuation of the same call (#416).</summary>
+    private static readonly (string Form, string Reason)[] WiderForms =
+    [
+        ("phi-sync", "#416: one continuation of an admitted call is not ordered against another continuation of the same call.")
+    ];
+
     public static readonly string[] Places =
     [
         "direct", "local", "field", "parameter", "return", "conditional-field", "worker", "http",
@@ -24,6 +31,8 @@ public sealed class AwaitedRunsBoundaryMatrixTests
     public static IEnumerable<object[]> DelegateCells() => from form in Forms from pair in Pairs select new object[] { form, pair };
     public static IEnumerable<object[]> WaitCells() => from place in Places from handle in Handles select new object[] { place, handle };
 
+    /// <summary>Every delegate and wait axis is covered; each wider form is ordered and names the missing order between
+    /// continuations of one admitted call (#416).</summary>
     [Fact]
     public void There_are_17_delegate_forms_and_4_more_on_2_pairs_and_176_wait_cells_covering_every_axis()
     {
@@ -31,12 +40,22 @@ public sealed class AwaitedRunsBoundaryMatrixTests
         Assert.Equal(42, delegates.Length);
         Assert.Equal(Forms.Length, Forms.Distinct().Count());
         Assert.All(Pairs, pair => Assert.Equal(21, delegates.Count(cell => (string)cell[1] == pair)));
+        Assert.All(WiderForms, wider =>
+        {
+            Assert.Contains(wider.Form, Forms);
+            Assert.True(Ordered(wider.Form), $"{wider.Form} expects the next-run pair, so it cannot be wider.");
+            Assert.False(string.IsNullOrWhiteSpace(wider.Reason));
+        });
         var cells = WaitCells().ToArray();
         Assert.Equal(176, cells.Length);
         Assert.All(Places, place => Assert.Equal(8, cells.Count(cell => (string)cell[0] == place)));
         Assert.All(Handles, handle => Assert.Equal(22, cells.Count(cell => (string)cell[1] == handle)));
     }
 
+    /// <summary>Each delegate form keeps exactly its required pairs, except the next-run pairs in <see cref="WiderForms"/> whose
+    /// continuations of one admitted call are not ordered against each other (#416).</summary>
+    /// <param name="form">The delegate form.</param>
+    /// <param name="pair">Whether to read the pair after the call or with the next run's synchronous part.</param>
     [Theory]
     [MemberData(nameof(DelegateCells))]
     public void Every_delegate_form_obeys_the_creation_and_async_boundary(string form, string pair)
@@ -103,13 +122,24 @@ public sealed class AwaitedRunsBoundaryMatrixTests
         // Another writer keeps the field from naming only the target's own task.
         var run = AwaitedRunsFixture.Run(work, members: members, other: form == "sync-field" ? "_state.Task = Task.Delay(1);" : "",
                                          fieldDelegate: form == "field" && !next);
-        var ordered = Array.IndexOf(Forms, form) < 4 || form is "sync" or "phi-sync" or "local-function";
+        var ordered = Ordered(form);
         AwaitedRunsFixture.AssertPairs(run, after: !ordered, self: !ordered);
-        // Outside the admission the continuation starts after the call returns, so a path puts every run's synchronous part before it;
-        // only a continuation a synchronous target starts inside its run still meets the next run's.
+        // Outside the admission the later runs' synchronous part is in the continuation too, and nothing orders an unadmitted call's runs.
         if (next)
-            AwaitedRunsFixture.AssertNextRun(run, pair: !ordered && form.StartsWith("sync", StringComparison.Ordinal));
+        {
+            if (WiderForms.Any(wider => wider.Form == form))
+            {
+                var error = Record.Exception(() => AwaitedRunsFixture.AssertNextRun(run, pair: true));
+                Assert.True(error is null, $"{form}: listed as wider, but it is exact now; take it off the list. {error}");
+            }
+            else
+                AwaitedRunsFixture.AssertNextRun(run, pair: !ordered);
+        }
     }
+
+    /// <summary>Whether the delegate form is admitted and its runs are required to be ordered.</summary>
+    /// <param name="form">The delegate form.</param>
+    private static bool Ordered(string form) => Array.IndexOf(Forms, form) < 4 || form is "sync" or "phi-sync" or "local-function";
 
     [Theory]
     [MemberData(nameof(WaitCells))]

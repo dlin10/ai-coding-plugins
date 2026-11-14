@@ -36,14 +36,8 @@ public sealed class ExecutionStartsMatrixTests
     /// <summary>The cells whose observed pairs are wider than the requirements, with the reason: none.</summary>
     private static readonly Dictionary<string, string> Wider = new(StringComparer.Ordinal);
 
-    /// <summary>The required pairs a cell is known to miss, each with its cause; the one entry is #408's.</summary>
-    private static readonly Dictionary<string, (string[] Pairs, string Cause)> KnownMisses = new(StringComparer.Ordinal)
-    {
-        // Access emission keys an access by its body, not its method instance (InterproceduralAccesses.cs, #408): the second
-        // migration's write before the await stands at the first migration's place and is ordered before both continuation starts.
-        // A missed race at HEAD too, in program code as well, left to #408.
-        [new Cell(Kind.Admitted, Starts.NoneWaits).ToString()] = (["1-2"], "the access emission merges the method instances of one body (#408)")
-    };
+    /// <summary>The required pairs a cell is known to miss, each with its cause: none.</summary>
+    private static readonly Dictionary<string, (string[] Pairs, string Cause)> KnownMisses = new(StringComparer.Ordinal);
 
     private static readonly ConcurrentDictionary<string, Lazy<Analyzed>> Runs = new(StringComparer.Ordinal);
 
@@ -88,6 +82,7 @@ public sealed class ExecutionStartsMatrixTests
         where Allowed(cell)
         select cell;
 
+    /// <summary>Every allowed start axis is covered, with no wider cells or known misses.</summary>
     [Fact]
     public void There_are_8_cells_covering_every_value_of_every_axis()
     {
@@ -98,14 +93,13 @@ public sealed class ExecutionStartsMatrixTests
         Assert.All(Enum.GetValues<Starts>(), value => Assert.Contains(cells, cell => cell.Starts == value));
         Assert.DoesNotContain(new Cell(Kind.Admitted, Starts.OneWaitsOtherTwice), cells);
         Assert.Empty(Wider);
-        Assert.Equal([new Cell(Kind.Admitted, Starts.NoneWaits).ToString()], KnownMisses.Keys);
+        Assert.Empty(KnownMisses);
     }
 
-    /// <summary>Starts that each wait keep no pair; a start that does not wait, reached twice, keeps the site's write paired with itself
-    /// beside one that waits; starts none of which waits before the other has begun keep theirs (R2, R9). The admitted delegate writes
-    /// before and after its await, so two detached migrations keep the continuation's write with itself and with the other run's
-    /// synchronous write. A cell's known misses (<see cref="KnownMisses"/>) are left out of its expected set and must still be missing,
-    /// so the fact fails when their cause is fixed.</summary>
+    /// <summary>Compares every cell's reported pairs with its required set, with no known misses or wider cells. Starts that each wait
+    /// keep no pair; a start reached twice without a wait keeps its write paired with itself beside one that waits. Two detached
+    /// migrations keep all three pairs of the admitted delegate's synchronous and continuation writes: <c>1-1</c>, <c>1-2</c> and
+    /// <c>2-2</c>, because later runs' synchronous parts start in the call's continuation.</summary>
     [Fact]
     public void Every_cell_has_exactly_the_required_pairs()
     {
@@ -211,6 +205,27 @@ public sealed class ExecutionStartsMatrixTests
         });
     }
 
+    /// <summary>Two detached receivers of one async body share its synchronous access. The synchronous write with the continuation
+    /// remains the known miss of issue 408, in a shape without a sequential-awaited record.</summary>
+    [Fact]
+    public void Two_instances_of_one_body_at_one_operation_give_one_access()
+    {
+        var analyzed = Hosted("""
+            public async Task RunAsync()
+            {
+                _sink.Value = 0;
+                await Task.Yield();
+                _sink.Value = 1;
+            }
+            """, "a.RunAsync(); b.RunAsync();");
+
+        var pairs = analyzed.ValuePairs();
+        Assert.False(pairs.Contains("0-1"), "the known miss 0-1 is found now (#408)");
+        Assert.Single(analyzed.Writes(0));
+        Assert.NotEmpty(analyzed.Writes(1));
+        Assert.Equal(new[] { "1-1" }, pairs.Order(StringComparer.Ordinal));
+    }
+
     private const string CHAIN = "public void Chain(Task t) { t.ContinueWith(_ => _sink.Value = 3); }";
 
     /// <summary>A continuation whose starts chain two different antecedents follows neither: the edge is published only when every start
@@ -306,15 +321,16 @@ public sealed class ExecutionStartsMatrixTests
     /// <param name="cell">The cell.</param>
     private static int Site(Cell cell) => cell.Kind == Kind.Admitted ? 2 : 1;
 
-    /// <summary>The pairs on the field a cell keeps, each as the constants its two writes store, smaller first.</summary>
+    /// <summary>The pairs on the field a cell keeps, each as the constants its two writes store, smaller first; two detached admitted
+    /// seedings keep every combination of their synchronous and continuation writes.</summary>
     /// <param name="cell">The cell.</param>
     private static HashSet<string> Expected(Cell cell)
     {
         if (cell.Starts == Starts.BothWait)
             return [];
-        // R2: the continuation of either detached run overlaps itself and the synchronous write of the other run.
+        // R2: later runs' synchronous parts share the continuation, so two detached seedings keep all three write pairs.
         if (cell.Kind == Kind.Admitted)
-            return ["1-2", "2-2"];
+            return ["1-1", "1-2", "2-2"];
         // R2, R9: the site's write with itself, from the start that does not wait or from either start before its wait.
         return ["1-1"];
     }

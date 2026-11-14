@@ -40,14 +40,19 @@ public sealed class PollyRetryAttemptMatrixTests
     /// <param name="Reason">Why the analysis keeps the pair.</param>
     private sealed record Wider(Cell Cell, string Reason);
 
-    /// <summary>The cells wider than their expectation, each with its reason; a cell that names no cell expecting no pair fails
+    /// <summary>The cells wider than their expectation, each with its reason, including the later-run child's completion not proven
+    /// through the call's task (#415); a cell that names no cell expecting no pair fails
     /// <see cref="Every_wider_cell_names_a_cell_that_expects_no_pair"/>.</summary>
     private static readonly Wider[] WiderCells =
     [
         .. AllCells().Where(cell => cell.Receiver == Receiver.Keyed && cell.Attempt == Attempt.EarlierAwaitCaught)
                      .Select(cell => new Wider(cell, "The attempt's join stands after an await that is no join of the pass, and the pass proof reads " +
                                                      "every such await as a way out of the attempt, even one caught in a try; the analysis has no " +
-                                                     "fact that the await returns to the attempt and goes on to its join."))
+                                                     "fact that the await returns to the attempt and goes on to its join.")),
+        .. AllCells().Where(cell => cell.Record == Record.Async && cell.Receiver == Receiver.Keyed &&
+                                   cell.Attempt is Attempt.JoinsChild or Attempt.CaughtThenJoin && cell.Reader == Reader.AfterCall)
+                     .Select(cell => new Wider(cell, "#415: a task a later run starts in its synchronous part and waits for is not " +
+                                                     "proven complete through the call's task."))
     ];
 
     public static IEnumerable<Cell> AllCells() =>
@@ -91,12 +96,14 @@ public sealed class PollyRetryAttemptMatrixTests
         Assert.Contains(cells, Expected);
     }
 
+    /// <summary>The eight wider cells each name a cell whose pair the requirements remove and give a reason for keeping it, including
+    /// a later run's child's completion not proven through the call's task (#415).</summary>
     [Fact]
     public void Every_wider_cell_names_a_cell_that_expects_no_pair()
     {
         var cells = AllCells().Select(cell => cell.ToString()).ToHashSet(StringComparer.Ordinal);
 
-        Assert.Equal(4, WiderCells.Length);
+        Assert.Equal(8, WiderCells.Length);
         Assert.All(WiderCells, wider =>
         {
             Assert.Contains(wider.Cell.ToString(), cells);
@@ -129,23 +136,27 @@ public sealed class PollyRetryAttemptMatrixTests
 
     /// <summary>The exceptional exit of the <c>await</c> of the retry call's task — read directly and through <c>Task.WhenAll</c> —
     /// keeps the pair of a child an attempt left running with a write past the waiter's handler (R2), and an attempt that joins its
-    /// child leaves none. The call is made once in a worker that runs once, so the admission of the record holds as it stands.</summary>
+    /// child should leave none. Its pair stays wider because the later run's child, started and waited in its synchronous part, is not
+    /// proven complete through the call's task (#415). The call is made once in a worker that runs once, so its admission holds.</summary>
     /// <param name="shape">How the waiter awaits the call: <c>direct</c> or <c>when-all</c>.</param>
     /// <param name="leaves">Whether the attempt may throw before it awaits its child.</param>
+    /// <param name="pair">Whether the pair remains, including the listed wider rows.</param>
     [Theory]
-    [InlineData("direct", true)]
-    [InlineData("direct", false)]
-    [InlineData("when-all", true)]
-    [InlineData("when-all", false)]
-    public void Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(string shape, bool leaves)
+    [InlineData("direct", true, true)]
+    // #415: the later run's child, started and waited in its synchronous part, is not proven complete through the call's task.
+    [InlineData("direct", false, true)]
+    [InlineData("when-all", true, true)]
+    // #415: the later run's child, started and waited in its synchronous part, is not proven complete through the call's task.
+    [InlineData("when-all", false, true)]
+    public void Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(string shape, bool leaves, bool pair)
     {
         var attempt = "async () => { var child = Task.Run(() => { First(); return 1; }); " +
                       (leaves ? "if (Environment.TickCount % 2 == 0) throw new InvalidOperationException(); " : "") + "await child; }";
         var call = shape == "direct" ? $"await _policy.ExecuteAsync({attempt});" : $"await Task.WhenAll(_policy.ExecuteAsync({attempt}));";
         var run = Run($"try {{ {call} }} catch (Exception) {{ }} After();", "AsyncRetryPolicy _policy = Policy.Handle<InvalidOperationException>().RetryAsync(2);");
 
-        Assert.True(leaves == BlockingWaitAssumptionMatrixTests.Pairs(run, "First", "After"),
-                    $"{shape}: expected the pair {(leaves ? "kept" : "removed")}.");
+        Assert.True(pair == BlockingWaitAssumptionMatrixTests.Pairs(run, "First", "After"),
+                    $"{shape}: expected the pair {(pair ? "kept" : "removed")}.");
     }
 
     /// <summary>Whether the requirements keep the pair of the work of one attempt and the write the cell's reader pairs it with.</summary>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "53880bd0dbf69237a8c64db9b51a9fe923f6c7daf73dfd5e95eb943553019114",
+  "generator": "0bab732c268c4f85d8cfd1b87dc56b4a3a655215e7824730354ffc19e190dfe3",
   "assembly": {
     "name": "Google.Protobuf",
     "version": "3.30.2.0",

@@ -37,11 +37,12 @@ public sealed class PerPassAdmissionMatrixTests
         public override string ToString() => $"{Parent}/{Calls}/{Wait}/{Completion}/{Entries}";
     }
 
-    /// <summary>A cell whose answer is wider than its expectation — the pair stays where the requirements remove it — with the reason
-    /// the analysis cannot be exact there.</summary>
+    /// <summary>A cell and side whose pair stays wider than the requirements: a call in an admitted delegate's synchronous part is
+    /// made by two executions and loses its admission (#414).</summary>
     /// <param name="Cell">The cell.</param>
-    /// <param name="Reason">Why the analysis keeps the pair.</param>
-    private sealed record Wider(Cell Cell, string Reason);
+    /// <param name="Side">The side whose pair remains.</param>
+    /// <param name="Reason">Why the analysis keeps the pair on that side.</param>
+    private sealed record Wider(Cell Cell, string Side, string Reason);
 
     /// <summary>One decision of a pair: how its two accesses meet in time and the assumptions an ordered one rests on, sorted.</summary>
     /// <param name="Timing">How the accesses meet.</param>
@@ -62,9 +63,16 @@ public sealed class PerPassAdmissionMatrixTests
     /// <param name="SeedJoinUnproven">Whether the unproven joins hold the body of <c>Seed</c>.</param>
     private sealed record Observed(Outcome NextSync, Outcome NextContinuation, Outcome AfterWait, bool SeedJoinUnproven);
 
-    /// <summary>The cells wider than their expectation, each with its reason; a cell that names no cell whose pair the requirements
-    /// remove fails <see cref="Every_wider_cell_names_a_cell_that_expects_no_pair"/>.</summary>
-    private static readonly Wider[] WiderCells = [];
+    /// <summary>The sides wider than their expectation, each with its reason; an entry that names no cell whose pair the requirements
+    /// remove fails <see cref="Every_wider_cell_names_a_cell_that_expects_no_pair"/>. The nested call is made by two executions and
+    /// loses its admission (#414); every unlisted cell and side stays exact.</summary>
+    private static readonly Wider[] WiderCells =
+    [
+        .. AllCells().Where(cell => cell.Parent == Parent.AwaitedRun && Expected(cell))
+                     .SelectMany(cell => new[] { "next sync part", "next continuation", "code after the wait" }
+                         .Select(side => new Wider(cell, side, "#414: the sequential-awaited call in the synchronous part of " +
+                                                              "an admitted call's delegate is made by two executions and loses its admission.")))
+    ];
 
     private static readonly ConcurrentDictionary<string, Lazy<Observed>> Runs = new(StringComparer.Ordinal);
 
@@ -116,22 +124,28 @@ public sealed class PerPassAdmissionMatrixTests
         Assert.Contains(cells, cell => Expected(cell) && AssumedKeys(cell).Length != 0);
     }
 
+    /// <summary>Every wider entry names one unique cell and side whose pair the requirements remove, and gives its cause: the nested
+    /// call is made by two executions and loses its admission (#414).</summary>
     [Fact]
     public void Every_wider_cell_names_a_cell_that_expects_no_pair()
     {
         var cells = AllCells().Select(cell => cell.ToString()).ToHashSet(StringComparer.Ordinal);
 
+        Assert.Equal(36, WiderCells.Length);
+        Assert.Equal(WiderCells.Length, WiderCells.Select(wider => (wider.Cell, wider.Side)).Distinct().Count());
         Assert.All(WiderCells, wider =>
         {
             Assert.Contains(wider.Cell.ToString(), cells);
+            Assert.Contains(wider.Side, new[] { "next sync part", "next continuation", "code after the wait" });
             Assert.True(Expected(wider.Cell), $"{wider.Cell} expects the pair to stay, so it cannot be wider.");
             Assert.False(string.IsNullOrWhiteSpace(wider.Reason));
         });
     }
 
-    /// <summary>No cell is narrower or wider than its expectation: where the requirements remove the pair, none of the three sides is
-    /// reported, each is decided <c>Ordered</c> under exactly the assumptions of the cell, and the wait of <c>Seed</c> stays an
-    /// unproven join; where they keep it, no side the pair stays on is decided <c>Ordered</c>.</summary>
+    /// <summary>No cell is narrower than its expectation: a side in <see cref="WiderCells"/> keeps its pair, and every other side is exact.
+    /// The listed sides stay wider because the nested call is made by two executions and loses its admission (#414).
+    /// A removed pair is decided <c>Ordered</c> under exactly the assumptions of the cell, and the wait of <c>Seed</c> stays an
+    /// unproven join; where the requirements keep a pair, no side it stays on is decided <c>Ordered</c>.</summary>
     /// <param name="parent">The parent running the passes.</param>
     /// <param name="calls">How many calls of <c>Seed</c> a pass makes.</param>
     /// <param name="wait">How <c>Seed</c> waits for the task of its call.</param>
@@ -150,10 +164,10 @@ public sealed class PerPassAdmissionMatrixTests
             ("code after the wait", observed.AfterWait)
         };
         var removed = Expected(cell);
-        var listed = WiderCells.Any(wider => wider.Cell == cell);
 
         foreach (var (name, side) in sides)
         {
+            var listed = WiderCells.Any(wider => wider.Cell == cell && wider.Side == name);
             Assert.NotEmpty(side.Decisions);
             if (!removed)
             {

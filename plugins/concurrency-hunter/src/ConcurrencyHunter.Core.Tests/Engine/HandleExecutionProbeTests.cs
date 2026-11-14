@@ -29,34 +29,13 @@ public sealed class HandleExecutionProbeTests(HandleExecutionProbeFixture fixtur
         Assert.Equal(0, runs.Records.Run.LibraryBodies);
         var records = runs.Records.Run.Findings.ToHashSet();
         var extra = runs.Admitted.Analysis.Findings.Where(finding => !records.Contains(HandleExecutionProbeFixture.Triple(finding))).ToArray();
-        // #404: the later runs of a sequential-awaited record; #402's joined retry finding beab0b89c04944ad is gone (ADR 0035).
-        string[] allowed = ["0d8df6303781e5e8"];
-        Assert.Single(extra);
-        Assert.All(extra, finding => Assert.Contains(finding.Fingerprint, allowed));
+        // The records include the later runs of a sequential-awaited call: no admitted-only finding or residual remains.
+        // #402's joined retry finding beab0b89c04944ad is gone (ADR 0035).
+        string[] allowed = [];
+        Assert.Equal(allowed, extra.Select(finding => finding.Fingerprint));
+        Assert.Empty(extra);
         var entries = runs.Residuals.GetProperty("findings").EnumerateArray().ToArray();
-        Assert.Equal(extra.Length, entries.Length);
-        foreach (var finding in extra)
-        {
-            var entry = Assert.Single(entries, entry => entry.GetProperty("fingerprint").GetString() == finding.Fingerprint);
-            var scope = Assert.Single(runs.Admitted.Scopes, scope => scope.Run.ScopeProgram!.ScopeId == finding.Resource.Scope);
-            // Rebuild from the complete candidate list, independently of the diagnostic grouping and of folded occurrences.
-            var expected = scope.Pairs.Pairs.Where(pair => ConflictFindings.FindingIdentity(pair) == ConflictFindings.FindingIdentity(finding))
-                                .Select(HandleExecutionProbeFixture.PairKey).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-            var listed = entry.GetProperty("occurrences").EnumerateArray().Select(pair =>
-            {
-                string Key(string side)
-                {
-                    var access = pair.GetProperty(side);
-                    return $"{access.GetProperty("instance").GetString()}#{access.GetProperty("operation").GetInt32()}@{access.GetProperty("execution").GetString()}";
-                }
-                return string.Join("|", new[] { Key("first"), Key("second") }.Order(StringComparer.Ordinal));
-            }).ToArray();
-            Assert.NotEmpty(expected);
-            Assert.Equal(expected, listed.Order(StringComparer.Ordinal));
-            Assert.Equal(listed.Length, listed.Distinct(StringComparer.Ordinal).Count());
-            Assert.Equal(listed.Length, entry.GetProperty("pairCount").GetInt32());
-            Assert.Equal(finding.OccurrenceCount, entry.GetProperty("occurrenceCount").GetInt32());
-        }
+        Assert.Empty(entries);
     }
 
     [RequiresEShopFact]

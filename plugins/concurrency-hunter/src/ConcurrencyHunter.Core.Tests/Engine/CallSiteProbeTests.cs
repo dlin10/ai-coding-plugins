@@ -16,7 +16,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 public sealed class CallSiteProbeTests(CallSiteProbeFixture fixture, ITestOutputHelper output) : IClassFixture<CallSiteProbeFixture>
 {
-    [Fact(Skip = "Waits for #404: later runs of a sequential-awaited record.")]
+    [Fact]
     public async Task Demo_with_polly_bodies_admitted_and_records_withheld_has_the_findings_of_the_records()
     {
         var runs = await fixture.Demo.Value;
@@ -106,6 +106,8 @@ public sealed class CallSiteProbeFixture
         var limits = demo ? AnalysisLimits.Default : new AnalysisLimits(8, 16, 16);
         var generation = new GenerationSetup(demo ? ModelGeneration.ReadOnly : ModelGeneration.None);
         var records = await Analyze("records", null);
+        var admitted = await Analyze("admitted", Setup(true));
+        var control = await Analyze("control", Setup(false));
         using (var snapshot = JsonDocument.Parse(System.IO.File.ReadAllText(File("src", "ConcurrencyHunter.Cli.Tests", "Snapshots", target + ".json"))))
             Assert.Equal(snapshot.RootElement.GetProperty("counts").GetProperty("fingerprints").EnumerateArray().Select(value => value.GetString()!).Order(StringComparer.Ordinal),
                          records.Run.Findings.Select(finding => finding.Fingerprint).Order(StringComparer.Ordinal));
@@ -116,8 +118,6 @@ public sealed class CallSiteProbeFixture
         }
         else
             Assert.Equal(new[] { "7c919c7aedc4b38e", "fa3fbc528c46593e" }, records.Run.Findings.Select(finding => finding.Fingerprint));
-        var admitted = await Analyze("admitted", Setup(true));
-        var control = await Analyze("control", Setup(false));
         Assert.True(admitted.Run.LibraryBodies >= 1);
         Assert.NotEmpty(admitted.Run.Admitted);
         Assert.Equal(0, records.Run.LibraryBodies);

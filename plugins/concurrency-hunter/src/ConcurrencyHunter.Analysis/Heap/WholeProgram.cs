@@ -4285,8 +4285,10 @@ public static partial class WholeProgram
             AddEdge((caller.Id, operationId, callee.Id, "points-to"));
         }
 
-        /// <summary>An <c>invoke-now</c> delegate runs as a call of it at the site would, in the caller's execution and under its locks,
-        /// 0..n times before the call returns; what it returns is no part of what the call returns unless the model's result says so.</summary>
+        /// <summary>An <c>invoke-now</c> delegate runs 0..n times as a call at the site would. The first run starts in the caller's
+        /// execution under its locks; for a sequential-awaited async target, each later run's prefix also runs in the call's continuation,
+        /// beside the runs' tails, in every record layer. A non-async target keeps every run in the caller's execution. What the delegate
+        /// returns is no part of what the call returns unless the model's result says so.</summary>
         /// <param name="caller">The calling instance.</param>
         /// <param name="invocation">The delegate invocation.</param>
         /// <param name="callee">The instance the delegate runs.</param>

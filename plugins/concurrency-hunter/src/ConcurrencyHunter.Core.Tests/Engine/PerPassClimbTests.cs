@@ -20,6 +20,10 @@ public sealed class PerPassClimbTests
     /// <summary>The expectation of a side whose pair stays.</summary>
     private const string PAIR = "pair";
 
+    /// <summary>The wider expectation of a side: the call in an admitted delegate's synchronous part is made by two
+    /// executions and loses its admission (#414).</summary>
+    private const string NESTED_ADMISSION = PAIR;
+
     /// <summary>The expectation of a side whose pair goes and rests on no assumption.</summary>
     private const string ORDERED = "ordered:";
 
@@ -109,9 +113,12 @@ public sealed class PerPassClimbTests
     /// <param name="Members">The members of the row beside the common ones.</param>
     /// <param name="Other">For a Polly row, <c>installer</c> when a hosted service installs a synchronization context; for a
     /// <c>Runs.Lib</c> row, what the other hosted service does.</param>
-    /// <param name="Sync">The expectation of the next synchronous part.</param>
-    /// <param name="Self">The expectation of the next continuation.</param>
-    /// <param name="Mine">The expectation of the code after the wait.</param>
+    /// <param name="Sync">The expectation of the next synchronous part; <see cref="NESTED_ADMISSION"/> names the wider answer when a
+    /// call in the delegate's synchronous part is made by two executions and loses its admission (#414).</param>
+    /// <param name="Self">The expectation of the next continuation; <see cref="NESTED_ADMISSION"/> names the wider answer when the
+    /// nested call is made by two executions and loses its admission (#414).</param>
+    /// <param name="Mine">The expectation of the code after the wait; <see cref="NESTED_ADMISSION"/> names the wider answer when the
+    /// nested call is made by two executions and loses its admission (#414).</param>
     private sealed record Row(string Label, string Body, string Members, string Other, string Sync, string Self, string Mine);
 
     public static TheoryData<string, string, string, string, string, string, string> PollyRows()
@@ -131,47 +138,48 @@ public sealed class PerPassClimbTests
     }
 
     /// <summary>The wait for the task of an outer admitted call, and what the rest of the execution makes of it: the exits of the wait
-    /// as the join reading gives them, and a call whose task nobody waits for at once.</summary>
+    /// as the join reading gives them, and a call whose task nobody waits for at once. The listed sides stay wider because
+    /// the call in the delegate's synchronous part is made by two executions and loses its admission (#414).</summary>
     private static IEnumerable<Row> OuterRows()
     {
         // The exits of the wait for the outer call's task, read as the join reading gives them: a blocking wait of a task is the end of
         // the work on its exceptional exit when no context is installed, and counts under the keys of that assumption.
-        yield return new Row("outer-wait-caught", $"try {{ {OUTER}.Wait();{CATCH} Mine();", "", "", ORDERED, ORDERED, BLOCKING);
-        yield return new Row("outer-wait-caught-installer", $"try {{ {OUTER}.Wait();{CATCH} Mine();", "", "installer", ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-get-caught", $"try {{ {OUTER}.GetAwaiter().GetResult();{CATCH} Mine();", "", "", ORDERED, ORDERED, BLOCKING);
-        yield return new Row("outer-get-caught-installer", $"try {{ {OUTER}.GetAwaiter().GetResult();{CATCH} Mine();", "", "installer", ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-wait-all-caught", $"try {{ var t = {OUTER}; Task.WaitAll(t);{CATCH} Mine();", "", "", ORDERED, ORDERED, BLOCKING);
-        yield return new Row("outer-wait-all-caught-installer", $"try {{ var t = {OUTER}; Task.WaitAll(t);{CATCH} Mine();", "", "installer", ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-await-caught", $"try {{ await {OUTER};{CATCH} Mine();", "", "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-await-caught-installer", $"try {{ await {OUTER};{CATCH} Mine();", "", "installer", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-wait-uncaught", $"{OUTER}.Wait(); Mine();", "", "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-wait-uncaught-installer", $"{OUTER}.Wait(); Mine();", "", "installer", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-wait-caught-on-the-pool", $"await Task.Run(() => {{ try {{ {OUTER}.Wait();{CATCH} Mine(); }});", "", "", ORDERED, ORDERED, POOLED);
+        yield return new Row("outer-wait-caught", $"try {{ {OUTER}.Wait();{CATCH} Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-caught-installer", $"try {{ {OUTER}.Wait();{CATCH} Mine();", "", "installer", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-get-caught", $"try {{ {OUTER}.GetAwaiter().GetResult();{CATCH} Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-get-caught-installer", $"try {{ {OUTER}.GetAwaiter().GetResult();{CATCH} Mine();", "", "installer", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-wait-all-caught", $"try {{ var t = {OUTER}; Task.WaitAll(t);{CATCH} Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-all-caught-installer", $"try {{ var t = {OUTER}; Task.WaitAll(t);{CATCH} Mine();", "", "installer", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-await-caught", $"try {{ await {OUTER};{CATCH} Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-await-caught-installer", $"try {{ await {OUTER};{CATCH} Mine();", "", "installer", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-uncaught", $"{OUTER}.Wait(); Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-uncaught-installer", $"{OUTER}.Wait(); Mine();", "", "installer", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-caught-on-the-pool", $"await Task.Run(() => {{ try {{ {OUTER}.Wait();{CATCH} Mine(); }});", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
         yield return new Row("outer-wait-caught-on-the-pool-installer", $"await Task.Run(() => {{ try {{ {OUTER}.Wait();{CATCH} Mine(); }});", "", "installer",
-                             ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-await-caught-on-the-pool", $"await Task.Run(async () => {{ try {{ await {OUTER};{CATCH} Mine(); }});", "", "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-wait-in-a-loop-caught", $"{LOOP}try {{ {OUTER}.Wait();{CATCH} Mine(); }}", "", "", BLOCKING, BLOCKING, BLOCKING);
+                             NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-await-caught-on-the-pool", $"await Task.Run(async () => {{ try {{ await {OUTER};{CATCH} Mine(); }});", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-wait-in-a-loop-caught", $"{LOOP}try {{ {OUTER}.Wait();{CATCH} Mine(); }}", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
         yield return new Row("outer-wait-in-a-loop-caught-installer", $"{LOOP}try {{ {OUTER}.Wait();{CATCH} Mine(); }}", "", "installer", PAIR, PAIR, PAIR);
-        yield return new Row("outer-await-in-a-loop-caught", $"{LOOP}try {{ await {OUTER};{CATCH} Mine(); }}", "", "", ORDERED, ORDERED, ORDERED);
+        yield return new Row("outer-await-in-a-loop-caught", $"{LOOP}try {{ await {OUTER};{CATCH} Mine(); }}", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
 
         // The next run of the outer call's delegate follows the library's wait of the run's task, whatever happens to the outer call's
         // task; only the code after the outer call's return, and a next pass of the call itself, need that task waited.
-        yield return new Row("outer-unwaited", $"{OUTER}; Mine();", "", "", ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-waited-after-may-throw", $"var t = {OUTER}; MayThrow(); await t; Mine();", "", "", ORDERED, ORDERED, PAIR);
-        yield return new Row("outer-when-all", $"await Task.WhenAll({OUTER}); Mine();", "", "", ORDERED, ORDERED, PAIR);
+        yield return new Row("outer-unwaited", $"{OUTER}; Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-waited-after-may-throw", $"var t = {OUTER}; MayThrow(); await t; Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
+        yield return new Row("outer-when-all", $"await Task.WhenAll({OUTER}); Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
         yield return new Row("outer-unwaited-in-a-loop", $"{LOOP}{OUTER}; Mine(); }}", "", "", PAIR, PAIR, PAIR);
         yield return new Row("outer-waited-after-may-throw-in-a-loop", $"{LOOP}var t = {OUTER}; MayThrow(); await t; Mine(); }}", "", "", PAIR, PAIR, PAIR);
-        yield return new Row("outer-awaited-in-a-loop", $"{LOOP}await {OUTER}; Mine(); }}", "", "", ORDERED, ORDERED, ORDERED);
+        yield return new Row("outer-awaited-in-a-loop", $"{LOOP}await {OUTER}; Mine(); }}", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
 
         // The call is waited for in a body of its own, which suspends: the work is complete for the pass where the pass waits that body.
         const string HELPER = "private async Task Helper() { await " + OUTER + "; }";
-        yield return new Row("outer-awaited-in-a-helper", "var h = Helper(); await h; Mine();", HELPER, "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-awaited-in-a-helper-in-a-loop", $"{LOOP}var h = Helper(); await h; Mine(); }}", HELPER, "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-awaited-in-a-helper-waited-late", "var h = Helper(); Mine(); await h;", HELPER, "", ORDERED, ORDERED, PAIR);
+        yield return new Row("outer-awaited-in-a-helper", "var h = Helper(); await h; Mine();", HELPER, "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-awaited-in-a-helper-in-a-loop", $"{LOOP}var h = Helper(); await h; Mine(); }}", HELPER, "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-awaited-in-a-helper-waited-late", "var h = Helper(); Mine(); await h;", HELPER, "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
         yield return new Row("outer-awaited-in-a-helper-unwaited-in-a-loop", $"{LOOP}var h = Helper(); Mine(); }}", HELPER, "", PAIR, PAIR, PAIR);
         const string HELPER_TAIL = "private async Task Helper() { await " + OUTER + "; await Task.Yield(); Mine(); }";
-        yield return new Row("outer-awaited-in-a-helper-whose-tail-writes", "var h = Helper(); await h;", HELPER_TAIL, "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-awaited-in-a-helper-whose-tail-writes-unwaited", "var h = Helper();", HELPER_TAIL, "", ORDERED, ORDERED, PAIR);
+        yield return new Row("outer-awaited-in-a-helper-whose-tail-writes", "var h = Helper(); await h;", HELPER_TAIL, "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-awaited-in-a-helper-whose-tail-writes-unwaited", "var h = Helper();", HELPER_TAIL, "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
     }
 
     /// <summary>A body with nothing after its last <c>await</c> has no tail: it completes where that <c>await</c> resumes, and the
@@ -209,7 +217,8 @@ public sealed class PerPassClimbTests
     /// <summary>A level above the call that waits for the task below in each form, with an exception that reaches the next pass or does
     /// not, and a context that may be installed: a body that awaits at once completes the work on every exit; a blocking wait of a task
     /// does on its exceptional exit only under ADR 0030, which an installed context takes away, and the caller of the level reaches
-    /// the next pass by that exit only where it catches.</summary>
+    /// the next pass by that exit only where it catches. In an outer admitted delegate's synchronous part, the nested call is made by
+    /// two executions and loses its admission, keeping the listed sides wider (#414).</summary>
     private static IEnumerable<Row> LevelRows()
     {
         (string Form, string Members, string Call, bool Blocking)[] forms =
@@ -246,21 +255,22 @@ public sealed class PerPassClimbTests
         // The delegate of an outer admitted call calls a level that waits for the call below.
         const string DELEGATE_LEVEL = "_outer.ExecuteAsync(async () => { await Middle(); })";
         const string LEVEL = "private async Task Middle() { await Seed(); }";
-        yield return new Row("outer-delegate-level-awaited", $"await {DELEGATE_LEVEL}; Mine();", LEVEL, "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-delegate-level-unwaited", $"{DELEGATE_LEVEL}; Mine();", LEVEL, "", ORDERED, ORDERED, PAIR);
+        yield return new Row("outer-delegate-level-awaited", $"await {DELEGATE_LEVEL}; Mine();", LEVEL, "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-delegate-level-unwaited", $"{DELEGATE_LEVEL}; Mine();", LEVEL, "", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
         yield return new Row("outer-delegate-level-unwaited-in-a-loop", $"{LOOP}{DELEGATE_LEVEL}; Mine(); }}", LEVEL, "", PAIR, PAIR, PAIR);
-        yield return new Row("outer-delegate-level-blocked-caught", $"try {{ {DELEGATE_LEVEL}.Wait();{CATCH} Mine();", LEVEL, "", ORDERED, ORDERED, BLOCKING);
-        yield return new Row("outer-delegate-level-blocked-caught-installer", $"try {{ {DELEGATE_LEVEL}.Wait();{CATCH} Mine();", LEVEL, "installer", ORDERED, ORDERED, PAIR);
+        yield return new Row("outer-delegate-level-blocked-caught", $"try {{ {DELEGATE_LEVEL}.Wait();{CATCH} Mine();", LEVEL, "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-delegate-level-blocked-caught-installer", $"try {{ {DELEGATE_LEVEL}.Wait();{CATCH} Mine();", LEVEL, "installer", NESTED_ADMISSION, NESTED_ADMISSION, PAIR);
         const string DIRECT = "_outer.ExecuteAsync(async () => { await _seed.ExecuteAsync(async () => { Sync(); await Task.Yield(); Cont(); }); })";
-        yield return new Row("outer-delegate-call-awaited", $"await {DIRECT}; Mine();", "", "", ORDERED, ORDERED, ORDERED);
-        yield return new Row("outer-delegate-call-awaited-in-a-loop", $"{LOOP}await {DIRECT}; Mine(); }}", "", "", ORDERED, ORDERED, ORDERED);
+        yield return new Row("outer-delegate-call-awaited", $"await {DIRECT}; Mine();", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
+        yield return new Row("outer-delegate-call-awaited-in-a-loop", $"{LOOP}await {DIRECT}; Mine(); }}", "", "", NESTED_ADMISSION, NESTED_ADMISSION, NESTED_ADMISSION);
         yield return new Row("level-blocking-on-the-pool", $"await Task.Run(() => {{ {LOOP}try {{ Middle();{CATCH} Mine(); }} }});",
                              "private void Middle() { Seed().Wait(); }", "", POOLED, POOLED, POOLED);
     }
 
     /// <summary>The wait for the task of an outer admitted call of the project's library, in every form: <c>Task</c> and
     /// <c>ValueTask</c>, <c>await</c> and each blocking wait, a member that returns no task; with an exception that reaches the code
-    /// after the call or does not, and a context that may be installed. The next run follows the library's wait whatever the form.</summary>
+    /// after the call or does not, and a context that may be installed. The next run follows the library's wait whatever the form;
+    /// its listed sides stay wider because the nested call is made by two executions and loses its admission (#414).</summary>
     private static IEnumerable<Row> OuterFormRows()
     {
         const string TASK = "Runs.Lib.Run(async () => { var s = Seed(); await s; })";
@@ -285,16 +295,25 @@ public sealed class PerPassClimbTests
                 foreach (var installer in new[] { false, true })
                 {
                     var body = (caught ? $"try {{ {statement}{CATCH}" : statement) + " Mine();";
-                    var mine = kind == "joined" || !caught ? ORDERED
+                    var mine = kind == "joined" || !caught ? NESTED_ADMISSION
                         : kind == "value" || installer ? PAIR
-                        : BLOCKING;
+                        : NESTED_ADMISSION;
                     yield return new Row($"runs-{form}{(caught ? "-caught" : "")}{(installer ? "-installer" : "")}", body, "", installer ? RUNS_INSTALLER : "",
-                                         ORDERED, ORDERED, mine);
+                                         NESTED_ADMISSION, NESTED_ADMISSION, mine);
                 }
             }
         }
     }
 
+    /// <summary>Compares all three Polly outcomes with their side-specific expectations, including the listed wider sides
+    /// where the nested call is made by two executions and loses its admission (#414).</summary>
+    /// <param name="label">What the row is.</param>
+    /// <param name="body">The body of the worker's ExecuteAsync.</param>
+    /// <param name="members">The members beside the common ones.</param>
+    /// <param name="other">The other hosted service, or whether it installs a context for a Polly row.</param>
+    /// <param name="sync">The expectation of the next synchronous part.</param>
+    /// <param name="self">The expectation of the next continuation.</param>
+    /// <param name="mine">The expectation of the code after the wait.</param>
     [Theory]
     [MemberData(nameof(PollyRows))]
     public void Climb_reads_each_wait_as_the_join_reading_gives_it(string label, string body, string members, string other, string sync, string self,
@@ -307,6 +326,15 @@ public sealed class PerPassClimbTests
         Check(label, "code after the wait", observed.Mine, mine);
     }
 
+    /// <summary>Compares all three project-library outcomes with their side-specific expectations, including the listed wider sides
+    /// where the nested call is made by two executions and loses its admission (#414).</summary>
+    /// <param name="label">What the row is.</param>
+    /// <param name="body">The body of the worker's ExecuteAsync.</param>
+    /// <param name="members">The members beside the common ones.</param>
+    /// <param name="other">The other hosted service, or whether it installs a context for a Polly row.</param>
+    /// <param name="sync">The expectation of the next synchronous part.</param>
+    /// <param name="self">The expectation of the next continuation.</param>
+    /// <param name="mine">The expectation of the code after the wait.</param>
     [Theory]
     [MemberData(nameof(RunsRows))]
     public void Outer_wait_of_the_projects_library_is_read_by_its_form(string label, string body, string members, string other, string sync, string self,

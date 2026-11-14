@@ -751,11 +751,12 @@ internal sealed partial class HappensBefore
             ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || SpawnedOnce(anchor.ChildId))
             : [];
 
-    /// <summary>A spawn's position in its parent. An admitted sequential-awaited call starts its continuations before the call's
-    /// repeated delegate prefixes have all returned, so no path orders a later run's prefix after an earlier run's continuation; only the
-    /// completion proof of the queried passes does, where the call's task is waited for at once and every entry of the body completes
-    /// before the next one starts. Any other async return, including a sequential-awaited call outside the admission,
-    /// starts its continuation after the call returns, so a path already orders it after the synchronous part of every run.</summary>
+    /// <summary>A spawn's position in its parent. The first run of a sequential-awaited call starts in the caller's execution; for an
+    /// async target, each later run's prefix also starts in the call's continuation, in every record layer. A non-async target keeps
+    /// every run in the caller. An admitted call anchors its continuation at the call: only the completion proof of the queried passes
+    /// orders its runs where the call's task is waited for at once and every entry completes before the next starts. Any other async
+    /// return, including a sequential-awaited call outside the admission, anchors its continuation after the call returns; the later
+    /// prefixes in that continuation start there too, rather than all preceding the continuation.</summary>
     /// <param name="anchor">The spawn anchor.</param>
     private PointKey AnchorPoint(SpawnAnchor anchor) =>
         new(anchor.CallerInstance, anchor.OperationId, anchor.Kind == SpawnAnchorKind.AsyncReturn &&
