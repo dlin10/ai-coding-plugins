@@ -329,8 +329,6 @@ public sealed class TaskForwarderJoinMatrixTests
             // R2 / TD-060a: forwarding adds a proof of join; the async call and its separate tail remain in both layers.
             Assert.NotEmpty(spawns);
             var order = typeof(ExecutionAnalysis).GetField("_order", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(run.Executions);
-            var anchors = (Dictionary<string, SpawnAnchor>)typeof(HappensBefore).GetField("_anchorOfChild",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(order)!;
             if (program.Forwarder)
             {
                 var forwarders = run.Heap.Instances.Values.Where(instance => program.Library.Length != 0
@@ -347,8 +345,8 @@ public sealed class TaskForwarderJoinMatrixTests
                     execution => ((HappensBefore)order!).ForwardedTask(execution.Id, instance.Id) is not null));
             }
             Assert.All(spawns, spawn => Assert.Contains(run.Executions!.Executions, execution => execution.Id.EndsWith($">async:{run.Heap.Instances[spawn.CallerInstance].BodyId}#{spawn.OperationId}", StringComparison.Ordinal) &&
-                anchors.TryGetValue(execution.Id, out var anchor) && anchor.Kind == SpawnAnchorKind.AsyncReturn &&
-                anchor.CallerInstance == spawn.CallerInstance && anchor.OperationId == spawn.OperationId &&
+                ((HappensBefore)order!).StartsOf(execution.Id).Any(anchor => anchor.Kind == SpawnAnchorKind.AsyncReturn &&
+                    anchor.CallerInstance == spawn.CallerInstance && anchor.OperationId == spawn.OperationId) &&
                 run.Executions.Entries.GetValueOrDefault(execution.Id)?.Any(entry => entry.Segment == BodySegment.Tail &&
                     spawn.Callees.Contains(entry.InstanceId)) == true &&
                 execution.Origin is { } origin && origin.BodyId == run.Heap.Instances[spawn.CallerInstance].BodyId && origin.OperationId == spawn.OperationId));

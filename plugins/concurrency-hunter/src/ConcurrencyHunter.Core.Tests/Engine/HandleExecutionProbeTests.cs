@@ -23,17 +23,15 @@ public sealed class HandleExecutionProbeTests(HandleExecutionProbeFixture fixtur
         Counts(runs);
         Assert.Empty(runs.Errors);
         Assert.Contains(runs.Admitted.Run.Findings, finding => finding.Fingerprint == "0d8df6303781e5e8");
+        Assert.DoesNotContain(runs.Admitted.Run.Findings, finding => finding.Fingerprint == "beab0b89c04944ad");
         Assert.All(runs.Records.Run.Findings, finding => Assert.Contains(finding, runs.Admitted.Run.Findings));
         Assert.True(runs.Admitted.Run.LibraryBodies >= 1);
         Assert.Equal(0, runs.Records.Run.LibraryBodies);
         var records = runs.Records.Run.Findings.ToHashSet();
         var extra = runs.Admitted.Analysis.Findings.Where(finding => !records.Contains(HandleExecutionProbeFixture.Triple(finding))).ToArray();
-        string[] allowed =
-        [
-            "0524864340b4353b", "0d8df6303781e5e8", "2379952072974ddb", "2cf8baf23ae18f63", "311c9df2db3d44da", "3a949021a7a660a5",
-            "494eb6ff8187f085", "79f689686e9e9b59", "807b9682d3bff99c", "807deb9f1da2bbdf", "84fdefd055027cc4", "be087dc34329ce4b",
-            "beab0b89c04944ad", "c203ff7acbe7a484", "e38e848da2220a30", "ec7a1c9eb38b5705"
-        ];
+        // #404: the later runs of a sequential-awaited record; #402's joined retry finding beab0b89c04944ad is gone (ADR 0035).
+        string[] allowed = ["0d8df6303781e5e8"];
+        Assert.Single(extra);
         Assert.All(extra, finding => Assert.Contains(finding.Fingerprint, allowed));
         var entries = runs.Residuals.GetProperty("findings").EnumerateArray().ToArray();
         Assert.Equal(extra.Length, entries.Length);

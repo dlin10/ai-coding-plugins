@@ -138,7 +138,9 @@ _Avoid_: task tree, call tree, thread tree
 **Site pass**:
 One time the parent of a **Spawn site** reaches it: an iteration of a loop, one call of a helper called
 twice, one run of the delegate of a built-in or project model's `sequential` or `sequential-awaited`
-call. A **Join** on a handle proven to be the work this pass started, reached on every path from the
+call. Several method instances that reach the site in one parent start one **Execution instance**
+with a start for each; each start's pass is judged by its own start and wait, and the work is
+ordered only when it is for every start. A **Join** on a handle proven to be the work this pass started, reached on every path from the
 spawn to the next pass, orders that work before the next pass and before the parent's accesses after
 the wait, and work that does not overlap itself loses its self-pair; the site still repeats, and the
 iterations of one `Parallel` call or the callbacks of one periodic timer still overlap one another.

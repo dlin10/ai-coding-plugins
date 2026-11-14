@@ -47,11 +47,11 @@ public sealed class AwaitExitFlowTests
                               .OrderByDescending(candidate => JoinedOf(candidate.Late).Length)
                               .First();
         var joined = JoinedOf(outer.Late);
+        // The fixtures start the child once, so the joining task has one start of it and JoinedFrom gives its one point.
         var from = afterTheGroup ? AfterTheGroup(order, PointOf(outer.Late))
-                                 : (HappensBefore.PointKey?)joinedFrom.Invoke(order, [outer.Execution, joined]);
+                                 : Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<HappensBefore.PointKey>>(joinedFrom.Invoke(order, [outer.Execution, joined])));
         var flow = (HappensBefore.Flow)flowOf.Invoke(order, [outer.Execution])!;
 
-        Assert.NotNull(from);
         return flow.AlwaysFollows(from, [PointOf(outer.Late)], exceptionalExits);
 
         static HappensBefore.PointKey PointOf(object join) => (HappensBefore.PointKey)join.GetType().GetProperty("Point")!.GetValue(join)!;

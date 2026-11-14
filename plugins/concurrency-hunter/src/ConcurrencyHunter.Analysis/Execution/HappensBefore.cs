@@ -67,7 +67,9 @@ internal sealed partial class HappensBefore
     private readonly IReadOnlyDictionary<string, string> _tails;
     private readonly IReadOnlySet<string> _duringStartup;
     private readonly Dictionary<string, List<SpawnAnchor>> _anchors = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, SpawnAnchor> _anchorOfChild = new(StringComparer.Ordinal);
+    /// <summary>Every start of each execution, by the execution started, from the anchors kept per parent and in their order
+    /// (<see cref="StartsOf"/>).</summary>
+    private readonly Dictionary<string, List<SpawnAnchor>> _startsOfChild = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
     private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _admittedCalls;
@@ -170,7 +172,7 @@ internal sealed partial class HappensBefore
             if (!_executions.ContainsKey(anchor.ExecutionId) || !_executions.ContainsKey(anchor.ChildId))
                 continue;
             Get(_anchors, anchor.ExecutionId).Add(anchor);
-            _anchorOfChild.TryAdd(anchor.ChildId, anchor);
+            Get(_startsOfChild, anchor.ChildId).Add(anchor);
             IEnumerable<string> handles = anchor.Kind switch
             {
                 SpawnAnchorKind.Spawn => _spawnSites.GetValueOrDefault((anchor.CallerInstance, anchor.OperationId))?.Handles ?? new HashSet<string>(),
@@ -209,6 +211,12 @@ internal sealed partial class HappensBefore
 
     /// <summary>The distinct spawn and async call sites, each with the API it calls.</summary>
     internal IReadOnlyList<SpawnSiteCoverage> SpawnSites { get; }
+
+    /// <summary>Every start of an execution (ADR 0035): the anchors with that child among those the graph keeps per parent, whose parent
+    /// and child are both executions of the scope, in the order the graph keeps them. An execution is one per parent and site, so two
+    /// method instances reaching its site in one parent give it a start each, and every reader of a start reads all of them.</summary>
+    /// <param name="execution">The execution started.</param>
+    internal IReadOnlyList<SpawnAnchor> StartsOf(string execution) => _startsOfChild.TryGetValue(execution, out var starts) ? starts : [];
 
     private void CheckCancellation()
     {
@@ -409,7 +417,9 @@ internal sealed partial class HappensBefore
         _context.Creator is { } creator ? CreatorRuns.StartedOnce(_executions, execution, creator) : _executions[execution].SpawnedOnce;
 
     /// <summary>A task whose completion the plan gives no order for: a continuation of anything but one proven spawn's handle, or the task a
-    /// non-async <c>Task.Run</c> delegate returned. A join on it proves nothing.</summary>
+    /// non-async <c>Task.Run</c> delegate returned. A join on it proves nothing. Every start of the child is read (ADR 0035): it is
+    /// composite when any start's work is, and a <c>ContinueWith</c> continuation follows its antecedent only when every start proves the
+    /// same one, whose edge is then published once; otherwise it is composite.</summary>
     /// <param name="child">The child.</param>
     private bool IsComposite(string child)
     {
@@ -421,9 +431,15 @@ internal sealed partial class HappensBefore
         // A tail runs the rest of work whose completion the plan gives no order for, so its own completion has none either.
         if (_executions.TryGetValue(child, out var tail) && tail.Origin is { IsTail: true } && tail.ParentId is { } parent)
             composite = IsComposite(parent);
-        if (!composite && _anchorOfChild.TryGetValue(child, out var anchor) && anchor.Kind == SpawnAnchorKind.Spawn &&
-            _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site))
+        var antecedents = new List<string?>();
+        string? spawning = null;
+        foreach (var anchor in StartsOf(child))
         {
+            CheckCancellation();
+            if (composite)
+                break;
+            if (anchor.Kind != SpawnAnchorKind.Spawn || !_spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site))
+                continue;
             switch (site.Kind)
             {
                 case IrSpawnKind.ContinueWith:
@@ -431,9 +447,10 @@ internal sealed partial class HappensBefore
                     var caller = _heap.Instances[anchor.CallerInstance];
                     var receiver = caller.Summary.Spawns.FirstOrDefault(spawn => spawn.OperationId == anchor.OperationId)?.Antecedent;
                     var antecedent = receiver is null ? null : ProveHandle(anchor.ExecutionId, caller, receiver, anchor.OperationId);
-                    composite = antecedent is null;
-                    if (!composite && Once(anchor.ExecutionId))
-                        Get(_context.Continuations, antecedent!).Add(child);
+                    antecedents.Add(antecedent);
+                    spawning = anchor.ExecutionId;
+                    // A start whose antecedent is unproven, or another than an earlier start's, gives the continuation no one antecedent.
+                    composite = antecedent is null || antecedents.Distinct(StringComparer.Ordinal).Count() > 1;
                     break;
                 }
                 case IrSpawnKind.TaskRun:
@@ -446,6 +463,8 @@ internal sealed partial class HappensBefore
                     break;
             }
         }
+        if (!composite && antecedents is [var proven, ..] && Once(spawning!))
+            Get(_context.Continuations, proven!).Add(child);
 
         _context.Composite[child] = composite;
         return composite;
@@ -680,30 +699,48 @@ internal sealed partial class HappensBefore
     /// it starts the joined work (from its own start, when the work comes from elsewhere) to its normal end. An exception that leaves the
     /// joining execution is no path to that end here, so the end carries the joined work's completion only on a normal return; a wait for
     /// the joining execution, a blocking wait or an <c>await</c>, reads its exceptional exit as that completion only where no exception
-    /// leaves around the join (<see cref="LeavesWorkRunning"/>).</summary>
+    /// leaves around the join (<see cref="LeavesWorkRunning"/>). Where the joining execution starts the work in several places, every start
+    /// is accounted for (ADR 0035): one that can reach the join is waited by it, and one that cannot, on another branch of an exclusive
+    /// choice, by another join of the same work on every path to the end (<see cref="WaitsOf"/>).</summary>
     /// <param name="joining">The joining.</param>
     /// <param name="join">The join.</param>
     /// <param name="joined">The joined.</param>
-    private bool BoundsEnd(string joining, JoinAnchor join, string joined) => FlowOf(joining).AlwaysFollows(JoinedFrom(joining, joined), [join.Point]);
+    private bool BoundsEnd(string joining, JoinAnchor join, string joined)
+    {
+        var flow = FlowOf(joining);
+        return JoinedFrom(joining, joined) is not { } starts
+            ? flow.AlwaysFollows(null, [join.Point])
+            : starts.All(from => flow.AlwaysFollows(from, WaitsOf(joining, join, joined, from)));
+    }
 
-    /// <summary>Where the joining execution starts the joined work: the anchor of the joined execution's ancestor the joining one spawns,
-    /// or null, for its own start, when the work comes from elsewhere.</summary>
+    /// <summary>The joins that wait for joined work on the paths from one of its starts: the join itself where that start can reach it, and
+    /// otherwise every join of the joining execution that waits for the same work, as <see cref="Dominates(string, string, PointKey)"/>
+    /// reads them.</summary>
+    /// <param name="joining">The joining execution.</param>
+    /// <param name="join">The join asked about.</param>
+    /// <param name="joined">The joined execution.</param>
+    /// <param name="from">The point of one start of the joined work in the joining execution.</param>
+    private PointKey[] WaitsOf(string joining, JoinAnchor join, string joined, PointKey from) =>
+        FlowOf(joining).Reaches(from, join.Point, overlappingRuns: false)
+            ? [join.Point]
+            : Joins(joining).Where(other => other.Targets.Contains(joined, StringComparer.Ordinal)).Select(other => other.Point).ToArray();
+
+    /// <summary>Where the joining execution starts the joined work: the point of every start of the joined execution's ancestor the
+    /// joining one spawns, or null, for its own start, when the work comes from elsewhere or has no start in it.</summary>
     /// <param name="joining">The joining.</param>
     /// <param name="joined">The joined.</param>
-    private PointKey? JoinedFrom(string joining, string joined)
+    private IReadOnlyList<PointKey>? JoinedFrom(string joining, string joined)
     {
-        PointKey? from = null;
         for (var current = joined; _executions.TryGetValue(current, out var execution) && execution.ParentId is { } parent; current = parent)
         {
             CheckCancellation();
             if (parent != joining)
                 continue;
-            if (_anchorOfChild.TryGetValue(current, out var anchor) && anchor.ExecutionId == joining)
-                from = AnchorPoint(anchor);
-            break;
+            var points = StartsOf(current).Where(anchor => anchor.ExecutionId == joining).Select(AnchorPoint).Distinct().ToArray();
+            return points.Length == 0 ? null : points;
         }
 
-        return from;
+        return null;
     }
 
     /// <summary>The anchors whose spawn edge holds for every instance of the child: the spawning execution runs at most once, and a timer's
@@ -938,7 +975,9 @@ internal sealed partial class HappensBefore
     /// execution bounds its end on every normal path (<see cref="BoundsEnd"/>) but an exception leaves the execution around it, or the
     /// joined execution's own end carries such work in turn. The exception of an earlier <c>await</c> is one that leaves around the
     /// join, although it comes after what that <c>await</c> waits for completed: it does not wait for the work of the join. An
-    /// execution reached again through its own joins is taken to leave work running.</summary>
+    /// execution reached again through its own joins is taken to leave work running. Where the execution starts the joined work in
+    /// several places, an exception leaves it running when it does so for any start, each accounted for as <see cref="BoundsEnd"/>
+    /// accounts for it.</summary>
     /// <param name="execution">The execution.</param>
     /// <param name="known">The answers already found, by execution.</param>
     private bool LeavesWorkRunning(string execution, Dictionary<string, bool> known)
@@ -953,10 +992,11 @@ internal sealed partial class HappensBefore
             foreach (var joined in join.Targets.Where(target => target != execution))
             {
                 CheckCancellation();
-                var from = JoinedFrom(execution, joined);
                 var flow = FlowOf(execution);
-                if (flow.AlwaysFollows(from, [join.Point]) &&
-                    (!flow.AlwaysFollows(from, [join.Point], exceptionalExits: true) || LeavesWorkRunning(joined, known)))
+                (PointKey? From, PointKey[] Waits)[] starts =
+                    JoinedFrom(execution, joined)?.Select(from => ((PointKey?)from, WaitsOf(execution, join, joined, from))).ToArray() ?? [(null, [join.Point])];
+                if (starts.Any(start => flow.AlwaysFollows(start.From, start.Waits) &&
+                                        (!flow.AlwaysFollows(start.From, start.Waits, exceptionalExits: true) || LeavesWorkRunning(joined, known))))
                 {
                     leaves = true;
                     break;
@@ -1219,14 +1259,15 @@ internal sealed partial class HappensBefore
     /// <summary>Whether an execution runs as thread-pool work (D-0018): the work of a <c>Task.Run</c>, a <c>QueueUserWorkItem</c> or an
     /// <c>UnsafeQueueUserWorkItem</c>, of a <c>StartNew</c> whose scheduler argument is a read of <c>TaskScheduler.Default</c>, a
     /// <c>Parallel</c> body, a timer's callback, or a request of a <c>controller-action</c>, <c>minimal-api</c> or <c>grpc-method</c> root.
-    /// The tail of async work runs where the execution whose prefix it continues does; every other execution runs on its thread.</summary>
+    /// The tail of async work runs where the execution whose prefix it continues does; every other execution runs on its thread. Every
+    /// start of an execution shares its site's operation, so any start answers alike.</summary>
     /// <param name="execution">The execution.</param>
     private bool OnThreadPool(string execution)
     {
         for (var current = execution; _executions.TryGetValue(current, out var instance);)
         {
             CheckCancellation();
-            var anchor = _anchorOfChild.GetValueOrDefault(current);
+            var anchor = StartsOf(current) is [var start, ..] ? start : null;
             if (instance.Origin is { IsTail: true } || anchor?.Kind == SpawnAnchorKind.AsyncReturn)
             {
                 if (instance.ParentId is not { } parent)
