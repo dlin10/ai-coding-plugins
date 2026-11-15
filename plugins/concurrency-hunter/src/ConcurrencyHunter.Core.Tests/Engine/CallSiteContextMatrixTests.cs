@@ -242,10 +242,13 @@ public sealed class CallSiteContextMatrixTests
         var pairs = pairing.Pairs.Where(pair =>
             pair.Resource.Member.Name == field && pair.First.Root.RootId != pair.Second.Root.RootId).ToArray();
         var fresh = cell.Place == Place.OneSiteTwoRoots && cell.Created == Created.Object;
-        Assert.Equal(Expected(cell) && !fresh, pairs.Length != 0);
-        if (fresh)
+        // Helpers.Kept and the library's closure keep these objects; no program value holds them directly (ADR 0037).
+        var libraryInternal = cell.Merge == Merge.None && cell.Created is Created.Object or Created.Closure or Created.ModelResultNew or Created.Storage;
+        Assert.Equal(Expected(cell) && !fresh && !libraryInternal, pairs.Length != 0);
+        if (fresh || Expected(cell) && libraryInternal)
         {
-            Assert.All(accesses, access => Assert.True(access.IsFresh));
+            var reason = fresh ? InterproceduralPairing.SKIP_FRESH_OBJECT : InterproceduralPairing.SKIP_LIBRARY_INTERNAL;
+            Assert.All(accesses, access => Assert.True(fresh ? access.IsFresh : access.IsLibraryInternal));
             var cross = accesses.Where(access => access.Root.RootId == accesses[0].Root.RootId)
                                 .SelectMany(first => accesses.Where(second => second.Root.RootId != first.Root.RootId &&
                                                                              second.Resource.Identity == first.Resource.Identity &&
@@ -254,11 +257,13 @@ public sealed class CallSiteContextMatrixTests
             Assert.NotEmpty(cross);
             Assert.All(cross, pair =>
             {
+                // The declaring body's own closure writes are fresh; that earlier reason still wins for those two observations.
+                var pairReason = pair.All(access => access.IsFresh) ? InterproceduralPairing.SKIP_FRESH_OBJECT : reason;
                 var skipped = InterproceduralPairing.Pair(pair, run.Executions!, heap);
                 Assert.Empty(skipped.Pairs);
                 var selfSkips = pair.Sum(access => InterproceduralPairing.Pair([access], run.Executions!, heap)
-                                                                       .Skips.GetValueOrDefault(InterproceduralPairing.SKIP_FRESH_OBJECT));
-                Assert.Equal(selfSkips + 1, skipped.Skips.GetValueOrDefault(InterproceduralPairing.SKIP_FRESH_OBJECT));
+                                                                       .Skips.GetValueOrDefault(pairReason));
+                Assert.Equal(selfSkips + 1, skipped.Skips.GetValueOrDefault(pairReason));
             });
         }
     }
@@ -494,7 +499,7 @@ public sealed class CallSiteContextMatrixTests
         return new LibraryModels([.. LibraryModels.BuiltIn.Members, .. table.Members], LibraryModels.BuiltIn.ImmutableTypes);
     }
 
-    private static ScopeRun Run(string libraryText, string programText, AnalysisLimits? limits = null, bool admitted = true)
+    internal static ScopeRun Run(string libraryText, string programText, AnalysisLimits? limits = null, bool admitted = true)
     {
         var (library, reference) = Compile(LIBRARY, LIBRARY_USINGS + COMMON + libraryText, ModelLibrary.Value.Reference);
         var solution = FixtureSolution.Create(new FixtureOptions { MetadataReferences = [reference, ModelLibrary.Value.Reference] }, ("Case.cs", programText));
@@ -513,7 +518,7 @@ public sealed class CallSiteContextMatrixTests
         return run;
     }
 
-    private static (CSharpCompilation, MetadataReference) Compile(string name, string source, params MetadataReference[] references)
+    internal static (CSharpCompilation, MetadataReference) Compile(string name, string source, params MetadataReference[] references)
     {
         var compilation = ((CSharpCompilation)FixtureSolution.Create(new FixtureOptions { MetadataReferences = references }, ("Library.cs", source))
             .Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!).WithAssemblyName(name);

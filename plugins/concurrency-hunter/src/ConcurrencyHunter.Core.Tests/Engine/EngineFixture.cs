@@ -272,6 +272,12 @@ public static class EngineFixture
                 return;
             }
 
+            if (first.IsLibraryInternal && second.IsLibraryInternal)
+            {
+                skips[InterproceduralPairing.SKIP_LIBRARY_INTERNAL] = skips.GetValueOrDefault(InterproceduralPairing.SKIP_LIBRARY_INTERNAL) + 1;
+                return;
+            }
+
             pairs.Add(new AccessPair(first, second, protection) { Resource = reported, Uncertainties = uncertainties });
         }
 

@@ -758,7 +758,13 @@ as the **Model generator** compiles the library, analysed in the scope together 
 library calls whose results reach that call's receiver and arguments, so the receiver is the object
 the library made, with the fields it set. Library bodies none of those calls reach stay outside the
 analysis, and every other call into the library keeps its **Library model** or stays an **Opaque
-call**. No **Seed** is added, and the library's type initializers are **Inert type initializers**.
+call**. Only a member of a package is analysed this way: a **Deciding gap** on a member of a shared
+framework stays a gap. The library bodies one call site reaches are bounded by their number, never by
+time, so one program gets one answer on every machine; a call site past the bound keeps its gap. An
+analysis that answers one gap can show another that decides the same **Finding** — an outer library
+call whose delegate makes the inner one — so the scope is analysed again with the call sites of the
+gaps the last analysis found deciding admitted as well, for a fixed number of rounds at most.
+No **Seed** is added, and the library's type initializers are **Inert type initializers**.
 A library body reached from one of these calls in the program's code carries that call's place, so
 the objects library bodies create are apart per call site in the program's code however much library
 code the calls share; the library's static storage stays one, as it is in the process. The objects one
@@ -766,6 +772,18 @@ call site's library bodies create on its successive calls share one region, and 
 apart where the accesses reach them as **Fresh objects**.
 _Avoid_: inlining (the body is analysed in the scope, not copied into the caller), on-demand
 generation (it produces no model)
+
+**Library-internal object**:
+An object a library body allocated during a **Call-site analysis** that no place in the program's code
+refers to: no value of a program body — a local, a parameter, the result of a call — and no field, cell
+or captured variable of an object the program created or of the program's own storage. A reference
+held by a library object or by the library's static storage does not count, so the inside of a library
+object the program holds is library-internal while that object itself is not. Two accesses made by
+library bodies to a library-internal object never pair: only the library reaches that state, and the
+library answers for it. An access made by the program's code, an object the program created, the
+library's static storage itself, and an object whose holders the analysis cannot tell keep their pairs.
+_Avoid_: private object (says nothing about who created it), owned object (ownership is about who
+accesses a region, not who refers to it), thread-safe (the rule proves no synchronization)
 
 **Unsafe narrowing**:
 A generated answer that claims less than the truth: a **Delegate fate** other than the true one,

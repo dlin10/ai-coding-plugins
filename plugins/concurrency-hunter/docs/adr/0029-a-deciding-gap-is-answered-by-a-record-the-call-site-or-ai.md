@@ -148,3 +148,39 @@ program, and each would have to learn otherwise to leave the other calls into th
 Whether the engine carries a factory-made receiver through the library's wrappers, virtual dispatch and delegate fields,
 and orders the retry attempts by its own pass rules rather than by a record's admission, is measured on Polly before the
 bound on bodies and time per call site is set.
+
+## Amendment, 2026-11-15: packages only, a bound in bodies alone, and rounds
+
+Three things the decision left open are settled before the call-site analysis becomes what a run does.
+
+**Only a package's members are analysed at the call site.** A deciding gap on a member of a shared framework
+(`Microsoft.NETCore.App`, `Microsoft.AspNetCore.App`) stays a gap, and coverage says why. The frameworks already have an
+owner: their records and the census the owner regenerates
+([ADR 0022](0022-the-owner-regenerates-the-built-in-corelib-models-from-a-recorded-commit.md)), as the committed generated
+files of a repository hold package members only. In the demo, 11 of the 12 members that are deciding gaps are framework
+members — `Console.WriteLine(object)`, `FieldInfo.SetValue`, `CancellationToken.Register(Action)` — and analysing them
+would compile `System.Private.CoreLib` and several more assemblies on every run, a cost the bound below does not limit,
+since it counts the bodies an analysis reaches and not the compilation before it. Rejected: every library, as the
+decision's Context implied for Kestrel's `Listen`. Whether a framework member is worth its compilation is measured
+before it is admitted.
+
+**The bound counts bodies and nothing else.** The library bodies one call site reaches are bounded by their number. The
+time a call site takes is measured and reported, and cuts nothing: a run is the product, and the same program must give
+the same findings on every machine, whereas a call site near a limit of seconds would lose its answer on a loaded one —
+what the member limit of a generation showed before it counted CPU time
+([ADR 0033](0033-the-recording-generates-four-members-at-once-and-the-member-limit-counts-the-members-cpu-time.md)), and
+CPU time cannot be attributed to one call site whose bodies are solved in one heap with the rest of the scope. The run's
+own deadline stays the guard against an analysis that does not end. Rejected: bodies and wall-clock time, as first
+written; bodies and CPU time.
+
+**The scope is analysed in rounds.** A gap decides a check only for the unknown execution its own delegate starts, so a
+library call whose delegate makes another library call is not a deciding gap until the inner one is answered. eShop's
+seeding shows it: `retry.Execute(() => InvokeSeeder(...))` runs a seeder that awaits `policy.ExecuteAsync(...)`; the
+first analysis names only `AsyncPolicy.ExecuteAsync(Func<Task>)`, and once that call has its body the same findings are
+decided by `Policy.Execute(Action)`. So after each analysis the deciding gaps on package members whose call sites are
+not yet admitted are admitted too and the scope is analysed again, until an analysis names no new one or three rounds
+of admission have run — four analyses of a scope at most. The admitted call sites only grow, so the rounds end and their
+result does not depend on order. A gap still deciding after the last round stays a gap. A scope with no deciding gap on
+a package member is analysed once, as before. Rejected: one round, which leaves eShop's 34 seeding findings behind the
+outer call; admitting in the first round every library call whose delegate encloses the access, a relation the analysis
+does not have and one that admits calls that decide nothing.

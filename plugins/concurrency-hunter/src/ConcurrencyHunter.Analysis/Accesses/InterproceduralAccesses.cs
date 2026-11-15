@@ -160,6 +160,8 @@ public static partial class InterproceduralAccesses
                                            .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
             var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
             var freshness = new HandedFreshness(input.Scope, input.Heap, input.Executions);
+            var admission = input.Scope.Reachable.Admission;
+            var libraryInternal = admission is null ? null : new LibraryInternalObjects(input.Heap, admission);
             var workHosts = WorkHosts(input, unknownCalls);
             // The collectors run one after another, so they share one pool: the accesses of every execution restate the same texts.
             var strings = new StringPool();
@@ -176,7 +178,7 @@ public static partial class InterproceduralAccesses
                      workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, freshness, strings, cancellationToken);
+                                                           unknownCalls, reach, freshness, libraryInternal, strings, cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
@@ -883,7 +885,7 @@ public static partial class InterproceduralAccesses
                                             Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
-                                            HandedFreshness freshness, StringPool strings, CancellationToken cancellationToken)
+                                            HandedFreshness freshness, LibraryInternalObjects? libraryInternal, StringPool strings, CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -2178,8 +2180,9 @@ public static partial class InterproceduralAccesses
         /// <param name="Root">The root its call path starts at.</param>
         /// <param name="Term">The expression naming its cell.</param>
         /// <param name="Fresh">Whether this observation reaches a fresh object's own field.</param>
+        /// <param name="LibraryInternal">Whether a library body touches a library-internal object.</param>
         private sealed record EmittedKey(string BodyId, int Operation, string Resource, AccessOperation Kind, bool Local, string Held, string Root,
-                                         string Term, bool Fresh);
+                                         string Term, bool Fresh, bool LibraryInternal);
 
         /// <summary>An access the emission keeps for its key, with the numbers of its guards' keys, as bits.</summary>
         /// <param name="Conditions">The numbers of its guards' keys.</param>
@@ -2444,6 +2447,9 @@ public static partial class InterproceduralAccesses
                         var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
                                                            .Order(StringComparer.Ordinal));
                         var region = _heap.Regions[regionId];
+                        var touched = resource.CollectionId ?? _heap.Located(resource.RegionId!, string.Empty)?.Region;
+                        var isLibraryInternal = input.Scope.Reachable.Admission?.IsLibraryBody(instance.BodyId) == true &&
+                                                touched is not null && libraryInternal?.IsInternal(touched) == true;
                         var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
                         var resourceIdentity = ReferenceEquals(resource, original) ? identity : resource.Identity;
                         // An access may be construction-local on one path and not on another (ADR 0018), and a construction triggered by
@@ -2452,7 +2458,7 @@ public static partial class InterproceduralAccesses
                                                                           .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
                             CheckCancellation();
-                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey, isFresh);
+                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey, isFresh, isLibraryInternal);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
                             if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
@@ -2507,6 +2513,7 @@ public static partial class InterproceduralAccesses
                                                      IterationParameters.GetValueOrDefault(instance.BodyId, -1) == ordinal &&
                                                      (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
                                 IsFresh = isFresh,
+                                IsLibraryInternal = isLibraryInternal,
                                 // Values of independent executions are independent unknowns, whatever they are called in the
                                 // body they come from (TD-092).
                                 SelectorTerm = term,
@@ -4815,6 +4822,7 @@ public static class InterproceduralPairing
     public const string SKIP_UNSATISFIABLE_PATH = "unsatisfiable-path";
     public const string SKIP_DISJOINT_ITERATION = "disjoint-iteration";
     public const string SKIP_FRESH_OBJECT = "fresh-object";
+    public const string SKIP_LIBRARY_INTERNAL = "library-internal";
 
     private static readonly IReadOnlySet<string> NoAssumptions = new HashSet<string>(StringComparer.Ordinal);
 
@@ -4855,6 +4863,12 @@ public static class InterproceduralPairing
             if (protection == PairProtection.SUFFICIENT)
             {
                 suppressed++;
+                return;
+            }
+
+            if (first.IsLibraryInternal && second.IsLibraryInternal)
+            {
+                skips[SKIP_LIBRARY_INTERNAL] = skips.GetValueOrDefault(SKIP_LIBRARY_INTERNAL) + 1;
                 return;
             }
 

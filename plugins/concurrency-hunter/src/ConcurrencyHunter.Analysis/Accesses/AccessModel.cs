@@ -173,6 +173,9 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     /// read-modify-write or compound access must qualify too. Two fresh accesses never pair, however far the object has escaped.</summary>
     public bool IsFresh { get; init; }
 
+    /// <summary>Whether a library body analysed at the call site touches an object only the library holds directly.</summary>
+    public bool IsLibraryInternal { get; init; }
+
     /// <summary>The expression naming this access's cell, in the width of its own type, for the solver to compare with another
     /// candidate's (TD-092). Null where the access touches no cell or the expression is not one the analysis reads.</summary>
     public ValueTerm? SelectorTerm { get; init; }
