@@ -50,6 +50,7 @@ internal sealed partial class HappensBefore
 
         private readonly Dictionary<(string SourceExecution, string DestinationExecution, PointKey Source, PointKey Destination, string? Creator), bool> _proofs = [];
         private readonly Dictionary<string, Flow> _flows = new(StringComparer.Ordinal);
+        private GapOrigins? _handleOrigins;
 
         /// <summary>The prefix of a caller's id in <see cref="_climbing"/>, which tells it from a tail's.</summary>
         private const string UP = "up:";
@@ -585,7 +586,7 @@ internal sealed partial class HappensBefore
         }
 
         /// <summary>The pass's own handle a value may carry, with the instance expressing it: the value itself, an argument of a call the
-        /// analysis cannot see into, or a return of a callee it comes from; null when it can carry none.</summary>
+        /// analysis cannot see into, or a return of a callee it comes from, through the heap's value flows; null when it can carry none.</summary>
         /// <param name="value">The value.</param>
         /// <param name="instance">The instance expressing it.</param>
         /// <param name="anchor">The pass's start.</param>
@@ -598,13 +599,22 @@ internal sealed partial class HappensBefore
             WorkCancellation.Check();
             if (order.ProveHandleSource(anchor.ExecutionId, instance, value, operation) == anchor.ChildId && Fresh(value, instance, anchor, spawn))
                 return (instance, value);
-            foreach (var call in value.SourceCalls.Concat(value.Producers.Calls).Concat(value.Values.OfType<CallResultValue>().Select(result => result.OperationId))
-                                      .Distinct())
+            var calls = new List<(MethodInstance Instance, int Operation)>();
+            var origins = value.Producers with
+            {
+                Calls = value.SourceCalls.Concat(value.Producers.Calls).Concat(value.Values.OfType<CallResultValue>().Select(result => result.OperationId)).ToHashSet()
+            };
+            (_handleOrigins ??= new GapOrigins(order._heap, [])).Walk(instance, origins, (current, call) =>
+            {
+                calls.Add((current, call));
+                return ValueOrigin.None;
+            });
+            foreach (var (current, call) in calls)
             {
                 WorkCancellation.Check();
-                if (!seen.Add((instance.Id, call)))
+                if (!seen.Add((current.Id, call)))
                     continue;
-                if (instance.Summary.OpaqueCalls.FirstOrDefault(candidate => candidate.OperationId == call) is { IsKnown: false } opaque)
+                if (current.Summary.OpaqueCalls.FirstOrDefault(candidate => candidate.OperationId == call) is { IsKnown: false } opaque)
                 {
                     foreach (var argument in opaque.Arguments)
                     {
@@ -613,11 +623,11 @@ internal sealed partial class HappensBefore
                             {
                                 SourceCalls = argument.SourceCalls, Completions = argument.Completions,
                                 CompletedCalls = argument.CompletedCalls, Producers = argument.Producers
-                            }, instance, anchor, spawn, operation, seen) is { } carried)
+                            }, current, anchor, spawn, operation, seen) is { } carried)
                             return carried;
                     }
                 }
-                foreach (var edge in order._heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call))
+                foreach (var edge in order._heap.Edges.Where(edge => edge.CallerInstance == current.Id && edge.OperationId == call))
                 {
                     WorkCancellation.Check();
                     if (!order._heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))

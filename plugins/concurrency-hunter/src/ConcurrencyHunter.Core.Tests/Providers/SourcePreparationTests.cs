@@ -103,7 +103,7 @@ public sealed class SourcePreparationTests
         using var cancelled = new CancellationTokenSource();
         server.RequestReceived = _ => cancelled.Cancel();
         var clock = new PreparationClock();
-        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, fixture.Install.Resolver(), Time: clock, Sources: sources),
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, fixture.Install.Resolver(), Time: clock, Budget: GenerationBudget.Recording, Sources: sources),
                                                fixture.Repository, cancelled.Token)!;
 
         var error = Assert.ThrowsAny<OperationCanceledException>(() => pass.Prepare(LibraryModels.BuiltIn, [fixture.Candidate]));
@@ -137,7 +137,7 @@ public sealed class SourcePreparationTests
             {
                 called++;
                 return ModelGenerator.Generate(request, fixture.Install.Resolver(), CancellationToken.None);
-            }, Sources: sources), fixture.Repository, CancellationToken.None)!;
+            }, Budget: GenerationBudget.Recording, Sources: sources), fixture.Repository, CancellationToken.None)!;
 
         pass.Prepare(LibraryModels.BuiltIn, [fixture.Candidate]);
 
@@ -152,7 +152,7 @@ public sealed class SourcePreparationTests
     {
         await using var server = new LoopbackSymbolServer();
         using var fixture = new Fixture(server);
-        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, fixture.Install.Resolver()),
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, fixture.Install.Resolver(), Budget: GenerationBudget.Recording),
                                                fixture.Repository, CancellationToken.None)!;
 
         pass.Prepare(LibraryModels.BuiltIn, [fixture.Candidate]);

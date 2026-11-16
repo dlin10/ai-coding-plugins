@@ -13,15 +13,34 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="Generator">The generator call, or <c>null</c> for the model generator over <paramref name="Install"/>.</param>
 /// <param name="BeforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
 /// <param name="Time">The clock generation budgets use, or <c>null</c> for the system clock.</param>
-/// <param name="Budget">Which run limit the run's generations spend: the run's unless the caller records.</param>
+/// <param name="Budget">The recording or census budget, required for generation; no budget is needed for reading modes.</param>
 /// <param name="BuiltIn">The built-in models the run reads in place of the shipped ones, in its scopes and in its generations; <c>null</c> for
 /// the shipped ones. The run that regenerates the frameworks' census reads them without the census members' entries
 /// (<see cref="LibraryModels.ForCensus"/>), so that every census member is generated.</param>
 /// <param name="Sources">The optional source provider, used only by the default generator before generation clocks start.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
                                        Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null,
-                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run, LibraryModels? BuiltIn = null,
-                                       LibrarySources? Sources = null);
+                                       TimeProvider? Time = null, GenerationBudget? Budget = null, LibraryModels? BuiltIn = null,
+                                       LibrarySources? Sources = null)
+{
+    internal ModelGeneration Mode { get; init; } = Validate(Mode, Budget);
+
+    /// <summary>Validates that generation has an explicitly selected recording or census budget.</summary>
+    /// <param name="mode">What the analysis does with the generated layer.</param>
+    /// <param name="budget">The optional generation budget.</param>
+    internal static ModelGeneration Validate(ModelGeneration mode, GenerationBudget? budget)
+    {
+        if (mode == ModelGeneration.Generate && budget is not (GenerationBudget.Recording or GenerationBudget.Census))
+            throw new ArgumentException("Generate requires a Recording or Census budget.", nameof(budget));
+        return mode;
+    }
+
+    /// <summary>The library classification and compilation seam for in-memory call-site fixtures; absent in product runs.</summary>
+    internal Func<IMethodSymbol?, Compilation, CallSiteLibrary>? LibraryTarget { get; init; }
+
+    /// <summary>The worker count for queue-order tests; absent in product runs, which use the budget's workers.</summary>
+    internal int? Workers { get; init; }
+}
 
 /// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's calls
 /// reach and which of them are generation targets, the generated layer each analysis reads, and what each target stands for
@@ -40,13 +59,14 @@ internal sealed class GenerationPass : IDisposable
 
     private GenerationPass(GenerationSetup setup, string repositoryRoot, CancellationToken cancellationToken)
     {
-        Mode = setup.Mode;
+        Mode = GenerationSetup.Validate(setup.Mode, setup.Budget);
         _install = setup.Install ?? ImplementationAssemblies.ForThisProcess();
-        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget), RunGeneration.MemberLimitOf(setup.Budget),
+        _generation = Mode == ModelGeneration.Generate
+            ? new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget!.Value), RunGeneration.MemberLimitOf(setup.Budget.Value),
                                         setup.Time ?? TimeProvider.System,
                                         setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies,
                                                                                                                      setup.BuiltIn)),
-                                        new AssemblyRanks(_install).Of, RunGeneration.WorkersOf(setup.Budget),
+                                        new AssemblyRanks(_install).Of, setup.Workers ?? RunGeneration.WorkersOf(setup.Budget.Value),
                                         setup.Generator is null && setup.Sources is { } sources ? (request, token) =>
                                         {
                                             var prepared = ModelGenerator.Prepare(request, _install, sources, token);
@@ -62,7 +82,8 @@ internal sealed class GenerationPass : IDisposable
                                                             prepared?.RecordObservedCode(sources);
                                                         }
                                                     });
-                                        } : null);
+                                        } : null)
+            : new RunGeneration(repositoryRoot, cancellationToken);
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;
     }
@@ -213,26 +234,8 @@ internal sealed class GenerationPass : IDisposable
 
     private (IMethodSymbol Member, IdentifiedGenerationTarget Target)? Resolve(Compilation compilation, string targetId)
     {
-        if (Split(targetId) is not { } parts)
-            return null;
-        var (assemblyName, id) = parts;
-        IMethodSymbol[] named;
-        try
-        {
-            named = DocumentationCommentId.GetSymbolsForDeclarationId(id, compilation)
-                                          .OfType<IMethodSymbol>()
-                                          .Select(symbol => (symbol.ReducedFrom ?? symbol).OriginalDefinition)
-                                          .Where(symbol => symbol.ContainingAssembly.Name == assemblyName &&
-                                                           string.Equals(symbol.GetDocumentationCommentId(), id, StringComparison.Ordinal))
-                                          .Take(2)
-                                          .ToArray();
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-
-        return named is [{ } only] && !FunctionPointers.In(only) &&
+        WorkCancellation.Check();
+        return CallTargets.Resolve(compilation, targetId) is { } only && !FunctionPointers.In(only) &&
                GenerationTargets.Of(only, compilation, _install, _cancellationToken) is IdentifiedGenerationTarget target
             ? (only, target)
             : null;

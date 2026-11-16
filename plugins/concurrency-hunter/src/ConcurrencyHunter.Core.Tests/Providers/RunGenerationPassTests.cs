@@ -414,7 +414,7 @@ public sealed partial class RunGenerationPassTests : IDisposable
         var clock = new FakeClock();
         var result = await Run(Chain(), ModelGeneration.Generate, (request, _, _) =>
         {
-            clock.Advance(RunGeneration.RUN_LIMIT);
+            clock.Advance(RunGeneration.RECORDING_LIMIT);
             return ModelWithEquals(request);
         }, time: clock);
 
@@ -432,7 +432,7 @@ public sealed partial class RunGenerationPassTests : IDisposable
         var answer = Answering(("Same", ModelWithEquals));
         var result = await Run(Chain(), ModelGeneration.Generate, (request, dependencies, token) =>
         {
-            clock.Advance(RunGeneration.RUN_LIMIT);
+            clock.Advance(RunGeneration.RECORDING_LIMIT / 2);
             return answer(request, dependencies, token);
         }, time: clock, budget: GenerationBudget.Recording);
 
@@ -619,7 +619,7 @@ public sealed partial class RunGenerationPassTests : IDisposable
         var solution = Solution($"{runCall} Acme.Api.Alpha(_state);",
                                 members: "private readonly System.Action _callback = () => { }; private static void Pass(System.Action callback) { Acme.Api.Run(callback); }");
 
-        _ = await Run(solution, ModelGeneration.Generate);
+        await RunInQueueOrder(solution);
 
         // A delegate created as an argument of a reached call comes first; one that reaches the call through a parameter or a field does
         // not, and the order is then the declaration id's, `Alpha` before `Run`.
@@ -652,20 +652,46 @@ public sealed partial class RunGenerationPassTests : IDisposable
     /// <param name="builtIn">The built-in models the run reads in place of the shipped ones, or <c>null</c> for those.</param>
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null,
                                      CancellationToken token = default, ImplementationAssemblies? install = null, TimeProvider? time = null,
-                                     GenerationBudget budget = GenerationBudget.Run, LibraryModels? builtIn = null)
+                                     GenerationBudget budget = GenerationBudget.Recording, LibraryModels? builtIn = null)
     {
         generator ??= (request, _, _) => Model(request);
         return PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, ProviderRegistry.BuiltIn, Counted, AnalysisLimits.Default,
                                              Z3ConstraintSolver.Create,
-                                             new GenerationSetup(mode, install ?? _install.Resolver(), (request, dependencies, cancellation) =>
+                                             RunInQueueOrder(new GenerationSetup(mode, install ?? _install.Resolver(), (request, dependencies, cancellation) =>
                                              {
-                                                 _requested.Add(request.MemberId);
+                                                 lock (_requested)
+                                                     _requested.Add(request.MemberId);
                                                  return generator(request, dependencies, cancellation);
-                                             }, Time: time, Budget: budget, BuiltIn: builtIn), token);
+                                             }, Time: time, Budget: mode == ModelGeneration.Generate ? budget : null, BuiltIn: builtIn)), token,
+                                             new CallSiteAnalysis(string.Empty, new Version(), new Version(), new HashSet<string>()) { Mode = CallSiteMode.Control });
     }
 
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, GeneratedAnswer> generator) =>
         Run(solution, mode, (request, _, _) => generator(request));
+
+    /// <summary>Uses the queue-order seam for full analyzer tests that count requests and analyses or inspect dependency answers.</summary>
+    /// <param name="setup">The recording or reading setup, with its budget unchanged.</param>
+    private static GenerationSetup RunInQueueOrder(GenerationSetup setup) => setup with { Workers = 1 };
+
+    /// <summary>Generates the real scope pipeline's candidates on one worker, so generator entry order observes queue priority rather than
+    /// the scheduling of the recording's four workers.</summary>
+    /// <param name="solution">The solution whose calls supply the candidates.</param>
+    /// <param name="generator">The generator call, or a model with no effects for every member.</param>
+    private async Task RunInQueueOrder(Solution solution, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null)
+    {
+        var compilations = (await Task.WhenAll(solution.Projects.Select(project => project.GetCompilationAsync()))).Cast<Compilation>().ToArray();
+        var run = ScopePipeline.Run("Fixture", compilations, compilations.Select(compilation => (compilation, (string?)null)).ToArray(), ROOT_DIRECTORY,
+                                    ProviderRegistry.BuiltIn, LibraryModels.BuiltIn, AnalysisLimits.Default, new(), null, CancellationToken.None);
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.ReadOnly, _install.Resolver()), _repository, CancellationToken.None)!;
+        var generation = new RunGeneration(_repository, CancellationToken.None, RunGeneration.RunLimitOf(GenerationBudget.Recording),
+            RunGeneration.MemberLimitOf(GenerationBudget.Recording), TimeProvider.System, (request, dependencies, token) =>
+            {
+                _requested.Add(request.MemberId);
+                return generator is null ? Model(request) : generator(request, dependencies, token);
+            }, new AssemblyRanks(_install.Resolver()).Of, workers: 1);
+        generation.Generate(LibraryModels.BuiltIn, pass.Candidates(run, compilations));
+        generation.EndScope();
+    }
 
     /// <summary>A call whose model reaches an override that calls a second library member.</summary>
     /// <param name="image">The library asset, or the fixture's default asset.</param>

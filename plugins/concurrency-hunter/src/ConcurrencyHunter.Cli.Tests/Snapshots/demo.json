@@ -8,23 +8,24 @@
       "aspnetcore": 170,
       "hosting": 228
     },
-    "reachableBodies": 1635,
-    "summaries": 1635,
-    "regions": 1172,
-    "instances": 1689,
-    "accesses": 1996,
+    "reachableBodies": 1701,
+    "summaries": 1701,
+    "regions": 1259,
+    "instances": 1792,
+    "accesses": 2335,
     "pairs": {
-      "comparisons": 2117,
-      "cartesianBound": 973711,
-      "largestBucket": 8,
-      "buckets": 880,
+      "comparisons": 3216,
+      "cartesianBound": 1445851,
+      "largestBucket": 19,
+      "buckets": 988,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
-        "no-conflicting-operation": 71,
-        "no-overlap": 392,
+        "library-internal": 598,
+        "no-conflicting-operation": 85,
+        "no-overlap": 397,
         "ordered": 68,
-        "read-read": 1235,
+        "read-read": 1717,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
@@ -327,43 +328,43 @@
         "aspnetcore": 170,
         "hosting": 227
       },
-      "accesses": 1395,
+      "accesses": 1700,
       "counters": {
-        "delegate-to-opaque": 12,
-        "element-operation": 37,
+        "delegate-to-opaque": 11,
+        "element-operation": 41,
         "generated-in-run": 0,
-        "known-call": 358,
-        "known-call-built-in": 342,
-        "known-call-generated": 10,
+        "known-call": 379,
+        "known-call-built-in": 364,
+        "known-call-generated": 9,
         "known-call-project": 6,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 17,
-        "opaque-by-built-in": 811,
+        "no-receiver-object": 21,
+        "opaque-by-built-in": 814,
         "opaque-by-project": 3,
-        "opaque-call": 1387,
+        "opaque-call": 1434,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
-        "reachable-bodies": 1632,
+        "reachable-bodies": 1698,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 22,
+        "semantic-gap": 26,
         "solver-available": 1,
         "solver-queries": 21,
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 233,
-        "unresolved-base": 34,
+        "unproven-reference": 238,
+        "unresolved-base": 51,
         "unresolved-locator": 2,
-        "unsupported-operation": 26,
+        "unsupported-operation": 35,
         "wildcard-access": 9
       },
       "ordering": {
-        "spawn-sites": 83,
+        "spawn-sites": 84,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 68
+        "unproven-joins": 71
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
@@ -374,12 +375,16 @@
         "Polly.AsyncRetrySyntax.RetryAsync(PolicyBuilder, int)",
         "Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u003Cobject\u003E.set_OnOpened(Func\u003COnCircuitOpenedArguments\u003Cobject\u003E, ValueTask\u003E)",
         "Polly.ResiliencePipeline.Execute(Action)",
-        "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
         "Polly.ResiliencePipelineBuilder.Build()",
         "Polly.RetrySyntax.Retry(PolicyBuilder, int)",
+        "Polly.Telemetry.TelemetryListener.Write\u003CTResult, TArgs\u003E(TelemetryEventArguments\u003CTResult, TArgs\u003E)",
+        "Polly.Telemetry.TelemetryListener.Write\u003CTResult, TArgs\u003E(TelemetryEventArguments\u003Cobject, TArgs\u003E)",
+        "Polly.Utils.Pipeline.PipelineComponent.ExecuteCore\u003CTResult, TState\u003E(Func\u003CResilienceContext, TState, ValueTask\u003COutcome\u003CTResult\u003E\u003E\u003E, ResilienceContext, TState)",
+        "System.ArgumentNullException.ThrowIfNull(object, string)",
         "System.ComponentModel.TypeDescriptor.GetClassName(object)",
         "System.Console.Write(object)",
         "System.Console.WriteLine(object)",
+        "System.Func\u003CPolly.ResilienceContext, TState, TResult\u003E.Invoke(ResilienceContext, TState)",
         "System.IO.TextWriter.Write(object)",
         "System.Random.NextBytes(System.Byte[])",
         "System.Reflection.FieldInfo.SetValue(object, object)",
@@ -592,7 +597,7 @@
           ]
         },
         {
-          "callee": "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
+          "callee": "System.ArgumentNullException.ThrowIfNull(object, string)",
           "findings": [
             {
               "fingerprint": "687f86f10b06fac5",
@@ -602,7 +607,7 @@
             }
           ],
           "callSites": [
-            "Demo.Web/Cases/PollyExecuteInvokesDelegate.cs:34"
+            "Polly.Core:M:Polly.Utils.Guard.NotNull\u0060\u00601(\u0060\u00600,System.String)"
           ]
         },
         {
@@ -729,7 +734,142 @@
             "Demo.Web/Cases/MixedSourceTimer.cs:30"
           ]
         }
-      ]
+      ],
+      "callSiteAnalysis": {
+        "analyses": 3,
+        "calls": [
+          {
+            "callee": "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
+            "place": "Demo.Web/Cases/MixedSourceTimer.cs:30",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
+            "place": "Demo.Web/Cases/OpaqueTaskSource.cs:32",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "Microsoft.Extensions.Options.Options.Create\u003CTOptions\u003E(Settings)",
+            "place": "Demo.Web/Cases/ProjectOpaqueSwitchesOffGenerated.cs:31",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
+            "place": "Demo.Web/Cases/PollyExecuteInvokesDelegate.cs:34",
+            "producers": [
+              "Demo.Web/Cases/PollyExecuteInvokesDelegate.cs:15",
+              "Demo.Web/Cases/PollyExecuteInvokesDelegate.cs:15"
+            ],
+            "bodies": 270,
+            "outcome": "answered"
+          },
+          {
+            "callee": "System.Console.Write(object)",
+            "place": "Demo.Web/Cases/GapMaterialityOrder.cs:47",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Console.WriteLine(object)",
+            "place": "Demo.Web/Cases/GapMaterialityOrder.cs:38",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Console.WriteLine(object)",
+            "place": "Demo.Web/Cases/GapMaterialityOrder.cs:41",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Console.WriteLine(object)",
+            "place": "Demo.Web/Cases/GapMaterialityOrder.cs:44",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.IO.TextWriter.Write(object)",
+            "place": "Demo.Web/Cases/ProjectModelReceiverType.cs:36",
+            "producers": [
+              "Demo.Web/Cases/ProjectModelReceiverType.cs:35"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Reflection.FieldInfo.SetValue(object, object)",
+            "place": "Demo.Web/Cases/GenericNullableFilledByUnseenWrite.cs:28",
+            "producers": [
+              "Demo.Web/Cases/GenericNullableFilledByUnseenWrite.cs:28"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Reflection.FieldInfo.SetValue(object, object)",
+            "place": "Demo.Web/Cases/MetadataBaseNullableFilledByUnseenWrite.cs:24",
+            "producers": [
+              "Demo.Web/Cases/MetadataBaseNullableFilledByUnseenWrite.cs:24"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Reflection.FieldInfo.SetValue(object, object)",
+            "place": "Demo.Web/Cases/NullableFilledByUnseenWrite.cs:28",
+            "producers": [
+              "Demo.Web/Cases/NullableFilledByUnseenWrite.cs:28"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Runtime.InteropServices.CollectionsMarshal.SetCount\u003CT\u003E(List\u003Cstring\u003E, int)",
+            "place": "Demo.Web/Cases/UnknownCallModelNotNoop.cs:23",
+            "producers": [
+              "Demo.Web/Cases/UnknownCallModelNotNoop.cs:9"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u003CTValue\u003E(Payload, JsonSerializerOptions)",
+            "place": "Demo.Web/Cases/ProjectModelOverridesBuiltIn.cs:32",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Threading.CancellationToken.Register(Action)",
+            "place": "Demo.Web/Cases/KeptCallbackStaysUnknown.cs:23",
+            "producers": [
+              "Demo.Web/Cases/KeptCallbackStaysUnknown.cs:23",
+              "Demo.Web/Cases/KeptCallbackStaysUnknown.cs:23"
+            ],
+            "bodies": 0,
+            "outcome": "framework"
+          },
+          {
+            "callee": "System.Threading.CancellationToken.Register(Action)",
+            "place": "Demo.Web/Cases/UnknownLibraryCapturesDelegate.cs:23",
+            "producers": [],
+            "bodies": 0,
+            "outcome": "framework"
+          }
+        ],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Demo.Worker",
@@ -774,7 +914,13 @@
       },
       "semanticGaps": [],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     }
   ]
 }

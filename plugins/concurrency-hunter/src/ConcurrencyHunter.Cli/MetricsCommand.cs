@@ -35,8 +35,8 @@ internal static class MetricsCommand
     private const string LOAD = "load";
     private const string RENDER = "render";
     // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps, 1.5 the ordered pairs by the
-    // assumption their ordering rests on; 1.6 added library sources and download totals.
-    private const string SCHEMA_VERSION = "1.6";
+    // assumption their ordering rests on; 1.6 added library sources and download totals; 1.7 adds call-site coverage and analysis seconds.
+    private const string SCHEMA_VERSION = "1.7";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -84,7 +84,7 @@ internal static class MetricsCommand
     /// <param name="load">Loads the target.</param>
     /// <param name="generation">What the analysis does with the generated model layer: the caller chooses, so that a snapshot says what it measured.</param>
     /// <param name="cancellationToken">Cancels the load and the analysis.</param>
-    /// <param name="budget">Which run limit a run that generates spends: the recording's only when the command line asks for it.</param>
+    /// <param name="budget">The recording or census budget, required for generation; no budget is needed for reading modes.</param>
     /// <param name="censusFolder">The scratch folder of the owner's census run, which stands for the repository root, or <c>null</c> for any
     /// other run (<see cref="PhaseOneAnalyzer.AnalyzeCensusAsync"/>).</param>
     /// <param name="settle">Whether the census run settles the census written before rather than regenerating it.</param>
@@ -93,9 +93,10 @@ internal static class MetricsCommand
     internal static async Task<(Measurement Measurement, AnalysisResult Analysis)> MeasureAsync(string target, AnalysisLimits limits, TargetLoad load,
                                                                                                  ModelGeneration generation,
                                                                                                  CancellationToken cancellationToken,
-                                                                                                 GenerationBudget budget = GenerationBudget.Run,
+                                                                                                 GenerationBudget? budget = null,
                                                                                                  string? censusFolder = null, bool settle = false, LibrarySources? sources = null, bool offline = false)
     {
+        var setup = new GenerationSetup(generation, Budget: budget, Sources: sources);
         var total = Stopwatch.StartNew();
         var step = Stopwatch.StartNew();
         var loaded = await load(target, cancellationToken).ConfigureAwait(false);
@@ -105,7 +106,7 @@ internal static class MetricsCommand
         var startedAt = DateTimeOffset.UtcNow;
         step.Restart();
         var analysis = censusFolder is null
-            ? await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, new GenerationSetup(generation, Budget: budget, Sources: sources), cancellationToken).ConfigureAwait(false)
+            ? await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, setup, cancellationToken).ConfigureAwait(false)
             : await PhaseOneAnalyzer.AnalyzeCensusAsync(loaded.Solution, rootDirectory, censusFolder, limits, settle, cancellationToken, sources).ConfigureAwait(false);
         analysis = analysis with { Sources = sources?.Statistics ?? new(offline, new(0, 0, 0), new(0, 0, 0)) };
         var analysisSeconds = step.Elapsed.TotalSeconds;
@@ -135,7 +136,8 @@ internal static class MetricsCommand
             DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture),
             new MachineInfo(Environment.ProcessorCount, Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / BYTES_PER_GB, 1)),
             new LimitsInfo(limits.MaxAccessPathDepth, limits.MaxContextsPerMethod, limits.MaxSccIterations),
-            new TimingsInfo(steps, totalSeconds, analysis.ScopeSizes.Select(size => new ScopeAnalyses(size.ScopeId, size.Analyses)).ToArray()),
+            new TimingsInfo(steps, totalSeconds, analysis.ScopeSizes.Select(size => new ScopeAnalyses(size.ScopeId, size.Analyses,
+                                                                                                     size.Seconds.Select(Round).ToArray())).ToArray()),
             Math.Round(peak / BYTES_PER_MB, 1),
             Counts(loaded, analysis),
             Coverage(analysis),
@@ -186,7 +188,7 @@ internal static class MetricsCommand
                                                                scope.Gaps.Select(gap => gap.Callee).Order(StringComparer.Ordinal).ToArray(),
                                                                // The members no generated model describes, in the order the scope lists them.
                                                                scope.GenerationRefusals.Select(item => new GenerationRefusalMeasurement(item.MemberId, item.FileKey, item.Cause))
-                                                                    .ToArray(), scope.DecidingGaps))
+                                                                    .ToArray(), scope.DecidingGaps, scope.CallSiteAnalysis))
                 .ToArray();
 
     internal static async Task<LoadedTarget> LoadWithMsBuildAsync(string path, CancellationToken cancellationToken)
@@ -252,21 +254,21 @@ internal static class MetricsCommand
     /// <param name="Target">The solution to measure.</param>
     /// <param name="Out">The file the measurement is written to.</param>
     /// <param name="Limits">The summary and heap limits.</param>
-    /// <param name="Generation">What the analysis does with the generated model layer: <c>--generation on</c> generates (the default),
-    /// <c>read</c> only reads the generated files, <c>off</c> leaves the layer out.</param>
+    /// <param name="Generation">What the analysis does with the generated model layer: <c>--generation on</c> generates with recording or census,
+    /// <c>read</c> (the default) only reads the generated files, <c>off</c> leaves the layer out.</param>
     /// <param name="Budget">Which run limit the generations spend: <c>--recording</c>, which only <c>build/record-demo-models.ps1</c> passes,
-    /// selects the recording's, <c>--census</c> the census budget; without either the run's.</param>
+    /// selects the recording's, <c>--census</c> the census budget; without either there is no budget.</param>
     /// <param name="Census">The scratch folder of the owner's census run, which only <c>build/generate-frameworks.ps1</c> passes, or <c>null</c>.</param>
     /// <param name="Settle">Whether the census run settles the census written before (<c>--settle</c>) rather than regenerating it.</param>
     /// <param name="Offline">Whether source retrieval uses only disk and cache.</param>
-    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget Budget,
+    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget? Budget,
                                    string? Census = null, bool Settle = false, bool Offline = false)
     {
         /// <summary>The options of a command line.</summary>
         /// <param name="args">The arguments after the command's name.</param>
         /// <exception cref="ArgumentException">An argument is unexpected, repeated or without a value, a required option is missing, a value
         /// is not one the option takes, <c>--recording</c> or <c>--census</c> comes with a run that does not generate, the two come together,
-        /// or <c>--settle</c> comes without <c>--census</c>.</exception>
+        /// <c>--generation on</c> comes without either, or <c>--settle</c> comes without <c>--census</c>.</exception>
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -288,16 +290,18 @@ internal static class MetricsCommand
                 throw new ArgumentException("--target is required.");
             if (!values.TryGetValue("--out", out var output) || string.IsNullOrWhiteSpace(output))
                 throw new ArgumentException("--out is required.");
-            var mode = values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.Generate;
-            if (recording && mode != ModelGeneration.Generate)
-                throw new ArgumentException("--recording needs --generation on.");
+            var mode = values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.ReadOnly;
             var census = values.GetValueOrDefault(CENSUS);
             if (census is not null && (string.IsNullOrWhiteSpace(census) || mode != ModelGeneration.Generate || recording))
                 throw new ArgumentException("--census needs a folder and --generation on, and does not go with --recording.");
+            if (recording && mode != ModelGeneration.Generate)
+                throw new ArgumentException("--recording needs --generation on.");
+            if (mode == ModelGeneration.Generate && !recording && census is null)
+                throw new ArgumentException("--generation on needs --recording or --census.");
             if (settle && census is null)
                 throw new ArgumentException("--settle needs --census.");
             return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default, mode,
-                               recording ? GenerationBudget.Recording : census is not null ? GenerationBudget.Census : GenerationBudget.Run, census, settle, offline);
+                               recording ? GenerationBudget.Recording : census is not null ? GenerationBudget.Census : null, census, settle, offline);
         }
 
         private static ModelGeneration ParseGeneration(string text) => text switch
@@ -331,7 +335,7 @@ internal sealed record StepSeconds(string Step, double Seconds);
 
 internal sealed record TimingsInfo(IReadOnlyList<StepSeconds> Steps, double TotalSeconds, IReadOnlyList<ScopeAnalyses> Analyses);
 
-internal sealed record ScopeAnalyses(string Scope, int Count);
+internal sealed record ScopeAnalyses(string Scope, int Count, IReadOnlyList<double> Seconds);
 
 internal sealed record PairCountsInfo(int Comparisons, long CartesianBound, int LargestBucket, int Buckets, IReadOnlyDictionary<string, int> Skips,
                                       IReadOnlyDictionary<string, int> Assumed, int Suppressed, int Candidates);
@@ -343,7 +347,7 @@ internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoade
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,
                                         IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering,
                                         IReadOnlyList<string> SemanticGaps, IReadOnlyList<GenerationRefusalMeasurement> GenerationRefusals,
-                                        IReadOnlyList<DecidingGap> DecidingGaps);
+                                        IReadOnlyList<DecidingGap> DecidingGaps, CallSiteCoverage CallSiteAnalysis);
 
 /// <summary>A generation target of a scope that no generated model describes, as a measurement records it.</summary>
 /// <param name="Member">The member's declaration id, the id the generated files name it by.</param>

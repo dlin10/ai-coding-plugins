@@ -95,7 +95,7 @@ public static class ScopePipeline
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
                                IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> projectFiles, string rootDirectory,
                                ProviderRegistry registry, LibraryModels models, AnalysisLimits limits,
-                               Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
+                               Dictionary<LoweringKey, IrLoweredMethod?> loweringCache,
                                int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null,
                                ReachabilityRules? reachability = null, IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null,
                                Func<ExecutionAnalysis, Func<string, bool>>? accessesFilter = null, IReadOnlyList<Compilation>? libraryCompilations = null)
@@ -268,6 +268,18 @@ public static class ScopePipeline
 
     /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,
     /// lowered once and cached by compilation, since two projects can share an assembly name and a declaration, not a body.</summary>
+    /// <param name="compilations">The compilations supplying bodies.</param>
+    /// <param name="rootDirectory">The directory source paths are relative to.</param>
+    /// <param name="models">The models applied during lowering.</param>
+    /// <param name="leftOutTypeKeys">The types whose bodies the run excludes.</param>
+    /// <param name="silentTypeKeys">The types whose operations the run omits.</param>
+    /// <param name="calledPropertyKeys">The properties kept as accessor calls.</param>
+    /// <param name="fieldPropertySites">The seed sites whose properties remain field accesses.</param>
+    /// <param name="lowered">The cache of root members and their nested bodies.</param>
+    /// <param name="metadataSupertypes">The metadata type relations collected by lowering.</param>
+    /// <param name="admission">The calls admitted into library bodies, or null for none.</param>
+    /// <param name="diagnostics">Receives lowering failures.</param>
+    /// <param name="cancellationToken">Stops lowering.</param>
     /// <param name="compilations">The scope's compilations, in order.</param>
     /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
     /// <param name="models">The library models lowering resolves known calls against.</param>
@@ -284,7 +296,7 @@ public static class ScopePipeline
                                                                LibraryModels models, IReadOnlySet<string> leftOutTypeKeys,
                                                                IReadOnlySet<string> silentTypeKeys, IReadOnlySet<string> calledPropertyKeys,
                                                                IReadOnlyList<(SyntaxTree Tree, TextSpan Span)> fieldPropertySites,
-                                                               Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
+                                                               Dictionary<LoweringKey, IrLoweredMethod?> lowered,
                                                                Dictionary<string, IReadOnlySet<string>> metadataSupertypes, CallSiteAdmission? admission,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
     {
@@ -305,7 +317,8 @@ public static class ScopePipeline
             cancellationToken.ThrowIfCancellationRequested();
             if (!methods.TryGetValue(bodyId, out var member))
                 return [];
-            if (!lowered.TryGetValue((member.Compilation, bodyId, models), out var loweredMethod))
+            var key = new LoweringKey(member.Compilation, bodyId, models, admission?.CacheKey(bodyId) ?? string.Empty);
+            if (!lowered.TryGetValue(key, out var loweredMethod))
             {
                 try
                 {
@@ -318,7 +331,7 @@ public static class ScopePipeline
                     diagnostics.Add($"lowering: {bodyId}: {error.Message}");
                 }
 
-                lowered[(member.Compilation, bodyId, models)] = loweredMethod;
+                lowered[key] = loweredMethod;
             }
 
             if (loweredMethod is null)

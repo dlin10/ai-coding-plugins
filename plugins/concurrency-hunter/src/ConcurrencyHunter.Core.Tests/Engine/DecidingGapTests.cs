@@ -15,6 +15,29 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// <summary>The deciding gaps of a scope, from the checks of every folded occurrence to coverage and the report.</summary>
 public sealed class DecidingGapTests
 {
+    [Fact]
+    public async Task Call_site_inside_library_code_is_the_assembly_and_member()
+    {
+        foreach (var body in new[] { "global::Other.Accept(action);", "void Nested() { global::Other.Accept(action); } Nested();",
+                                     "Action nested = () => global::Other.Accept(action); nested();" })
+        {
+            var program = new CallSiteTestProgram("L.Invoke(() => state.Value++);", library:
+                CallSiteTestProgram.LIBRARY_SOURCE.Replace("public static void Invoke(Action action) { action(); }",
+                    "public static void Invoke(Action action) { " + body + " }", StringComparison.Ordinal),
+                dependency: "public static class Other { public static void Accept(System.Action action) { action(); } }");
+            var result = await CallSiteCoverageTests.Analyze(program);
+            var gap = Assert.Single(Assert.Single(result.Coverage).DecidingGaps,
+                gap => gap.Callee.Contains("Other.Accept", StringComparison.Ordinal));
+            Assert.Equal(["CallSiteLibrary:M:L.Invoke(System.Action)"], gap.CallSites);
+            Assert.All(gap.CallSites, place =>
+            {
+                Assert.DoesNotContain("Library.cs", place, StringComparison.Ordinal);
+                Assert.DoesNotContain("/", place, StringComparison.Ordinal);
+                Assert.DoesNotContain("\\", place, StringComparison.Ordinal);
+            });
+        }
+    }
+
     private const string TOUCH = "Opaque.IBase.Touch(object)";
     private const string START = "Opaque.Factory.Start(object)";
     private const string GATE = "Opaque.Factory.Gate(object)";
@@ -365,7 +388,7 @@ public sealed class DecidingGapTests
     {
         var findings = Fold(Pair("a", [Check(TOUCH, "operation")]));
         var scope = new ScopeCoverage("another-scope", new Dictionary<string, int>(), [], 0, new Dictionary<string, int>()) { Gaps = [Gap(TOUCH)] };
-        var coverage = scope with { DecidingGaps = DecidingGaps.Build(scope, findings, new Dictionary<OperationSite, SourceSpan>()) };
+        var coverage = scope with { DecidingGaps = DecidingGaps.Build(scope, findings, new Dictionary<OperationSite, CoveragePlace>()) };
         var result = FindingTestData.Result(findings, []) with { Scopes = [new ProcessScope(scope.ScopeId, null, [])], Coverage = [coverage] };
 
         Assert.Empty(coverage.DecidingGaps);
@@ -385,7 +408,8 @@ public sealed class DecidingGapTests
     {
         var scope = new ScopeCoverage(FindingTestData.SCOPE, new Dictionary<string, int>(), [], 0, new Dictionary<string, int>()) { Gaps = gaps };
         sources ??= gaps.SelectMany(gap => gap.Sites).Distinct().ToDictionary(site => site, _ => new SourceSpan("Calls.cs", 7, 1, 7, 20));
-        return scope with { DecidingGaps = DecidingGaps.Build(scope, findings, sources) };
+        return scope with { DecidingGaps = DecidingGaps.Build(scope, findings,
+            sources.ToDictionary(pair => pair.Key, pair => CoveragePlace.Of(pair.Key.BodyId, pair.Value))) };
     }
 
     private static SemanticGap Gap(string callee, int roots = 1, int regions = 1, int sites = 1) =>

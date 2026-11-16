@@ -432,7 +432,7 @@ public sealed class WorkCancellationTests
         var key = GeneratedFileKey.ForFramework("Fixture", new Version(1, 0), "Microsoft.NETCore.App", 10);
         var file = GeneratedModelFiles.Read(repository.Root, key);
         var answer = GeneratedModelAnswer.OfRefusal("M:Sample.Run", new GeneratedRefusal(GenerationReasons.ACCESSOR, "accessor", []));
-        var generation = new RunGeneration(repository.Root, own);
+        var generation = new RunGeneration(repository.Root, own, GenerationBudget.Recording);
         void Query()
         {
             switch (place)

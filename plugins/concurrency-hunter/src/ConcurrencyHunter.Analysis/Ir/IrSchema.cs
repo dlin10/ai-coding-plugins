@@ -258,6 +258,9 @@ public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, 
                             IReadOnlyList<IrValue> Values, IReadOnlyList<IrBlock> Blocks,
                             IReadOnlyList<IrRegion> Regions, string SchemaVersion = IrSchema.VERSION)
 {
+    /// <summary>The stable identity of each call operation in this lowering of the body.</summary>
+    public IReadOnlyDictionary<int, CallIdentity> CallIdentities => field ??= CallIdentity.Of(this);
+
     /// <summary>The body's parameters with their incoming value; the SSA versions of a parameter share its value's
     /// <see cref="IrValue.SymbolKey"/>, so the value a <c>ref</c> or <c>out</c> parameter holds when the body ends can be read.</summary>
     public IReadOnlyList<IrParameter> Parameters { get; init; } = [];

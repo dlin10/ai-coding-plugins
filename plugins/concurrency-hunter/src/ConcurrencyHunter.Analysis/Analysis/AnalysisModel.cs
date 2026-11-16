@@ -147,6 +147,9 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
 
     /// <summary>The semantic gaps that decide a check of a finding of this scope, with those findings and their checks.</summary>
     public IReadOnlyList<DecidingGap> DecidingGaps { get; init; } = [];
+
+    /// <summary>The deciding library calls over all analyses and the pair changes after the generated layer settled.</summary>
+    public CallSiteCoverage CallSiteAnalysis { get; init; } = new(1, [], 0, 0);
     public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
 
@@ -158,7 +161,7 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
 /// <summary>A semantic gap that decides a check of a finding in its scope.</summary>
 /// <param name="Callee">The semantic gap's callee.</param>
 /// <param name="Findings">The findings it decides, in ordinal fingerprint order, with their decided checks.</param>
-/// <param name="CallSites">The gap's own call sites as target-relative paths and line numbers, without duplicates.</param>
+/// <param name="CallSites">The gap's own call sites as target-relative paths and lines or library assembly and declaration ids, without duplicates.</param>
 public sealed record DecidingGap(string Callee, IReadOnlyList<DecidingGapFinding> Findings, IReadOnlyList<string> CallSites);
 
 /// <summary>The checks one semantic gap decides across all occurrences of one finding.</summary>
@@ -218,6 +221,9 @@ public sealed record ScopeSize(string ScopeId, int ReachableBodies, int Summarie
 {
     /// <summary>The number of analyses of the scope, including the first analysis without the generated layer.</summary>
     public int Analyses { get; init; } = 1;
+
+    /// <summary>The seconds of each analysis of the scope, in analysis order, including pairing.</summary>
+    public IReadOnlyList<double> Seconds { get; init; } = [];
 }
 
 public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnlyList<ExecutionRootDescriptor> Roots,

@@ -584,7 +584,7 @@ public sealed class WorklistTests
         var repository = RepositoryRoot.Find(root);
         var projectModels = ProjectModelFiles.Read(repository);
         var modelLock = ModelLock.Read(repository, projectModels);
-        var cache = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
+        var cache = new Dictionary<LoweringKey, IrLoweredMethod?>();
         var scopes = ProcessScopes.Discover(loaded.Solution, root).Scopes;
         Assert.NotEmpty(scopes);
         foreach (var scoped in scopes)

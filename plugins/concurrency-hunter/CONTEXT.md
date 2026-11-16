@@ -478,8 +478,9 @@ _Avoid_: severity, priority, blocking
 The report's account of what the run analyzed and what it could not: loaded and skipped projects,
 unsupported bodies, the operations inside reached bodies it could not lower, semantic gaps by
 materiality, each **Deciding gap** with the findings it decides, the check it decides in each and its
-call sites, which **Library models** applied from which
-**Model layer**, and how many pairs each non-manual layer removed.
+call sites, each call a **Call-site analysis** was asked to answer with how it ended, which **Library
+models** applied from which **Model layer**, and how many pairs each non-manual layer and the
+**Call-site analysis** removed. Coverage is the same on every machine: it holds no time.
 _Avoid_: scope, completeness score
 
 ### Libraries
@@ -753,14 +754,16 @@ see reaches it.
 _Avoid_: conservative default, fallback
 
 **Call-site analysis**:
-The answer to a **Deciding gap** read from the library's own code: the called member's body, compiled
-as the **Model generator** compiles the library, analysed in the scope together with the bodies of the
-library calls whose results reach that call's receiver and arguments, so the receiver is the object
-the library made, with the fields it set. Library bodies none of those calls reach stay outside the
-analysis, and every other call into the library keeps its **Library model** or stays an **Opaque
-call**. Only a member of a package is analysed this way: a **Deciding gap** on a member of a shared
-framework stays a gap. The library bodies one call site reaches are bounded by their number, never by
-time, so one program gets one answer on every machine; a call site past the bound keeps its gap. An
+The answer to a **Deciding gap** at a call that decides a check, read from the library's own code: the
+called member's body, compiled as the **Model generator** compiles the library, analysed in the scope
+together with the bodies of the library calls whose results reach that call's receiver and arguments,
+so the receiver is the object the library made, with the fields it set. The unit admitted is the call
+in the program's code, not the member: another call of the same member that decides nothing keeps
+what it had. Library bodies none of those calls reach stay outside the analysis, and every other call
+into the library keeps its **Library model** or stays an **Opaque call**. Only a member of a package is analysed this way: a **Deciding gap** on a member of a shared
+framework stays a gap. The library bodies a call and the calls that made its receiver and arguments
+can reach are bounded by their number, counted before the heap is solved and never by time, so one
+program gets one answer on every machine; a call past the bound keeps its gap. An
 analysis that answers one gap can show another that decides the same **Finding** — an outer library
 call whose delegate makes the inner one — so the scope is analysed again with the call sites of the
 gaps the last analysis found deciding admitted as well, for a fixed number of rounds at most.

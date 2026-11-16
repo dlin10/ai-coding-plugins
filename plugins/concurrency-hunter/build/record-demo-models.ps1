@@ -5,7 +5,7 @@ Writes the demo's committed generated models, demo/.concurrency-hunter/models/ge
 .DESCRIPTION
 Builds the executable in Release, then runs `metrics --target demo/Demo.slnx --generation on --recording`, which answers the targets of the
 demo's scope calls from every generation round, plus the dependency members generation reaches, and writes final answers below the repository
-root. `--recording` gives the run the recording's limit instead of the run's, so that one run generates everything.
+root. `--recording` gives the recording its own limit, so that one run generates everything.
 The members of the shared frameworks Microsoft.NETCore.App and Microsoft.AspNetCore.App 10.0 that the demo reaches are the frameworks'
 census, which ships in the built-in models (ADR 0012, amendment of 2026-11-07), so the committed files hold package members only. The
 framework folders below the generated folder are removed before the run, and the run is refused when it writes one again: then the census

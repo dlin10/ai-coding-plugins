@@ -421,7 +421,7 @@ public static class ModelGenerator
         var recipeStatics = new HashSet<(string Type, string Name)>();
         var confirmations = 0;
         var rejectedRecipes = new HashSet<string>(StringComparer.Ordinal);
-        var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
+        var lowered = new Dictionary<LoweringKey, IrLoweredMethod?>();
         var dropped = new SortedSet<string>(StringComparer.Ordinal);
         models ??= ModelsOutside(facts.BuiltIn ?? LibraryModels.BuiltIn, library.Compilation!.AssemblyName!);
         if (facts.Dependencies is { } dependencies)
@@ -458,7 +458,7 @@ public static class ModelGenerator
                                                 bool confirmationCollectsEverything, TypeInitializerTreatment treatment,
                                                 IReadOnlyList<ScopeRun> inertRuns, List<ScopeRun> passes,
                                                 HashSet<(string Type, string Name)> recipeStatics, IReadOnlySet<string> rejectedRecipes,
-                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
+                                                Dictionary<LoweringKey, IrLoweredMethod?> lowered,
                                                 SortedSet<string> dropped)
     {
         WorkCancellation.Check();

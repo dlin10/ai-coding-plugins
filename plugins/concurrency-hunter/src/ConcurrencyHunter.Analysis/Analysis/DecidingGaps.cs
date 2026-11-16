@@ -1,4 +1,3 @@
-using System.Globalization;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Execution;
 
@@ -10,9 +9,9 @@ public static class DecidingGaps
     /// <summary>Joins the scope's semantic gaps with the checks of its folded findings, retaining every occurrence's decisions.</summary>
     /// <param name="scope">The scope's coverage before deciding gaps are attached.</param>
     /// <param name="findings">The folded findings of the analysis.</param>
-    /// <param name="sources">The source spans of the scope's gap call operations, already normalized like finding locations.</param>
+    /// <param name="sources">The coverage places of the scope's gap call operations.</param>
     public static IReadOnlyList<DecidingGap> Build(ScopeCoverage scope, IReadOnlyList<Finding> findings,
-                                                  IReadOnlyDictionary<OperationSite, SourceSpan> sources)
+                                                  IReadOnlyDictionary<OperationSite, CoveragePlace> sources)
     {
         var decisions = findings.Where(finding => finding.Resource.Scope == scope.ScopeId)
                                 .SelectMany(finding => finding.GapChecks.Select(pair => (pair.Key, finding.Fingerprint, DecidedChecks: pair.Value)))
@@ -30,9 +29,9 @@ public static class DecidingGaps
                                           .ToArray();
             if (decided.Length == 0)
                 continue;
-            var sites = gap.Sites.Select(site => sources[site]).Select(source => (source.Path, source.StartLine)).Distinct()
-                           .OrderBy(site => site.Path, StringComparer.Ordinal).ThenBy(site => site.StartLine)
-                           .Select(site => $"{site.Path}:{site.StartLine.ToString(CultureInfo.InvariantCulture)}").ToArray();
+            var sites = gap.Sites.Select(site => sources[site]).Distinct()
+                           .OrderBy(site => site.Path, StringComparer.Ordinal).ThenBy(site => site.Line)
+                           .Select(site => site.ToString()).ToArray();
             result.Add(new DecidingGap(gap.Callee, decided, sites));
         }
         return result;

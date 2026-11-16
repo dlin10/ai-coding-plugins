@@ -24,15 +24,15 @@ public sealed class OfflineOptionTests
 
         Assert.False(Parse().Offline);
         Assert.True(Parse("--offline").Offline);
-        foreach (var mode in new[] { "on", "read", "off" })
+        foreach (var mode in new[] { "read", "off" })
         {
             Assert.True(Parse("--offline", "--generation", mode).Offline);
             Assert.True(Parse("--generation", mode, "--offline").Offline);
         }
-        Assert.Equal(GenerationBudget.Recording, Parse("--offline", "--recording").Budget);
-        Assert.True(Parse("--recording", "--offline").Offline);
-        Assert.Equal(GenerationBudget.Census, Parse("--offline", "--census", "census").Budget);
-        Assert.True(Parse("--census", "census", "--settle", "--offline").Offline);
+        Assert.Equal(GenerationBudget.Recording, Parse("--offline", "--recording", "--generation", "on").Budget);
+        Assert.True(Parse("--generation", "on", "--recording", "--offline").Offline);
+        Assert.Equal(GenerationBudget.Census, Parse("--offline", "--generation", "on", "--census", "census").Budget);
+        Assert.True(Parse("--census", "census", "--settle", "--offline", "--generation", "on").Offline);
         Assert.Throws<ArgumentException>(() => Parse("--offline", "true"));
         Assert.Throws<ArgumentException>(() => Parse("--offline", "--offline"));
     }
@@ -145,13 +145,14 @@ public sealed class OfflineOptionTests
         using var environment = new RunTestEnvironment();
         foreach (var mode in new[] { "on", "read", "off" })
         {
+            string[] budget = mode == "on" ? ["--recording"] : [];
             var output = Path.Combine(environment.Root, mode + ".json");
             using var error = new StringWriter();
-            var code = await MetricsCommand.RunAsync(["--target", environment.SolutionPath, "--out", output, "--generation", mode, "--offline"],
+            var code = await MetricsCommand.RunAsync(["--target", environment.SolutionPath, "--out", output, "--generation", mode, "--offline", .. budget],
                 error, EmptyLoad, offline => new LibrarySources(offline, Path.Combine(environment.Root, "cache")));
             Assert.True(code == ExitCode.Ok, error.ToString());
             using var json = JsonDocument.Parse(File.ReadAllBytes(output));
-            Assert.Equal("1.6", json.RootElement.GetProperty("schemaVersion").GetString());
+            Assert.Equal("1.7", json.RootElement.GetProperty("schemaVersion").GetString());
             var sources = json.RootElement.GetProperty("sources");
             Assert.True(sources.GetProperty("offline").GetBoolean());
             Assert.All(sources.GetProperty("libraries").EnumerateObject(), item => Assert.Equal(0, item.Value.GetInt32()));

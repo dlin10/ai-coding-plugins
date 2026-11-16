@@ -14,7 +14,7 @@ public sealed partial class RunGenerationTests
     public void The_recording_drains_its_queue_on_four_workers_and_every_other_run_on_one()
     {
         Assert.Equal(4, RunGeneration.WorkersOf(GenerationBudget.Recording));
-        Assert.Equal(1, RunGeneration.WorkersOf(GenerationBudget.Run));
+        Assert.Equal(4, RunGeneration.WorkersOf(GenerationBudget.Census));
     }
 
     [Fact]

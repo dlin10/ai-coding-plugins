@@ -184,6 +184,25 @@ public sealed class CallSiteAdmissionTests
         Assert.Equal(returned, admitted.Heap.PointsTo(programStatic.Identity, "Value").Order(StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void Another_call_of_the_admitted_member_keeps_its_model_and_its_opaque_outs()
+    {
+        var (before, after) = Run("L.Out(out object first); L.Out(out object second);", ["M:L.Out(System.Object@)"], entryCount: 1);
+        var beforeCalls = Operations(before).OfType<IrCallOperation>().Where(call => call.TargetMethodId == Id("M:L.Out(System.Object@)")).ToArray();
+        var afterCalls = Operations(after).OfType<IrCallOperation>().Where(call => call.TargetMethodId == Id("M:L.Out(System.Object@)")).ToArray();
+        Assert.Equal(2, afterCalls.Length);
+        Assert.Null(afterCalls[0].Library);
+        Assert.NotNull(afterCalls[1].Library);
+        Assert.Equal(beforeCalls[1].Library!.Layer, afterCalls[1].Library!.Layer);
+        Assert.Equal(beforeCalls[1].Library!.Outputs.Keys, afterCalls[1].Library!.Outputs.Keys);
+        Assert.Equal(beforeCalls[1].Library!.Outputs[0].Leaf.Kind, afterCalls[1].Library!.Outputs[0].Leaf.Kind);
+        Assert.Equal(beforeCalls[1].Library!.Outputs[0].Leaf.Values, afterCalls[1].Library!.Outputs[0].Leaf.Values);
+        Assert.Single(Operations(after).OfType<IrStoreReferenceOperation>(), store => store.IsUnseenOutput);
+        var summary = after.Summaries!.Get("body:Fixture:M:RootController.Get")!;
+        Assert.Single(summary.Calls, call => call.Target == Id("M:L.Out(System.Object@)"));
+        Assert.Single(summary.OpaqueCalls, call => call.Callee.Contains("L.Out", StringComparison.Ordinal));
+    }
+
     private static string Json<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value);
 
     private static string Id(string member) => $"body:{LIBRARY}:{member}";
@@ -195,7 +214,8 @@ public sealed class CallSiteAdmissionTests
 
     private static IrCallOperation Call(ScopeRun run, string member) => Assert.Single(Operations(run).OfType<IrCallOperation>(), call => call.TargetMethodId == Id(member));
 
-    private static (ScopeRun Before, ScopeRun After) Run(string work, string[] entries, string extra = "", string registrations = "", bool libraryRoot = false)
+    private static (ScopeRun Before, ScopeRun After) Run(string work, string[] entries, string extra = "", string registrations = "",
+                                                         bool libraryRoot = false, int entryCount = int.MaxValue)
     {
         var original = (CSharpCompilation)FixtureSolution.Create(("Library.cs", SOURCE)).Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!;
         original = original.WithAssemblyName(LIBRARY);
@@ -221,12 +241,18 @@ public sealed class CallSiteAdmissionTests
                     ? new Dictionary<string, LibraryResult> { ["value"] = new(LibraryResultKind.New, []) } : new Dictionary<string, LibraryResult>()
             }), []);
         var observed = new List<IReadOnlyList<Compilation>>();
+        var selected = new Dictionary<CallIdentity, string>();
         ScopeRun Pipeline(bool admitted) => ScopePipeline.Run("scope:Fixture", [project], [(project, null)], ROOT_DIRECTORY,
             new ProviderRegistry([.. ProviderRegistry.BuiltIn.Providers, new DiscoveryObserver(observed, libraryRoot)]), models,
             AnalysisLimits.Default, new(), null, CancellationToken.None,
-            reachability: ReachabilityRules.ClassHierarchy with { Admission = admitted ? new CallSiteAdmission(LIBRARY, ids) : null },
+            reachability: ReachabilityRules.ClassHierarchy with { Admission = admitted ? new CallSiteAdmission(LIBRARY, ids) { Calls = selected } : null },
             libraryCompilations: admitted ? [library] : []);
         var before = Pipeline(false);
+        selected = before.Reachable.Bodies.Values.Where(body => body.BodyId.StartsWith("body:Fixture:", StringComparison.Ordinal))
+                         .SelectMany(body => body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                             .Where(call => call.CallKind is not (IrCallKind.Virtual or IrCallKind.Interface) && call.TargetMethodId is { } target && ids.Contains(target))
+                             .Select(call => body.CallIdentities[call.Id]))
+                         .Take(entryCount).ToDictionary(call => call, call => call.Target);
         var after = Pipeline(true);
         Assert.Equal(2, observed.Count);
         Assert.All(observed, compilations => Assert.Same(project, Assert.Single(compilations)));

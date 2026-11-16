@@ -23,6 +23,13 @@ public sealed record IrLoweredMethod(IrBody Body, IReadOnlyList<IrBody> NestedBo
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
 }
 
+/// <summary>The inputs that determine one root member's lowering, including its nested bodies.</summary>
+/// <param name="Compilation">The compilation containing the member.</param>
+/// <param name="BodyId">The root member's body id.</param>
+/// <param name="Models">The model layer used in lowering.</param>
+/// <param name="Admission">The admitted calls of the root member and its nested bodies.</param>
+public sealed record LoweringKey(Compilation Compilation, string BodyId, LibraryModels Models, string Admission);
+
 public static class IrLowering
 {
     private const string THIS_KEY = "this";
@@ -551,9 +558,10 @@ public static class IrLowering
         internal CallSiteAdmission? Admission { get; init; }
 
         // bounded: forwards once to the admission rule of another type.
-        internal bool Admits(IMethodSymbol method, bool dispatched) =>
-            Admission is { } admission && admission.BodyIds.Contains(IrLowering.RootBodyId((method.ReducedFrom ?? method).OriginalDefinition)) &&
-            admission.Admits(RootBodyId, IrLowering.RootBodyId((method.ReducedFrom ?? method).OriginalDefinition), dispatched ? AdmissionRoute.Dispatch : AdmissionRoute.Direct);
+        internal bool Admits(IMethodSymbol method, bool dispatched, CallIdentity? call = null) =>
+            Admission is { } admission && admission.IsLibraryBody(IrLowering.RootBodyId((method.ReducedFrom ?? method).OriginalDefinition)) &&
+            admission.Admits(call?.BodyId ?? RootBodyId, IrLowering.RootBodyId((method.ReducedFrom ?? method).OriginalDefinition),
+                             dispatched ? AdmissionRoute.Dispatch : AdmissionRoute.Direct, call);
 
         internal Dictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; } = new(StringComparer.Ordinal);
 
@@ -822,6 +830,8 @@ public static class IrLowering
         private SsaPlan _ssaPlan = null!;
         private int _offset;
         private List<IrOperation> _operations = [];
+        private readonly Dictionary<(SourceSpan Span, string Target), int> _callOrdinals = [];
+        private readonly Dictionary<int, CallIdentity> _callIdentities = [];
 
         /// <summary>The ordinary variables whose storage a ref binding names. Reads of them load that storage so the summary's
         /// reference-write tracking sees writes made through either name.</summary>
@@ -2963,7 +2973,9 @@ public static class IrLowering
         private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments,
                                      ITypeSymbol? receiverType = null, bool dispatched = false)
         {
-            if (_context.Admits(method, dispatched) || method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
+            var target = RootBodyId((method.ReducedFrom ?? method).OriginalDefinition);
+            var call = _callIdentities.LastOrDefault(pair => pair.Value.Target == target).Value;
+            if (_context.Admits(method, dispatched, call) || method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
                 return;
 
             var model = _context.LibraryModels.Find(method, _context.Compilation, receiverType);
@@ -2990,8 +3002,9 @@ public static class IrLowering
         {
             if (!isVirtual && call.CallKind == IrCallKind.Virtual)
                 call = call with { CallKind = IrCallKind.Instance };
-            if (call.TargetMethodId is { } target && _context.Admission is { } admission && admission.BodyIds.Contains(target) &&
-                admission.Admits(_context.RootBodyId, target, call.CallKind is IrCallKind.Virtual or IrCallKind.Interface ? AdmissionRoute.Dispatch : AdmissionRoute.Direct))
+            if (call.TargetMethodId is { } target && _context.Admission is { } admission && admission.IsLibraryBody(target) &&
+                admission.Admits(_bodyId, target, call.CallKind is IrCallKind.Virtual or IrCallKind.Interface ? AdmissionRoute.Dispatch : AdmissionRoute.Direct,
+                                 _callIdentities.GetValueOrDefault(call.Id)))
                 call = call with { Library = null };
             return call;
         }
@@ -3526,6 +3539,12 @@ public static class IrLowering
             var id = NextOperation();
             if (nestedId is null && _context.IsSilent(method.ContainingType))
                 _silentOperations.Add(id);
+            var target = nestedId ?? RootBodyId((method.ReducedFrom ?? method).OriginalDefinition);
+            var key = (provenance.Span, target);
+            var ordinal = _callOrdinals.GetValueOrDefault(key);
+            _callOrdinals[key] = ordinal + 1;
+            var identity = new CallIdentity(_bodyId, provenance.Span, target, ordinal);
+            _callIdentities.Add(id, identity);
             return new IrCallOperation(
                 id, result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
                 provenance)
@@ -3537,7 +3556,7 @@ public static class IrLowering
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
                 Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation, _context.LibraryModels, receiverType) : [],
                 Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels, _context.Compilation, receiverType, _context,
-                                                            CallKind(method) is IrCallKind.Virtual or IrCallKind.Interface) : null,
+                                                            CallKind(method) is IrCallKind.Virtual or IrCallKind.Interface, identity) : null,
                 IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
                 // Provisional: a recognizer that models the call takes it back (question 144).
@@ -3836,7 +3855,8 @@ public static class IrLowering
                 var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
                              !_context.Admits((IMethodSymbol)parameter.ContainingSymbol, argument.Parent is IInvocationOperation { IsVirtual: true } ||
                                              argument.Parent is IPropertyReferenceOperation property && IsVirtualAccess(property) &&
-                                             (property.Property.IsVirtual || property.Property.IsAbstract || property.Property.IsOverride)) &&
+                                             (property.Property.IsVirtual || property.Property.IsAbstract || property.Property.IsOverride),
+                                             argument.Parent is { } parent ? NextCallIdentity(parent, (IMethodSymbol)parameter.ContainingSymbol) : null) &&
                              _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol, _context.Compilation, receiverType) is { Kind: LibraryMatchKind.Known } model &&
                              model.Outputs.ContainsKey(parameter.Name);
                 var passed = argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out ? RefArgumentSymbol(argument) : null;
@@ -3863,6 +3883,13 @@ public static class IrLowering
             }
 
             return new LoweredArguments(values, ordinals, refResults);
+        }
+
+        private CallIdentity NextCallIdentity(IOperation source, IMethodSymbol method)
+        {
+            var span = Provenance(source, "call").Span;
+            var target = RootBodyId((method.ReducedFrom ?? method).OriginalDefinition);
+            return new CallIdentity(_bodyId, span, target, _callOrdinals.GetValueOrDefault((span, target)));
         }
 
         private ISymbol? RefArgumentSymbol(IArgumentOperation argument) => UnwrapTarget(argument.Value) switch
@@ -6182,10 +6209,10 @@ public static class IrLowering
     private static class LibraryCalls
     {
         internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels, Compilation compilation, ITypeSymbol? receiverType,
-                                          LoweringContext? context = null, bool dispatched = false)
+                                          LoweringContext? context = null, bool dispatched = false, CallIdentity? call = null)
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
-            if (context?.Admits(method, dispatched) == true || LibraryModels.IsDeclaredInRun(definition) ||
+            if (context?.Admits(method, dispatched, call) == true || LibraryModels.IsDeclaredInRun(definition) ||
                 libraryModels.Find(definition, compilation, receiverType) is not { } match)
                 return null;
             // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.

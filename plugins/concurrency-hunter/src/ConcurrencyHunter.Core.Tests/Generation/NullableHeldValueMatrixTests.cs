@@ -62,7 +62,7 @@ public sealed class NullableHeldValueMatrixTests
     private static readonly Cell[] KnownWider = [];
 
     private static readonly ConcurrentDictionary<Cell, Lazy<(ScopeRun Run, Compilation Driver)>> Runs = new();
-    private static readonly Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> Lowered = new();
+    private static readonly Dictionary<LoweringKey, IrLoweredMethod?> Lowered = new();
 
     private static IEnumerable<Cell> Cells() =>
         from member in Enum.GetValues<Member>()

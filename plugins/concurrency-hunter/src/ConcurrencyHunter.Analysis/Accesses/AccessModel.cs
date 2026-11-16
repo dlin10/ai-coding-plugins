@@ -182,6 +182,9 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
 
     /// <summary>The checks of any pair of this access that a semantic gap decides by what this side alone does (R6).</summary>
     public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
+
+    /// <summary>The calls deciding this access's checks, retained separately from check equality.</summary>
+    public IReadOnlyList<DecidingCall> DecidingCalls { get; init; } = [];
 }
 
 /// <summary>What one access holds on one lock object: the mechanism that took it, the mode it is held in, and whether that holding
@@ -275,6 +278,9 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
 
     /// <summary>The checks of the pair a semantic gap decides (R6), each of which costs its component of the confidence.</summary>
     public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
+
+    /// <summary>The calls of every occurrence deciding a check of this pair.</summary>
+    public IReadOnlyList<DecidingCall> DecidingCalls { get; init; } = [];
 }
 
 /// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the

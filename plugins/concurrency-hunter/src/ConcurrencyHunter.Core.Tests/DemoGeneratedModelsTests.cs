@@ -64,7 +64,7 @@ public sealed class DemoGeneratedModelsTests
                                                     {
                                                         requested.Add(request.MemberId);
                                                         throw new InvalidOperationException($"The generator was called for {request.MemberId}.");
-                                                    }),
+                                                    }, Budget: GenerationBudget.Recording),
                                                     CancellationToken.None);
         }
 

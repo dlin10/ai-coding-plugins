@@ -439,9 +439,9 @@ public sealed class EngineCancellationTests
         using var cancellation = new CancellationTokenSource();
         var compilation = Driver();
         var comparer = new CancellingComparer(cancellation);
-        var cache = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>(comparer)
+        var cache = new Dictionary<LoweringKey, IrLoweredMethod?>(comparer)
         {
-            [(compilation, "unused", LibraryModels.BuiltIn)] = null
+            [new(compilation, "unused", LibraryModels.BuiltIn, string.Empty)] = null
         };
         var error = Assert.Throws<ScopeCancelledException>(() => ScopePipeline.Run("scope:cancellation", [compilation], [], Path.GetTempPath(),
             new ProviderRegistry([new DriverRootProvider()]), LibraryModels.BuiltIn, AnalysisLimits.Default, cache, null, cancellation.Token,
@@ -475,14 +475,13 @@ public sealed class EngineCancellationTests
         };
 
     private sealed class CancellingComparer(CancellationTokenSource cancellation) :
-        IEqualityComparer<(Compilation Compilation, string BodyId, LibraryModels Models)>
+        IEqualityComparer<LoweringKey>
     {
         internal bool Armed { get; set; }
 
-        public bool Equals((Compilation Compilation, string BodyId, LibraryModels Models) x,
-                           (Compilation Compilation, string BodyId, LibraryModels Models) y) => x == y;
+        public bool Equals(LoweringKey? x, LoweringKey? y) => x == y;
 
-        public int GetHashCode((Compilation Compilation, string BodyId, LibraryModels Models) obj)
+        public int GetHashCode(LoweringKey obj)
         {
             if (Armed)
                 cancellation.Cancel();

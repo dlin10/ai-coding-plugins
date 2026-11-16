@@ -47,10 +47,10 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
-    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
+    /// <param name="budget">The recording or census budget, required for generation; no budget is needed for reading modes.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
-                                                    ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
+                                                    ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget? budget = null) =>
         AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits,
                      Z3ConstraintSolver.Create, new GenerationSetup(generation, Budget: budget), cancellationToken);
 
@@ -149,12 +149,12 @@ public static class PhaseOneAnalyzer
     /// <param name="limits">The summary and heap limits.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer.</param>
-    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
+    /// <param name="budget">The recording or census budget, required for generation; no budget is needed for reading modes.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     private static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                      AnalysisLimits limits, CancellationToken cancellationToken,
-                                                     ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
+                                                     ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget? budget = null) =>
         AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken, generation, budget);
 
     /// <summary>The analysis with another solver behind the last filter: the seam a test uses to run as if the native library
@@ -168,14 +168,14 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
-    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
+    /// <param name="budget">The recording or census budget, required for generation; no budget is needed for reading modes.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
                                                             CancellationToken cancellationToken,
                                                             ModelGeneration generation = ModelGeneration.ReadOnly,
-                                                            GenerationBudget budget = GenerationBudget.Run) =>
+                                                            GenerationBudget? budget = null) =>
         await AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), registry, pairing, limits, solverFactory,
                            new GenerationSetup(generation, Budget: budget), cancellationToken);
 
@@ -239,13 +239,13 @@ public static class PhaseOneAnalyzer
         var modelLock = ModelLock.Read(repositoryRoot, projectModels);
         var discovery = ProcessScopes.Discover(solution, rootDirectory);
         Record(timings, SCOPE_DISCOVERY, step);
-        var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
+        var lowered = new Dictionary<LoweringKey, IrLoweredMethod?>();
         var scopes = new List<ProcessScope>();
         var roots = new List<ExecutionRootDescriptor>();
         var accesses = new List<Access>();
         var pairs = new List<AccessPair>();
         var coverage = new List<ScopeCoverage>();
-        var gapSources = new Dictionary<string, IReadOnlyDictionary<OperationSite, SourceSpan>>(StringComparer.Ordinal);
+        var gapSources = new Dictionary<string, IReadOnlyDictionary<OperationSite, CoveragePlace>>(StringComparer.Ordinal);
         var comparisons = 0;
         var cartesianBound = 0;
         var buckets = 0;
@@ -293,6 +293,8 @@ public static class PhaseOneAnalyzer
                 models = models.WithoutFamilies(callSite.WithheldFamilies);
             var (libraries, rules) = callSiteCompilations.ForScope(compilations, callSite, generation, cancellationToken);
 
+            var analysisWatch = Stopwatch.StartNew();
+            var analysisSeconds = new List<double>();
             var run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models, limits, lowered, null,
                                         cancellationToken, reachability: rules, libraryCompilations: libraries);
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
@@ -314,6 +316,7 @@ public static class PhaseOneAnalyzer
             PairAnalysis scopePairs;
             using (WorkCancellation.Outside())
                 scopePairs = PairWithGaps(run, pairing);
+            analysisSeconds.Add(analysisWatch.Elapsed.TotalSeconds);
             Record(timings, PAIRING, step);
 
             // Each round answers the latest analysis's targets; a change in applied models asks for another analysis.
@@ -321,6 +324,10 @@ public static class PhaseOneAnalyzer
             var analyses = 1;
             IReadOnlyList<GenerationRefusal> refusals = [];
             var generationDiagnostics = new List<string>();
+            var appliedModels = models;
+            var admissionRounds = new CallSiteRounds(new DecidingCalls(callSiteCompilations, generation, cancellationToken, generation.LibraryTarget), compilations,
+                (admission, supplied) => ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, appliedModels, limits,
+                    lowered, 0, cancellationToken, reachability: rules with { Admission = admission }, libraryCompilations: supplied));
             if (pass is not null)
             {
                 var firstPairs = scopePairs.Pairs.Select(PairIdentity.Of).ToHashSet(StringComparer.Ordinal);
@@ -360,22 +367,55 @@ public static class PhaseOneAnalyzer
                     }
 
                     previous = layer;
-                    run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models.WithGenerated(layer.Table), limits,
+                    appliedModels = models.WithGenerated(layer.Table);
+                    analysisWatch.Restart();
+                    run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, appliedModels, limits,
                                             lowered, null, cancellationToken, reachability: rules, libraryCompilations: libraries);
                     analyses++;
                     AddTimes(timings, run);
                     step.Restart();
                     using (WorkCancellation.Outside())
                         scopePairs = PairWithGaps(run, pairing);
+                    analysisSeconds.Add(analysisWatch.Elapsed.TotalSeconds);
                     Record(timings, PAIRING, step);
                 }
                 pairsRemoved = firstPairs.Except(scopePairs.Pairs.Select(PairIdentity.Of), StringComparer.Ordinal).Count();
             }
 
+            admissionRounds.Observe(run, scopePairs);
+            var layerPairs = scopePairs.Pairs.Select(PairIdentity.Of).ToHashSet(StringComparer.Ordinal);
+            if (callSite is null || callSite.Mode == CallSiteMode.Withhold)
+            {
+                for (var round = 1; round <= 3; round++)
+                {
+                    WorkCancellation.Check();
+                    if (!admissionRounds.Grow(run, scopePairs, round))
+                        break;
+                    rules = rules with { Admission = admissionRounds.Admission };
+                    libraries = admissionRounds.Libraries;
+                    analysisWatch.Restart();
+                    run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, appliedModels, limits,
+                                            lowered, null, cancellationToken, reachability: rules, libraryCompilations: libraries);
+                    analyses++;
+                    AddTimes(timings, run);
+                    step.Restart();
+                    using (WorkCancellation.Outside())
+                        scopePairs = PairWithGaps(run, pairing);
+                    analysisSeconds.Add(analysisWatch.Elapsed.TotalSeconds);
+                    Record(timings, PAIRING, step);
+                }
+            }
+
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
             callSite?.Measurements.Add(new CallSiteMeasurement(scope.Id,
                 run.Heap!.ReachableBodies.Count(body => rules.Admission?.IsLibraryBody(body) == true),
-                rules.Admission?.BodyIds.Order(StringComparer.Ordinal).ToArray() ?? []));
+                rules.Admission?.BodyIds.Order(StringComparer.Ordinal).ToArray() ?? [])
+            {
+                Analyses = analyses,
+                Calls = callSite?.Mode == CallSiteMode.AssemblyWide && rules.Admission is { } assemblyAdmission
+                    ? admissionRounds.MeasureAssemblyWide(run, assemblyAdmission, libraries) : admissionRounds.Measurements
+            });
+            var callSiteCoverage = admissionRounds.Coverage(analyses, run, scopePairs, rules.Admission, layerPairs);
             diagnostics.AddRange(run.DiscoveryDiagnostics);
             diagnostics.AddRange(outOfRange);
             diagnostics.AddRange(run.LoweringDiagnostics);
@@ -390,7 +430,11 @@ public static class PhaseOneAnalyzer
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
             Record(timings, SOLVER, step);
             sizes.Add(new ScopeSize(scope.Id, run.Heap.ReachableBodies.Count, run.Summaries.Built, run.Heap.Regions.Count,
-                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal)) { Analyses = analyses });
+                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal))
+            {
+                Analyses = analyses,
+                Seconds = analysisSeconds
+            });
 
             roots.AddRange(run.Roots);
             accesses.AddRange(collection.Accesses);
@@ -412,12 +456,13 @@ public static class PhaseOneAnalyzer
                 pairAssumed[assumption] = pairAssumed.GetValueOrDefault(assumption) + count;
             }
             gapSources[scope.Id] = collection.Coverage.Gaps.SelectMany(gap => gap.Sites).Distinct().ToDictionary(site => site,
-                site => run.Reachable.Bodies[site.BodyId].Blocks.SelectMany(block => block.Operations)
-                           .Single(operation => operation.Id == site.OperationId).Provenance.Span);
+                site => CoveragePlace.Of(site.BodyId, run.Reachable.Bodies[site.BodyId].Blocks.SelectMany(block => block.Operations)
+                           .Single(operation => operation.Id == site.OperationId).Provenance.Span, run.Program, rules.Admission));
             coverage.Add(new ScopeCoverage(scope.Id, run.RootsPerProvider, diagnostics, run.Index.Registrations.Count,
                                            Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count, generatedInRun, pairsRemoved))
             {
                 GenerationRefusals = refusals,
+                CallSiteAnalysis = callSiteCoverage,
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
                 Gaps = collection.Coverage.Gaps,
                 SpawnSites = collection.Coverage.SpawnSites,

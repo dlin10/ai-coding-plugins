@@ -78,15 +78,7 @@ public sealed class CallSiteProbeFixture
         if (!demo)
         {
             var root = Path.GetFullPath(Environment.GetEnvironmentVariable(RequiresEShopFactAttribute.VARIABLE)!);
-            var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-            foreach (var argument in new[] { "-C", root, "rev-parse", "HEAD" })
-                start.ArgumentList.Add(argument);
-            using var git = Process.Start(start)!;
-            var revision = git.StandardOutput.ReadToEndAsync();
-            var error = git.StandardError.ReadToEndAsync();
-            await git.WaitForExitAsync();
-            Assert.True(git.ExitCode == 0, await error);
-            Assert.Equal(ESHOP_REVISION, (await revision).Trim());
+            Assert.Equal(ESHOP_REVISION, ProbeRevision.Read(root));
             projects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories);
             Assert.Equal(30, projects.Length);
             Assert.All(projects, project => Assert.True(System.IO.File.Exists(Path.Combine(Path.GetDirectoryName(project)!, "obj/project.assets.json")),
@@ -120,14 +112,18 @@ public sealed class CallSiteProbeFixture
             Assert.Equal(new[] { "7c919c7aedc4b38e", "fa3fbc528c46593e" }, records.Run.Findings.Select(finding => finding.Fingerprint));
         Assert.True(admitted.Run.LibraryBodies >= 1);
         Assert.NotEmpty(admitted.Run.Admitted);
-        Assert.Equal(0, records.Run.LibraryBodies);
-        Assert.Empty(records.Run.Admitted);
+        if (!demo)
+        {
+            Assert.Equal(0, records.Run.LibraryBodies);
+            Assert.Empty(records.Run.Admitted);
+        }
         Assert.Equal(0, control.Run.LibraryBodies);
         Assert.Empty(control.Run.Admitted);
         return new CallSiteProbeRuns(records.Run, admitted.Run, control.Run);
 
         async Task<(CallSiteProbeRun Run, AnalysisResult Analysis)> Analyze(string name, CallSiteAnalysis? setup)
         {
+            setup ??= Setup(true) with { WithheldFamilies = new HashSet<string>(StringComparer.Ordinal) };
             var clock = Stopwatch.StartNew();
             var result = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn,
                 InterproceduralPairing.Pair, limits, Z3ConstraintSolver.Create, generation, CancellationToken.None, setup);
@@ -135,19 +131,26 @@ public sealed class CallSiteProbeFixture
             var run = new CallSiteProbeRun(result.Findings.Select(finding => new CallSiteProbeFinding(finding.Fingerprint, finding.RuleId, finding.Confidence.Label))
                                                 .OrderBy(finding => finding.Fingerprint, StringComparer.Ordinal).ThenBy(finding => finding.Rule, StringComparer.Ordinal)
                                                 .ThenBy(finding => finding.Confidence, StringComparer.Ordinal).ToArray(),
-                setup?.Measurements.Sum(scope => scope.LibraryBodies) ?? 0,
-                setup?.Measurements.SelectMany(scope => scope.Admitted).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray() ?? [], clock.Elapsed.TotalSeconds);
-            if (Environment.GetEnvironmentVariable("CH_H3_PROBE_OUT") is { Length: > 0 } directory)
+                setup.Measurements.Sum(scope => scope.LibraryBodies),
+                setup.Measurements.SelectMany(scope => scope.Admitted).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), clock.Elapsed.TotalSeconds);
+            if (Environment.GetEnvironmentVariable("CH_H3_CALLSITE_OUT") is { Length: > 0 } directory)
             {
                 Directory.CreateDirectory(directory);
-                await System.IO.File.WriteAllTextAsync(Path.Combine(directory, $"{target}-{name}.json"), JsonSerializer.Serialize(run, JsonOptions));
+                await System.IO.File.WriteAllTextAsync(Path.Combine(directory, $"call-site-{target}-{name}.json"), JsonSerializer.Serialize(new
+                {
+                    run.Findings, run.LibraryBodies, run.Admitted, run.Seconds,
+                    Scopes = setup.Measurements
+                }, JsonOptions));
             }
             return (run, result);
         }
     }
 
     private static CallSiteAnalysis Setup(bool admit) => new("Polly", new Version(7, 0, 0, 0), new Version(8, 0, 0, 0),
-        new HashSet<string>(StringComparer.Ordinal) { "polly" }, admit);
+        new HashSet<string>(StringComparer.Ordinal) { "polly" }, admit)
+    {
+        Mode = admit ? CallSiteMode.Withhold : CallSiteMode.Control
+    };
 
     private static string File(params string[] segments) => RepositoryFiles.FindRepositoryFile(["plugins", "concurrency-hunter", .. segments]);
 }

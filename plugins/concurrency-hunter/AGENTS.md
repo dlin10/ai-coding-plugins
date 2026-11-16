@@ -158,15 +158,15 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
 - `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording | --census <folder> [--settle]] [--offline]` is
   the measurement behind the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run
   it as `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
-  `--generation` is what the run does with the generated model layer: `on` (the default) generates the
+  `--generation` is what the run does with the generated model layer: `on`, valid only with `--recording` or `--census`, generates the
   models no layer describes and writes `.concurrency-hunter/models/generated/` under the repository
-  root, `read` only reads and applies those files, `off` leaves the layer out. `--recording`, valid only with
-  `--generation on`, spends the recording limit instead of the run limit (ADR 0031); only
+  root, `read` (the default) only reads and applies those files, `off` leaves the layer out. `--recording`, valid only with
+  `--generation on`, spends the recording's own limit (ADR 0031); only
   `build/record-demo-models.ps1` passes it. `--census <folder>` is the owner's census run, which only
   `build/generate-frameworks.ps1` passes: the census budget, the folder as the repository root, and the built-in models
   without the census's own records unless `--settle` is given. `--offline`, valid with every generation mode,
   recording and census, sends no requests and reads library sources only from disk and the source cache; online is the default.
-  Metrics schema 1.6 records the mode, library code counts and download totals in `sources`.
+  Metrics schema 1.7 records the mode, library code counts and download totals in `sources`, call-site coverage and each scope analysis's seconds.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
   `demo/.concurrency-hunter/models/generated/`, with an online `--generation on` run of the demo, then re-reads them to show they suffice.
   Record online so transient offline source unavailability does not leave answers that apply only to that run unwritten.
@@ -224,14 +224,14 @@ of a `metrics` run: `counts`, including every finding's fingerprint, and the per
 Any change to the engine, the built-in models or the demo can move them; the comparing test prints
 the unified diff. There is no record mode. To rewrite one:
 
-1. Build in Release and run `metrics --target demo/Demo.slnx --generation read` (or
-   `$env:CH_ESHOP_ROOT/src/eShopOnContainers-ServicesAndWebApps.sln --generation off`) `--out` a scratch
-   file; the snapshot tests measure in those modes, and the default `on` would generate and write files.
-2. Keep the lines from `  "counts": {` through the `  ],` that closes `coverage`, drop that line's
-   comma, and wrap them in `{`/`}`. The serializer options match, so the slice is byte-identical to
-   what the test builds.
-3. Write it with `[IO.File]::WriteAllText`, with no trailing newline, as the committed files have
-   none.
+1. Build in Release, then run the individual facts `MetricsCommandTests.Demo_measurement_matches_the_snapshot`
+   and `EShopSnapshotTests.EShop_measurement_matches_the_snapshot`, with eShop restored and `CH_ESHOP_ROOT` set.
+   They measure the demo with the generated layer read and eShop with it off, decompiling library code
+   without source retrieval. CLI `metrics` retrieves original sources and can count library code differently;
+   it is not the source of these snapshots.
+2. Account for every changed number, then apply the unified diff each failing fact prints to its snapshot.
+   Write with `[IO.File]::WriteAllText`, with no trailing newline, as the committed files have none.
+3. Run each fact again and see it pass.
 
 `skills/hunt/evals/models/corelib-generation.tsv` is the generator's snapshot of CoreLib: a header
 naming the implementation it read and the commit the generator was built from, then one line per

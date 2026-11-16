@@ -20,6 +20,20 @@ public sealed record GapCheck(string Callee, string Kind, string Component, stri
     public string Uncertainty => $"The unresolved call {Callee} ({Kind}) decides the {Component} check: {Reason}.";
 }
 
+/// <summary>A check and the particular call that decides it. The call is not part of the check's equality.</summary>
+/// <param name="Check">The unchanged callee-level check.</param>
+/// <param name="Call">The call that decided the check, null for a dynamic operation with no member target.</param>
+public sealed record DecidingCall(GapCheck Check, CallIdentity? Call);
+
+/// <summary>A gap reached through the result of a particular operation.</summary>
+/// <param name="Gap">The callee-level gap.</param>
+/// <param name="Call">The producing call, null for a dynamic operation.</param>
+internal sealed record GapOrigin(SemanticGap Gap, CallIdentity? Call)
+{
+    internal string Callee => Gap.Callee;
+    internal string Kind => Gap.Kind;
+}
+
 /// <summary>The semantic gaps whose result a value may be (R6): the calls of its body the value is the result of; through a call with a
 /// body, what the callee returns; through a parameter, what each caller handed over; and through a field, what any store put into that
 /// field of the objects read, as far as the heap's call edges and stores go.</summary>
@@ -28,6 +42,7 @@ internal sealed class GapOrigins
     private const int MAX_DEPTH = 8;
 
     private readonly HeapSolution _heap;
+    private readonly IReadOnlyDictionary<string, MethodSummary> _summaries;
     private readonly Dictionary<(string BodyId, int OperationId), SemanticGap> _sites = [];
     private readonly Dictionary<(string Caller, int Operation), string[]> _callees;
     private readonly Dictionary<string, (string Caller, int Operation)[]> _callers;
@@ -37,6 +52,8 @@ internal sealed class GapOrigins
     internal GapOrigins(HeapSolution heap, IReadOnlyList<SemanticGap> gaps)
     {
         _heap = heap;
+        _summaries = heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal)
+                         .ToDictionary(group => group.Key, group => group.First().Summary, StringComparer.Ordinal);
         foreach (var gap in gaps)
         {
             WorkCancellation.Check();
@@ -78,26 +95,50 @@ internal sealed class GapOrigins
     /// <summary>The gap one of whose call sites an operation of a body is, null for any other operation.</summary>
     /// <param name="bodyId">The body.</param>
     /// <param name="operationId">The operation in that body.</param>
-    internal SemanticGap? AtSite(string bodyId, int operationId) => _sites.GetValueOrDefault((bodyId, operationId));
+    internal GapOrigin? AtSite(string bodyId, int operationId) =>
+        _sites.TryGetValue((bodyId, operationId), out var gap)
+            ? new GapOrigin(gap, _summaries.GetValueOrDefault(bodyId)?.CallIdentities.GetValueOrDefault(operationId)) : null;
 
-    internal IReadOnlyList<SemanticGap> Of(MethodInstance instance, ValueOrigin origin)
+    internal IReadOnlyList<GapOrigin> Of(MethodInstance instance, ValueOrigin origin)
     {
-        var found = new List<SemanticGap>();
+        var found = new List<GapOrigin>();
+        Walk(instance, origin, (current, operation) =>
+        {
+            if (AtSite(current.BodyId, operation) is not { } gap)
+                return null;
+            if (!found.Contains(gap))
+                found.Add(gap);
+            return ValueOrigin.None;
+        });
+        return found;
+    }
+
+    /// <summary>Follows the heap's value flows, stopping at calls the visitor answers. An answer follows the call's inputs instead
+    /// of its returns; null follows its returns. Additional call results and allocation origins are read only by the producer walk.</summary>
+    /// <param name="instance">The instance whose value is being followed.</param>
+    /// <param name="origin">The value's origins.</param>
+    /// <param name="call">The call visitor.</param>
+    /// <param name="allocations">Whether allocations lead to their constructors.</param>
+    internal void Walk(MethodInstance instance, ValueOrigin origin, Func<MethodInstance, int, ValueOrigin?> call, bool allocations = false)
+    {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Queue<(MethodInstance Instance, ValueOrigin Origin, int Depth)>([(instance, origin, 0)]);
         while (pending.TryDequeue(out var item))
         {
             WorkCancellation.Check();
             var (current, from, depth) = item;
-            foreach (var operation in from.Calls.Order())
+            var operations = allocations
+                ? from.Calls.Concat(from.ProducingCalls).Concat(from.Allocations.SelectMany(allocation => current.Summary.AllocationConstructors.GetValueOrDefault(allocation) ?? [])).Distinct()
+                : from.Calls;
+            foreach (var operation in operations.Order())
             {
                 WorkCancellation.Check();
                 if (!visited.Add($"call|{current.Id}|{operation}"))
                     continue;
-                if (_sites.TryGetValue((current.BodyId, operation), out var gap))
+                if (call(current, operation) is { } inputs)
                 {
-                    if (!found.Contains(gap))
-                        found.Add(gap);
+                    if (depth < MAX_DEPTH && !inputs.IsNone)
+                        pending.Enqueue((current, inputs, depth + 1));
                     continue;
                 }
 
@@ -131,12 +172,16 @@ internal sealed class GapOrigins
                     WorkCancellation.Check();
                     if (!_heap.Instances.TryGetValue(callerId, out var caller))
                         continue;
-                    foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == operation)
-                                                   .SelectMany(call => call.Arguments)
-                                                   .Where(argument => argument.ParameterOrdinal == ordinal))
+                    foreach (var transfer in caller.Summary.Calls.Where(call => call.OperationId == operation))
                     {
                         WorkCancellation.Check();
-                        pending.Enqueue((caller, argument.Producers, depth + 1));
+                        if (ordinal == -1)
+                            pending.Enqueue((caller, transfer.ReceiverOrigin, depth + 1));
+                        foreach (var argument in transfer.Arguments.Where(argument => argument.ParameterOrdinal == ordinal))
+                        {
+                            WorkCancellation.Check();
+                            pending.Enqueue((caller, argument.Producers, depth + 1));
+                        }
                     }
                 }
             }
@@ -213,7 +258,6 @@ internal sealed class GapOrigins
             }
         }
 
-        return found;
     }
 
     private HashSet<string> Targets(MethodInstance instance, IrFieldRef field, IReadOnlySet<AbstractValue> bases) =>
@@ -246,20 +290,22 @@ public static class GapDecisions
         var facts = new ExecutionFacts(input, new GapOrigins(input.Heap, gaps));
         return pairs.Select(pair =>
                     {
+                        var calls = pair.First.DecidingCalls.Concat(pair.Second.DecidingCalls)
+                                        .Concat(facts.Overlap(pair.First, pair.Second)).Distinct().ToArray();
                         var gapChecks = pair.First.GapChecks.Concat(pair.Second.GapChecks)
-                                         .Concat(facts.Overlap(pair.First, pair.Second))
+                                         .Concat(calls.Select(call => call.Check))
                                          .Distinct()
                                          .ToArray();
-                        return gapChecks.Length == 0 ? pair : pair with { GapChecks = gapChecks };
+                        return gapChecks.Length == 0 ? pair : pair with { GapChecks = gapChecks, DecidingCalls = calls };
                     })
                     .ToArray();
     }
 
     /// <summary>A join of an execution's instance whose handle may be a gap's result.</summary>
-    private sealed record GapJoin(string Instance, int OperationId, SemanticGap Gap);
+    private sealed record GapJoin(string Instance, int OperationId, GapOrigin Gap);
 
-    private sealed record Facts(IReadOnlyList<GapJoin> Joins, IReadOnlyList<SemanticGap> Continuations, IReadOnlyList<SemanticGap> Timers,
-                                IReadOnlyList<SemanticGap> Delegates);
+    private sealed record Facts(IReadOnlyList<GapJoin> Joins, IReadOnlyList<GapOrigin> Continuations, IReadOnlyList<GapOrigin> Timers,
+                                IReadOnlyList<GapOrigin> Delegates);
 
     /// <summary>What each execution waits for, continues and runs as a callback, as far as a gap's result decides it, and the gaps whose
     /// delegate it runs.</summary>
@@ -276,7 +322,7 @@ public static class GapDecisions
                  .ToDictionary(group => group.Key, group => group.Select(item => item.Instance).Order(StringComparer.Ordinal).ToArray(), StringComparer.Ordinal);
         private readonly HashSet<OperationSite> _unprovenJoins = input.Executions.UnprovenJoins.ToHashSet();
 
-        internal IEnumerable<GapCheck> Overlap(Access firstAccess, Access secondAccess)
+        internal IEnumerable<DecidingCall> Overlap(Access firstAccess, Access secondAccess)
         {
             var (first, second) = (firstAccess.ExecutionId, secondAccess.ExecutionId);
             // A self-pair of work started again and again: a wait of its parent on a gap's result orders its passes if the result is
@@ -331,7 +377,8 @@ public static class GapDecisions
             }
         }
 
-        private static GapCheck Check(SemanticGap gap, string reason) => new(gap.Callee, gap.Kind, GapComponents.OVERLAP, reason);
+        private static DecidingCall Check(GapOrigin gap, string reason) =>
+            new(new GapCheck(gap.Callee, gap.Kind, GapComponents.OVERLAP, reason), gap.Call);
 
         /// <summary>Two executions of one tree: only there can a wait or a continuation of one order the other.</summary>
         private bool Related(string first, string second) =>
@@ -355,8 +402,8 @@ public static class GapDecisions
                 }
             }
 
-            var continuations = new List<SemanticGap>();
-            var timers = new List<SemanticGap>();
+            var continuations = new List<GapOrigin>();
+            var timers = new List<GapOrigin>();
             var spawned = input.Executions.Execution(execution);
             if (spawned.Origin is { IsTail: false } origin)
             {
@@ -385,7 +432,7 @@ public static class GapDecisions
 
             // The unknown call of a delegate runs because the calls that were handed it may run it: those gaps decide its overlap (R3, R6).
             var delegates = spawned.Kind == ExecutionKind.UnknownDelegateCall && _handoffs.TryGetValue(spawned.Subject!, out var handoff)
-                ? handoff.Sites.Select(site => origins.AtSite(input.Heap.Instances[site.CallerInstance].BodyId, site.OperationId)).OfType<SemanticGap>()
+                ? handoff.Sites.Select(site => origins.AtSite(input.Heap.Instances[site.CallerInstance].BodyId, site.OperationId)).OfType<GapOrigin>()
                 : [];
             var facts = new Facts(joins.Distinct().ToArray(), continuations.Distinct().ToArray(), timers.Distinct().ToArray(), delegates.Distinct().ToArray());
             _facts.Add(execution, facts);

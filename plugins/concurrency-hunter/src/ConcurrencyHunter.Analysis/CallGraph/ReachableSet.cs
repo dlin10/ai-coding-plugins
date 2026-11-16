@@ -214,11 +214,12 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
     public TypeInitializerTreatment TreatmentOf(string typeKey) => Rules?.TreatmentOf(typeKey) ?? TypeInitializersTreatment;
 
     // bounded: forwards once to the admission rule of another type.
-    public bool Admits(string? origin, string target, AdmissionRoute route) => Admission?.Admits(origin, target, route) != false;
+    public bool Admits(string? origin, string target, AdmissionRoute route, int operationId = -1) =>
+        Admission?.Admits(origin, target, route, origin is null ? null : Bodies.GetValueOrDefault(origin)?.CallIdentities.GetValueOrDefault(operationId)) != false;
 
     // bounded: calls the nonrecursive single-argument overload once.
-    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route) =>
-        HasBody(method) && Admits(origin, method.MethodId, route);
+    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route, int operationId = -1) =>
+        HasBody(method) && Admits(origin, method.MethodId, route, operationId);
 }
 
 /// <summary>
@@ -646,10 +647,10 @@ public static class ReachableSet
         private static string RegionKey(string implementationTypeKey, DiLifetime lifetime) => $"{implementationTypeKey}@{lifetime}";
 
         private void ReachBody(string bodyId, string reason, ReachEdgeKind? edgeKind = null,
-                               string? origin = null, AdmissionRoute route = AdmissionRoute.Delegate)
+                               string? origin = null, AdmissionRoute route = AdmissionRoute.Delegate, CallIdentity? call = null)
         {
             origin ??= OriginOfReason(reason);
-            if (_input.Rules.Admission?.Admits(origin, bodyId, route) == false)
+            if (_input.Rules.Admission?.Admits(origin, bodyId, route, call) == false)
                 return;
             if (_input.Rules.RecordEdges)
                 RecordEdge(bodyId, reason, edgeKind);
@@ -793,7 +794,8 @@ public static class ReachableSet
                     {
                         var dispatched = call.CallKind is IrCallKind.Virtual or IrCallKind.Interface;
                         var route = dispatched ? AdmissionRoute.Dispatch : AdmissionRoute.Direct;
-                        var targets = Targets(targetId, dispatched, bodyId, route);
+                        var identity = body.CallIdentities.GetValueOrDefault(call.Id);
+                        var targets = Targets(targetId, dispatched, bodyId, route, identity);
                         if (targets.Count == 0)
                         {
                             RecordOpaque(bodyId, call, definitions, work.GetValueOrDefault(call.Id) ?? []);
@@ -859,12 +861,12 @@ public static class ReachableSet
                         // A mark whose type stays closed is the comparer it makes, and the call it replaced runs only where the type can
                         // stay open, now or once the walk learns it can.
                         if (call.DefaultComparer is not { } comparer)
-                            ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route));
+                            ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route, call: identity));
                         else
                             ReachComparers(comparer, bodyId, call.Id, reason, () =>
                             {
                                 _openComparerCalls.Add((bodyId, call.Id));
-                                ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route));
+                                ReachTargets(targets, dispatched, target => ReachBody(target, reason, origin: bodyId, route: route, call: identity));
                             });
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
                             Reference(call.TargetContainingTypeKey ?? method.ContainingTypeKey, bodyId);
@@ -1061,14 +1063,16 @@ public static class ReachableSet
         /// <param name="virtualDispatch">Whether the call dispatches.</param>
         /// <param name="origin">The calling body.</param>
         /// <param name="route">How the call reaches its target.</param>
-        private IReadOnlyList<ProgramMethod> Targets(string methodId, bool virtualDispatch, string? origin = null, AdmissionRoute route = AdmissionRoute.Delegate)
+        /// <param name="call">The reaching call, if any.</param>
+        private IReadOnlyList<ProgramMethod> Targets(string methodId, bool virtualDispatch, string? origin = null,
+                                                    AdmissionRoute route = AdmissionRoute.Delegate, CallIdentity? call = null)
         {
             var targets = new List<ProgramMethod>();
             if (_program.Method(methodId) is { HasSourceBody: true } self)
                 targets.Add(self);
             if (virtualDispatch)
                 targets.AddRange(_dispatchTargets.GetValueOrDefault(methodId)?.Where(target => target.HasSourceBody) ?? []);
-            targets.RemoveAll(target => _leftOutMembers.Contains(target.MethodId) || _input.Rules.Admission?.Admits(origin, target.MethodId, route) == false);
+            targets.RemoveAll(target => _leftOutMembers.Contains(target.MethodId) || _input.Rules.Admission?.Admits(origin, target.MethodId, route, call) == false);
             return targets;
         }
 
@@ -1121,10 +1125,12 @@ public static class ReachableSet
                                (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
                 // Bind even targets still waiting for construction: their parameter edges must also receive later bindings.
                 foreach (var target in Targets(methodId, dispatch, bodyId, operation is IrCreateDelegateOperation ? AdmissionRoute.Delegate :
-                                                                         dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct)
+                                                                         dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct,
+                                               _bodies.GetValueOrDefault(bodyId)?.CallIdentities.GetValueOrDefault(operation.Id))
                                        .Prepend(method)
                                        .Where(target => _input.Rules.Admission?.Admits(bodyId, target.MethodId,
-                                           operation is IrCreateDelegateOperation ? AdmissionRoute.Delegate : dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct) != false)
+                                           operation is IrCreateDelegateOperation ? AdmissionRoute.Delegate : dispatch ? AdmissionRoute.Dispatch : AdmissionRoute.Direct,
+                                           _bodies.GetValueOrDefault(bodyId)?.CallIdentities.GetValueOrDefault(operation.Id)) != false)
                                        .DistinctBy(target => target.MethodId))
                 {
                     WorkCancellation.Check();

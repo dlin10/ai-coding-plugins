@@ -301,7 +301,7 @@ public sealed class GeneratedFileVersionMatrixTests
                     Assert.Equal(before, Bytes(path));
                     atRead = ChangedDocument(cell, before);
                     Put(path, atRead);
-                });
+                }, Budget: cell.Mode == ModelGeneration.Generate ? GenerationBudget.Recording : null);
                 var result = await PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, repository, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, AnalysisLimits.Default,
                                                                 Z3ConstraintSolver.Create, setup, CancellationToken.None);
                 observations.Add(new(cell, result, requested.ToArray(), before, atRead, Bytes(path), reads));

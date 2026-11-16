@@ -90,7 +90,7 @@ public sealed class SemanticGapTests
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
         var scopes = json.RootElement.GetProperty("coverage").EnumerateArray().ToArray();
 
-        Assert.Equal("1.6", json.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.7", json.RootElement.GetProperty("schemaVersion").GetString());
         Assert.Equal(["A", "B", "C"], scopes.Select(scope => scope.GetProperty("scopeId").GetString()));
         foreach (var (scopeId, callee) in new[] { ("A", "System.Console.WriteLine(object)"), ("B", "System.Console.Write(object)") })
         {
@@ -107,8 +107,12 @@ public sealed class SemanticGapTests
             Assert.Equal(new[] { scopeId + "/Case.cs:8" }, gap.GetProperty("callSites").EnumerateArray().Select(site => site.GetString()));
             Assert.Same(Assert.Single(analysis.Coverage, coverage => coverage.ScopeId == scopeId).DecidingGaps,
                         Assert.Single(measurement.Coverage, coverage => coverage.ScopeId == scopeId).DecidingGaps);
+            Assert.Same(Assert.Single(analysis.Coverage, coverage => coverage.ScopeId == scopeId).CallSiteAnalysis,
+                        Assert.Single(measurement.Coverage, coverage => coverage.ScopeId == scopeId).CallSiteAnalysis);
+            Assert.Equal(1, scope.GetProperty("callSiteAnalysis").GetProperty("analyses").GetInt32());
         }
         Assert.Empty(scopes[2].GetProperty("decidingGaps").EnumerateArray());
+        Assert.Empty(scopes[2].GetProperty("callSiteAnalysis").GetProperty("calls").EnumerateArray());
     }
 
     private static Task<LoadedTarget> Load(string target, CancellationToken cancellationToken) =>

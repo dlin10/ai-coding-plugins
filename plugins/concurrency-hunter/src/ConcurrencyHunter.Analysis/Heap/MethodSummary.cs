@@ -492,8 +492,14 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
     /// <summary>The keeper storages the value is read from.</summary>
     public IReadOnlyList<IReadOnlySet<AbstractValue>> Kept { get; init; } = [];
 
+    /// <summary>The allocations whose objects may be the value; each leads to its separate constructor call.</summary>
+    public IReadOnlySet<int> Allocations { get; init; } = new HashSet<int>();
+
+    /// <summary>Call results retained alongside recognized storage flows, read only by the call-site producer walk.</summary>
+    public IReadOnlySet<int> ProducingCalls { get; init; } = new HashSet<int>();
+
     public bool IsNone => Calls.Count == 0 && Parameters.Count == 0 && Fields.Count == 0 && Captured.Count == 0 && Elements.Count == 0 &&
-                          Keys.Count == 0 && Kept.Count == 0;
+                          Keys.Count == 0 && Kept.Count == 0 && Allocations.Count == 0 && ProducingCalls.Count == 0;
 
     /// <summary>Every origin of several values at once.</summary>
     /// <param name="origins">The origins to combine.</param>
@@ -510,7 +516,9 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
                 Captured = all.SelectMany(origin => origin.Captured).ToHashSet(),
                 Elements = all.SelectMany(origin => origin.Elements).ToArray(),
                 Keys = all.SelectMany(origin => origin.Keys).ToArray(),
-                Kept = all.SelectMany(origin => origin.Kept).ToArray()
+                Kept = all.SelectMany(origin => origin.Kept).ToArray(),
+                Allocations = all.SelectMany(origin => origin.Allocations).ToHashSet(),
+                ProducingCalls = all.SelectMany(origin => origin.ProducingCalls).ToHashSet()
             }
         };
     }
@@ -845,6 +853,9 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
                                   IReadOnlyList<CallArgument> Arguments, IReadOnlyList<HeldLockValue> HeldLocks,
                                   string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null)
 {
+    /// <summary>Where the call's receiver comes from through the solved value flows.</summary>
+    public ValueOrigin ReceiverOrigin { get; init; } = ValueOrigin.None;
+
     /// <summary>Whether every definition of the receiver is an allocation of this body.</summary>
     public bool ReceiverIsFresh { get; init; }
 
@@ -890,6 +901,9 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
 /// <param name="Delegates">The delegate objects passed to the call.</param>
 public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates)
 {
+    /// <summary>Where the call's receiver comes from through the solved value flows.</summary>
+    public ValueOrigin ReceiverOrigin { get; init; } = ValueOrigin.None;
+
     /// <summary>Whether every definition of the receiver is an allocation of this body.</summary>
     public bool ReceiverIsFresh { get; init; }
 
@@ -1275,6 +1289,15 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
                                    IReadOnlyList<CallTransfer> Calls, IReadOnlyList<SummaryOpaqueCall> OpaqueCalls,
                                    IReadOnlyList<CapturedStore> CapturedStores, IReadOnlyList<SummaryVariable> Variables)
 {
+    /// <summary>The stable identities of the body's call operations in this lowering.</summary>
+    public IReadOnlyDictionary<int, CallIdentity> CallIdentities { get; init; } = new Dictionary<int, CallIdentity>();
+
+    /// <summary>The input origins of every call, including calls handled by a recognizer rather than a call transfer.</summary>
+    public IReadOnlyDictionary<int, ValueOrigin> CallInputs { get; init; } = new Dictionary<int, ValueOrigin>();
+
+    /// <summary>The constructor calls whose receiver is each allocation of the body.</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<int>> AllocationConstructors { get; init; } = new Dictionary<int, IReadOnlyList<int>>();
+
     public IReadOnlyList<SummaryReferenceAccess> ReferenceAccesses { get; init; } = [];
 
     /// <summary>The deep reads and argument writes of the known calls of the body (R3).</summary>

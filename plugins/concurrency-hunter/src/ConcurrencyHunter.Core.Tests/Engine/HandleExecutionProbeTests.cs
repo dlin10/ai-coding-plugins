@@ -26,7 +26,7 @@ public sealed class HandleExecutionProbeTests(HandleExecutionProbeFixture fixtur
         Assert.DoesNotContain(runs.Admitted.Run.Findings, finding => finding.Fingerprint == "beab0b89c04944ad");
         Assert.All(runs.Records.Run.Findings, finding => Assert.Contains(finding, runs.Admitted.Run.Findings));
         Assert.True(runs.Admitted.Run.LibraryBodies >= 1);
-        Assert.Equal(0, runs.Records.Run.LibraryBodies);
+        Assert.True(runs.Records.Run.LibraryBodies >= 1);
         var records = runs.Records.Run.Findings.ToHashSet();
         var extra = runs.Admitted.Analysis.Findings.Where(finding => !records.Contains(HandleExecutionProbeFixture.Triple(finding))).ToArray();
         // The records include the later runs of a sequential-awaited call: no admitted-only finding or residual remains.
@@ -73,15 +73,7 @@ public sealed class HandleExecutionProbeFixture
         if (!demo)
         {
             var root = Path.GetFullPath(Environment.GetEnvironmentVariable(RequiresEShopFactAttribute.VARIABLE)!);
-            var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-            foreach (var argument in new[] { "-C", root, "rev-parse", "HEAD" })
-                start.ArgumentList.Add(argument);
-            using var git = Process.Start(start)!;
-            var revision = git.StandardOutput.ReadToEndAsync();
-            var error = git.StandardError.ReadToEndAsync();
-            await git.WaitForExitAsync();
-            Assert.True(git.ExitCode == 0, await error);
-            Assert.Equal(ESHOP_REVISION, (await revision).Trim());
+            Assert.Equal(ESHOP_REVISION, ProbeRevision.Read(root));
             projects = Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories);
             Assert.Equal(30, projects.Length);
             Assert.All(projects, project => Assert.True(System.IO.File.Exists(Path.Combine(Path.GetDirectoryName(project)!, "obj/project.assets.json")),
@@ -111,6 +103,7 @@ public sealed class HandleExecutionProbeFixture
 
         async Task<HandleExecutionProbeMeasurement> Analyze(string name, CallSiteAnalysis? setup)
         {
+            setup ??= new CallSiteAnalysis(string.Empty, new Version(), new Version(), new HashSet<string>()) { Mode = CallSiteMode.Withhold };
             var scopes = new List<HandleExecutionProbeScope>();
             var clock = Stopwatch.StartNew();
             var result = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn,
@@ -119,10 +112,12 @@ public sealed class HandleExecutionProbeFixture
             clock.Stop();
             var run = new CallSiteProbeRun(result.Findings.Select(Triple).OrderBy(finding => finding.Fingerprint, StringComparer.Ordinal)
                 .ThenBy(finding => finding.Rule, StringComparer.Ordinal).ThenBy(finding => finding.Confidence, StringComparer.Ordinal).ToArray(),
-                setup?.Measurements.Sum(scope => scope.LibraryBodies) ?? 0,
-                setup?.Measurements.SelectMany(scope => scope.Admitted).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray() ?? [], clock.Elapsed.TotalSeconds);
+                setup.Measurements.Sum(scope => scope.LibraryBodies),
+                setup.Measurements.SelectMany(scope => scope.Admitted).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), clock.Elapsed.TotalSeconds);
             if (directory is not null)
-                await System.IO.File.WriteAllTextAsync(Path.Combine(directory, $"{target}-{name}.json"), JsonSerializer.Serialize(run, JsonOptions));
+                await System.IO.File.WriteAllTextAsync(Path.Combine(directory,
+                    Environment.GetEnvironmentVariable("CH_H3_CALLSITE_OUT") is null ? $"{target}-{name}.json" : $"handles-{target}-{name}.json"),
+                    JsonSerializer.Serialize(new { run.Findings, run.LibraryBodies, run.Admitted, run.Seconds, Scopes = setup.Measurements }, JsonOptions));
             return new HandleExecutionProbeMeasurement(run, result, scopes);
         }
     }
@@ -177,6 +172,11 @@ public sealed class HandleExecutionProbeFixture
 
     private static string? OutputDirectory()
     {
+        if (Environment.GetEnvironmentVariable("CH_H3_CALLSITE_OUT") is { Length: > 0 } unified)
+        {
+            Directory.CreateDirectory(unified);
+            return unified;
+        }
         if (Environment.GetEnvironmentVariable("CH_H3B_PROBE_OUT") is not { Length: > 0 } path)
             return null;
         var directory = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

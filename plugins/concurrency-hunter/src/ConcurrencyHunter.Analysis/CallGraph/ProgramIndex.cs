@@ -186,8 +186,10 @@ public sealed class ProgramIndex
     /// <param name="admission">The optional admission for this edge.</param>
     /// <param name="origin">The calling body.</param>
     /// <param name="route">The edge route.</param>
+    /// <param name="call">The reaching call, when available.</param>
     public ProgramMethod? Implementation(string runtimeTypeKey, string methodId, string? interfaceTypeKey = null,
-                                          CallSiteAdmission? admission = null, string? origin = null, AdmissionRoute route = AdmissionRoute.Dispatch)
+                                          CallSiteAdmission? admission = null, string? origin = null, AdmissionRoute route = AdmissionRoute.Dispatch,
+                                          CallIdentity? call = null)
     {
         WorkCancellation.Check();
         if (!_methods.TryGetValue(methodId, out var target))
@@ -211,7 +213,7 @@ public sealed class ProgramIndex
                                mappings.FirstOrDefault(mapping => InterfaceMatches(Substitute(mapping.InterfaceTypeKey, substitution),
                                                                                    interfaceTypeKey, mapping.Variances));
                 if (matching is not null)
-                    return matching.ImplementationMethodId is { } mapped ? Implementation(runtimeTypeKey, mapped, admission: admission, origin: origin, route: route) : null;
+                    return matching.ImplementationMethodId is { } mapped ? Implementation(runtimeTypeKey, mapped, admission: admission, origin: origin, route: route, call: call) : null;
                 current = type.BaseTypeKey is { } baseKey ? Substitute(baseKey, substitution) : null;
             }
 
@@ -230,12 +232,12 @@ public sealed class ProgramIndex
                 if (method.MethodId == methodId && !method.IsAbstract || Overrides(method, methodId) ||
                     method.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal))
                 {
-                    return admission?.Admits(origin, method.MethodId, route) != false ? method : null;
+                    return admission?.Admits(origin, method.MethodId, route, call) != false ? method : null;
                 }
             }
         }
 
-        return target.IsAbstract || admission?.Admits(origin, target.MethodId, route) == false ? null : target;
+        return target.IsAbstract || admission?.Admits(origin, target.MethodId, route, call) == false ? null : target;
     }
 
     private bool InterfaceMatches(string mapped, string called, IReadOnlyList<ProgramVariance>? variances)

@@ -61,7 +61,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
                       "peakWorkingSetMb", "counts", "coverage", "sources", "targets"],
                      Names(root));
-        Assert.Equal("1.6", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.7", root.GetProperty("schemaVersion").GetString());
         Assert.Equal(["offline", "libraries", "downloads"], Names(root.GetProperty("sources")));
         Assert.False(root.GetProperty("sources").GetProperty("offline").GetBoolean());
         Assert.Equal(["originalSources", "decompiledBest", "decompiledForRun"], Names(root.GetProperty("sources").GetProperty("libraries")));
@@ -71,7 +71,12 @@ public sealed class MetricsCommandTests
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
         Assert.Equal(["depth", "contexts", "scc"], Names(root.GetProperty("limits")));
         Assert.Equal(["steps", "totalSeconds", "analyses"], Names(root.GetProperty("timings")));
-        Assert.All(root.GetProperty("timings").GetProperty("analyses").EnumerateArray(), item => Assert.Equal(["scope", "count"], Names(item)));
+        Assert.All(root.GetProperty("timings").GetProperty("analyses").EnumerateArray(), item =>
+        {
+            Assert.Equal(["scope", "count", "seconds"], Names(item));
+            Assert.Equal(item.GetProperty("count").GetInt32(), item.GetProperty("seconds").GetArrayLength());
+            Assert.All(item.GetProperty("seconds").EnumerateArray(), seconds => Assert.True(seconds.GetDouble() >= 0));
+        });
         var steps = root.GetProperty("timings").GetProperty("steps").EnumerateArray().ToArray();
         Assert.Equal(STEPS, steps.Select(step => step.GetProperty("step").GetString()));
         Assert.All(steps, step => Assert.True(step.GetProperty("seconds").GetDouble() >= 0));
@@ -82,7 +87,14 @@ public sealed class MetricsCommandTests
                      Names(root.GetProperty("counts").GetProperty("pairs")));
         Assert.Equal(["observers", "thread-context", "thread-pool-entry"], Names(root.GetProperty("counts").GetProperty("pairs").GetProperty("assumed")));
         Assert.All(root.GetProperty("coverage").EnumerateArray(), scope =>
-            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps", "generationRefusals", "decidingGaps"], Names(scope)));
+        {
+            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps", "generationRefusals", "decidingGaps", "callSiteAnalysis"], Names(scope));
+            var callSite = scope.GetProperty("callSiteAnalysis");
+            Assert.Equal(["analyses", "calls", "pairsRemoved", "pairsAdded"], Names(callSite));
+            Assert.All(callSite.GetProperty("calls").EnumerateArray(), call =>
+                Assert.Equal(["callee", "place", "producers", "bodies", "outcome"], Names(call)));
+            Assert.False(callSite.TryGetProperty("seconds", out _));
+        });
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);
@@ -133,12 +145,16 @@ public sealed class MetricsCommandTests
         Assert.Equal(["A", "B"], analysis.Scopes.Select(scope => scope.Id));
         Assert.Equal(analysis.Scopes.Select(scope => scope.Id), analyses.Select(item => item.GetProperty("scope").GetString()));
         Assert.All(analyses, item => Assert.Equal(1, item.GetProperty("count").GetInt32()));
+        Assert.All(analyses, item => Assert.True(Assert.Single(item.GetProperty("seconds").EnumerateArray()).GetDouble() >= 0));
         Assert.Equal([1, 1], analysis.ScopeSizes.Select(size => size.Analyses));
+        Assert.All(analysis.Coverage, scope => Assert.Equal(1, scope.CallSiteAnalysis.Analyses));
 
         var (demo, demoAnalysis) = await DEMO.Value;
         Assert.Equal(demoAnalysis.Scopes.Select(scope => scope.Id), demo.Timings.Analyses.Select(item => item.Scope));
         Assert.Equal(demoAnalysis.ScopeSizes.Select(size => size.Analyses), demo.Timings.Analyses.Select(item => item.Count));
         Assert.All(demo.Timings.Analyses, item => Assert.True(item.Count >= 1));
+        Assert.All(demo.Timings.Analyses, item => Assert.Equal(item.Count, item.Seconds.Count));
+        Assert.Equal(demo.Timings.Analyses.Select(item => item.Count), demo.Coverage.Select(scope => scope.CallSiteAnalysis.Analyses));
     }
 
     [Fact]

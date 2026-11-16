@@ -184,3 +184,51 @@ result does not depend on order. A gap still deciding after the last round stays
 a package member is analysed once, as before. Rejected: one round, which leaves eShop's 34 seeding findings behind the
 outer call; admitting in the first round every library call whose delegate encloses the access, a relation the analysis
 does not have and one that admits calls that decide nothing.
+
+## Amendment, 2026-11-15: the call is admitted, the bound counts the call graph, and coverage names each call's answer
+
+Making the call-site analysis what a run does settles what the decision and its amendments left to the building of it.
+
+**The unit admitted is the deciding call, not the member.** A deciding gap is named by its callee, but what decides a
+check is one call in the program's code: the call whose delegate's unknown execution holds one of the accesses, whose
+unknown effect is one of them, or whose result became a join's handle, a continuation's antecedent, a timer or a lock's
+identity. The analysis keeps that call with the check, and admission keys it by its body and operation; every other
+call of the same member keeps its record, its generated model or its opacity. In eShop `Policy.Execute(Action)` runs
+the seeding in `MigrateDbContext` and opens the RabbitMQ connection in `TryConnect`; only the first decides a check, and
+only it gets the library's body. Rejected: every call of a deciding member, which is the form the admission had while
+it was a measurement. It analyses calls that decide nothing, which this decision rejects, and the bodies of the
+connection's retry could bring pairs into a scope whose findings they do not decide.
+
+**The producers are found through the heap, object creation included.** The library calls whose results reach the
+deciding call's receiver and arguments are found by following every flow the solved heap knows: a call's result
+through locals, a helper's return, a parameter from its caller's argument, a captured variable, a field stored in
+another body — a constructor, a field or auto-property initializer — collection storage and a struct copy; and an object
+creation, whose constructor is a call of its own. Each producer found is followed through its own receiver and
+arguments, eight hops deep at most. Only the program's calls to package members that do not dispatch and have an
+executable body are admitted.
+
+**The bound counts the call graph, before the heap.** For each admitted call, together with its producers, the library
+bodies reachable in the call graph from its entries into the library are counted before summaries and the heap are
+built. A call past the bound is not admitted and keeps its gap. The call graph takes a virtual call to every override,
+so the count exceeds what the heap reaches, and the bound has a margin: four times the largest count measured on the
+demo and eShop with the Polly records withheld, rounded up to a multiple of 500. The largest is 270 bodies, the demo's
+call of Polly.Core's `ResiliencePipeline.Execute<TResult>` with its producers; the Polly 7 retries of the demo and eShop
+reach 145 to 152. The bound is 1500 bodies. Rejected: counting the bodies the
+solved heap reaches under each call's place. It is exact, but the analysis the bound exists to spare has then been
+spent, and withdrawing the call costs another one.
+
+**The rounds follow the generated layer.** The run reads the generated layer and no longer generates. The rounds of
+admission begin after the analysis that settles that layer; each analyses the scope with the same layer and more
+admitted calls, three rounds at most. A member that only bodies admitted in a round reach is read with the layer as it
+stands.
+
+**Coverage names how each call ended.** A scope's coverage says how many analyses it took and lists each call in the
+program's code to a package or framework member that decided a check in any of them — a deciding call inside a library's
+body is never admitted and stays in the list of deciding gaps: its callee, its place and its producers' places, its
+count of bodies, and how it ended — answered by the library's body; admitted and still deciding; past the bound; no
+body to enter, because the library does not compile, the member has no executable body or the call dispatches; a member
+of a shared framework; still deciding after the last round. It counts the pairs of the analysis before the first
+admission that the last analysis no longer has, and the pairs it gained. The list of deciding gaps does not change: it
+names what still decides a check at the end. Time is measured per analysis of a scope and reported with the run's
+timings, not in coverage: the bodies of a scope are solved in one heap, so the time of one call cannot be told apart,
+and coverage is the part of a run that is the same on every machine.

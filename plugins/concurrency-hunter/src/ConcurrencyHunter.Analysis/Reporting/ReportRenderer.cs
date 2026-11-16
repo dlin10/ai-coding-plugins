@@ -232,6 +232,18 @@ public static class ReportRenderer
                 }
             }
 
+            if (coverage.CallSiteAnalysis.Calls.Count != 0)
+            {
+                var callSite = coverage.CallSiteAnalysis;
+                Line("  - Call-site analysis:");
+                Line($"    - analyses {Number(callSite.Analyses)}; pairs removed {Number(callSite.PairsRemoved)}, added {Number(callSite.PairsAdded)}");
+                foreach (var call in callSite.Calls)
+                {
+                    WorkCancellation.Check();
+                    Line($"    - {call.Callee}; {call.Place}; {call.Outcome}; bodies {Number(call.Bodies)}; producers: {Items(call.Producers)}");
+                }
+            }
+
             var ungenerated = Items(coverage.GenerationRefusals.Select(item => $"{item.Member} ({item.Cause}, {item.FileKey})"));
             Line($"  - Members without a generated model: {ungenerated}");
             Line($"  - Lowered but not reached (inventory, not counted against coverage): {Items(coverage.LoweredNotReached)}");

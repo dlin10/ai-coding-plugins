@@ -85,7 +85,7 @@ public sealed partial class SourceRequestFailureTests
             CancellationToken.None, generationFrameworkMajor: 8));
         var candidate = new GenerationCandidate(compilation, member, target, false);
         var repository = Path.Combine(install.Root, "repository");
-        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, install.Resolver(), Sources: sources),
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, install.Resolver(), Budget: GenerationBudget.Recording, Sources: sources),
             repository, CancellationToken.None)!;
         var layer = pass.Prepare(LibraryModels.BuiltIn, [candidate]);
         Assert.Equal(1, pass.GeneratedInRun([candidate]));

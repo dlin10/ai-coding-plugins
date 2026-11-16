@@ -468,6 +468,7 @@ public static class MethodSummaryBuilder
                                                                   .Distinct().Select(value => delegates[value.Site]).ToArray())
                         {
                             Receivers = Final(Points(call.ReceiverValue), delegates),
+                            ReceiverOrigin = call.ReceiverValue is int opaqueReceiverOrigin ? Producers(opaqueReceiverOrigin) : ValueOrigin.None,
                             ReceiverIsFresh = call.ReceiverValue is int freshReceiver && IsFresh(freshReceiver),
                             ReceiverHandedSlot = call.ReceiverValue is int handedReceiver ? HandedSlotOf(handedReceiver) : null,
                             Arguments = Arguments(call, delegates),
@@ -546,6 +547,7 @@ public static class MethodSummaryBuilder
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
                                                    Arguments(call, delegates), locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys)
                         {
+                            ReceiverOrigin = call.ReceiverValue is int receiverOrigin ? Producers(receiverOrigin) : ValueOrigin.None,
                             Implementations = call.Implementations,
                             IsAwaitedImmediately = call.IsAwaitedImmediately,
                             ReceiverIsFresh = call.ReceiverValue is int freshCallReceiver && IsFresh(freshCallReceiver),
@@ -737,6 +739,17 @@ public static class MethodSummaryBuilder
             return new MethodSummary(_body.BodyId, accesses, stores, elements, returns, refParameters, delegateTransfers, calls, opaqueCalls,
                                      capturedStores, variables)
             {
+                CallIdentities = _body.CallIdentities,
+                CallInputs = _body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>().ToDictionary(call => call.Id,
+                    call => ValueOrigin.Union(call.ArgumentValues.Select(Producers)
+                        .Concat(call.ReceiverValue is { } receiver ? [Producers(receiver)] : []))),
+                AllocationConstructors = calls.Where(call => call.Kind == IrCallKind.Constructor)
+                                              .Select(call => (call.OperationId, Origin: call.ReceiverOrigin))
+                                              .Concat(opaqueCalls.Where(call => call.IsConstructor)
+                                                                 .Select(call => (call.OperationId, Origin: call.ReceiverOrigin)))
+                                              .SelectMany(call => call.Origin.Allocations.Select(allocation => (Allocation: allocation, call.OperationId)))
+                                              .GroupBy(call => call.Allocation)
+                                              .ToDictionary(group => group.Key, group => (IReadOnlyList<int>)group.Select(call => call.OperationId).ToArray()),
                 ReferenceAccesses = referenceAccesses,
                 ArgumentEffects = argumentEffects,
                 ReferenceReturns = referenceReturns,
@@ -1619,6 +1632,8 @@ public static class MethodSummaryBuilder
         private ValueOrigin WalkProducers(IReadOnlyList<int> values, ProducerWalk walk)
         {
             var calls = new HashSet<int>();
+            var allocations = new HashSet<int>();
+            var producingCalls = new HashSet<int>();
             var parameters = new HashSet<int>();
             var fields = new List<FieldOrigin>();
             var captured = new HashSet<IrClosureCell>();
@@ -1653,14 +1668,27 @@ public static class MethodSummaryBuilder
                     continue;
                 }
 
+                if (definition is IrCallOperation producing && (producing.ResultValue == current || producing.RefResults.Values.Contains(current)))
+                    producingCalls.Add(producing.Id);
+
                 switch (definition)
                 {
+                    case IrAllocateOperation allocation:
+                        allocations.Add(allocation.Id);
+                        break;
                     // An owner's read of its variable's capture cell holds what it or a nested body put there (question 153).
                     case IrLoadCapturedOperation { Cell: { } readBack }:
                         captured.Add(readBack);
                         break;
                     case IrLoadElementOperation load:
                         elements.Add(_points[load.ReceiverValue].ToHashSet());
+                        break;
+                    // The current value comes from the enumerated storage, as it does in OwnPoints; the enumerator itself holds no cells.
+                    case IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
+                        when call.ResultValue == current && !EnumeratesDictionary(enumeration, _values[current].Type) &&
+                             _enumerated.TryGetValue(enumeration, out var enumerated):
+                        calls.Add(call.Id);
+                        elements.Add(_points[Slice(enumerated).Array].ToHashSet());
                         break;
                     // What a collection member hands out is what any store put into its collection's cells, as an element load's is.
                     case IrCallOperation { ReceiverValue: int held } call
@@ -1733,6 +1761,8 @@ public static class MethodSummaryBuilder
                         elements.AddRange(outputOrigin.Elements);
                         keys.AddRange(outputOrigin.Keys);
                         kept.AddRange(outputOrigin.Kept);
+                        allocations.UnionWith(outputOrigin.Allocations);
+                        producingCalls.UnionWith(outputOrigin.ProducingCalls);
                         break;
                     }
                     case IrCallOperation call when call.ResultValue == current:
@@ -1746,7 +1776,10 @@ public static class MethodSummaryBuilder
                 }
             }
 
-            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements, Keys = keys, Kept = kept };
+            var origin = new ValueOrigin(calls, parameters, fields)
+            {
+                Captured = captured, Elements = elements, Keys = keys, Kept = kept, Allocations = allocations, ProducingCalls = producingCalls
+            };
             return origin.IsNone ? ValueOrigin.None : origin;
         }
 
@@ -3868,11 +3901,11 @@ public static class MethodSummaryBuilder
             if (_index.Method(methodId) is not { } method)
                 return true;
             var route = call.CallKind is IrCallKind.Virtual or IrCallKind.Interface ? AdmissionRoute.Dispatch : AdmissionRoute.Direct;
-            if (_reachable?.HasBody(method, _body.BodyId, route) ?? method.HasSourceBody)
+            if (_reachable?.HasBody(method, _body.BodyId, route, call.Id) ?? method.HasSourceBody)
                 return false;
             if (_reachable?.Admission is not null)
                 return route != AdmissionRoute.Dispatch || !_index.Methods.Any(target =>
-                    _reachable.HasBody(target, _body.BodyId, route) &&
+                    _reachable.HasBody(target, _body.BodyId, route, call.Id) &&
                     (target.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal) || Overrides(target)));
             return call.CallKind is not (IrCallKind.Virtual or IrCallKind.Interface) || !DispatchedWithBody(_index).Contains(methodId);
 

@@ -33,10 +33,10 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
         return reachable?.HasBody(method) ?? method.HasSourceBody;
     }
 
-    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route)
+    public bool HasBody(ProgramMethod method, string? origin, AdmissionRoute route, int operationId = -1)
     {
         WorkCancellation.Check();
-        return reachable?.HasBody(method, origin, route) ?? method.HasSourceBody;
+        return reachable?.HasBody(method, origin, route, operationId) ?? method.HasSourceBody;
     }
 
     public bool IsBuilt(string bodyId) => _summaries.ContainsKey(bodyId);
@@ -2328,9 +2328,10 @@ public static partial class WholeProgram
 
         private InstanceState? Instance(string bodyId, string context, IReadOnlyDictionary<string, string> substitution,
                                         IEnumerable<RegionRef> receivers, IEnumerable<string> cellOwners, bool receiverless,
-                                        bool merged = false, string? origin = null, AdmissionRoute route = AdmissionRoute.Root, string site = "")
+                                        bool merged = false, string? origin = null, AdmissionRoute route = AdmissionRoute.Root, string site = "",
+                                        int operationId = -1)
         {
-            if (!_scope.Reachable.Admits(origin, bodyId, route) || !_scope.Reachable.Bodies.ContainsKey(bodyId))
+            if (!_scope.Reachable.Admits(origin, bodyId, route, operationId) || !_scope.Reachable.Bodies.ContainsKey(bodyId))
                 return null;
 
             var bodyContext = bodyId + site;
@@ -3387,7 +3388,7 @@ public static partial class WholeProgram
                 {
                     var callee = Instance(call.Target, OwnerContext(caller.CellOwners), caller.Substitution, caller.Receivers, caller.CellOwners,
                                           caller.IsReceiverless, origin: caller.BodyId, route: AdmissionRoute.Direct,
-                                          site: LibrarySite(caller, call.OperationId, call.Target));
+                                          site: LibrarySite(caller, call.OperationId, call.Target), operationId: call.OperationId);
                     if (callee is not null)
                         Add(callee.NestedCellOwners, caller.NestedCellOwners);
                     Bind(caller, call, callee, "exact");
@@ -3442,7 +3443,7 @@ public static partial class WholeProgram
                     if (_program.Method(call.Target) is not { } method)
                         return;
                     var callee = Instance(call.Target, $"{caller.BodyId}#{call.OperationId}", Substitution(method, containing, typeArguments), [], [], false,
-                                          origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target));
+                                          origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target), operationId: call.OperationId);
                     Bind(caller, call, callee, "exact");
                     ActivateTypeInitializer(containing ?? method.ContainingTypeKey, caller, null);
                     return;
@@ -3482,7 +3483,7 @@ public static partial class WholeProgram
                         CheckCancellation();
                         var callee = Instance(call.Target, receiver + TypeArgumentText(typeArguments),
                                               ReceiverSubstitution(_regions[receiver], method, typeArguments, containing), [receiver], [], false,
-                                              origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target));
+                                              origin: caller.BodyId, route: AdmissionRoute.Direct, site: LibrarySite(caller, call.OperationId, call.Target), operationId: call.OperationId);
                         Bind(caller, call, callee, "exact");
                     }
 
@@ -5537,13 +5538,15 @@ public static partial class WholeProgram
             foreach (var type in ReceiverTypes(receiver))
             {
                 CheckCancellation();
-                if (_program.Implementation(type, methodId, interfaceTypeKey, _scope.Reachable.Admission, origin, route) is not { } implementation || !_scope.Reachable.HasBody(implementation, origin, route))
+                if (_program.Implementation(type, methodId, interfaceTypeKey, _scope.Reachable.Admission, origin, route,
+                                            caller?.Summary.CallIdentities.GetValueOrDefault(operationId)) is not { } implementation ||
+                    !_scope.Reachable.HasBody(implementation, origin, route, operationId))
                     continue;
                 dispatched = true;
                 if (Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
                              Substitution(implementation, _program.ConstructedBase(type, implementation.ContainingTypeKey), typeArguments),
                              [receiver], [], false, origin: origin, route: route,
-                             site: caller is null ? "" : LibrarySite(caller, operationId, implementation.MethodId)) is { } callee)
+                             site: caller is null ? "" : LibrarySite(caller, operationId, implementation.MethodId), operationId: operationId) is { } callee)
                 {
                     callees.Add(callee);
                 }

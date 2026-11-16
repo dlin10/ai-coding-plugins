@@ -27,8 +27,8 @@ internal static class SolutionAnalysis
     internal static Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken, bool offline = false) =>
         RunAsync(target, cancellationToken, (path, token) => new MsBuildSolutionLoader().LoadAsync(path, token), offline: offline);
 
-    /// <summary>The MCP run's analysis of a target: it loads the solution and analyses it generating the models of the library members no layer
-    /// describes (<see cref="ModelGeneration.Generate"/>).</summary>
+    /// <summary>The MCP run's analysis of a target: it loads the solution and analyses it reading the generated model layer without generating
+    /// or writing models (<see cref="ModelGeneration.ReadOnly"/>).</summary>
     /// <param name="target">The solution or directory the run was started on.</param>
     /// <param name="cancellationToken">Cancels the load and the analysis.</param>
     /// <param name="load">Loads the solution.</param>
@@ -79,7 +79,7 @@ internal static class SolutionAnalysis
             try
             {
                 var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
-                var result = await analyze(loaded.Solution, rootDirectory, cancellationToken, ModelGeneration.Generate, sources).ConfigureAwait(false);
+                var result = await analyze(loaded.Solution, rootDirectory, cancellationToken, ModelGeneration.ReadOnly, sources).ConfigureAwait(false);
                 analysisTimer.Stop();
                 return new RunAnalysis(false, false, coverage.ProjectsExpected, coverage.ProjectsLoaded, coverage.MissingProjects, result, CurrentDiagnostics(),
                                        loadTimer.Elapsed.TotalSeconds, analysisTimer.Elapsed.TotalSeconds);

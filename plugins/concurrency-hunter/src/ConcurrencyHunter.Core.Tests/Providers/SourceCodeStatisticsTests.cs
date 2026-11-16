@@ -56,7 +56,7 @@ public sealed class SourceCodeStatisticsTests
         else
             Assert.Null(prepared.Code);
 
-        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, resolver, Sources: sources),
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, resolver, Budget: GenerationBudget.Recording, Sources: sources),
             Path.Combine(install.Root, "repository"), CancellationToken.None)!;
         var layer = pass.Prepare(LibraryModels.BuiltIn, [candidate]);
         var generated = Assert.Single(pass.Reached(LibraryModels.BuiltIn, layer, [candidate])).Standing.Generated;

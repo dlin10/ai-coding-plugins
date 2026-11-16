@@ -311,11 +311,17 @@ public sealed class TaskForwarderJoinMatrixTests
                 fates = new { f = new Dictionary<string, object> { ["fate"] = "invoke-now", ["runs"] = "sequential-awaited" } } } }
         }));
         var models = new LibraryModels([.. LibraryModels.BuiltIn.Members, .. table.Members], LibraryModels.BuiltIn.ImmutableTypes);
+        var entries = ConcurrencyHunter.Frontend.ProgramIndexBuilder.Build("forwarders", [library], ROOT_DIRECTORY, CancellationToken.None).Methods
+            .Where(method => method.MethodId.Contains(":ForwardLibrary.Entry(", StringComparison.Ordinal)).Select(method => method.MethodId).ToHashSet(StringComparer.Ordinal);
+        var before = ScopePipeline.Run("scope:Fixture", [compilation], [(compilation, null)], ROOT_DIRECTORY, ProviderRegistry.BuiltIn, models,
+            AnalysisLimits.Default, new(), null, CancellationToken.None);
+        var calls = before.Reachable.Bodies.Values.SelectMany(body => body.Blocks.SelectMany(block => block.Operations).OfType<ConcurrencyHunter.Ir.IrCallOperation>()
+            .Where(call => call.CallKind is not (ConcurrencyHunter.Ir.IrCallKind.Virtual or ConcurrencyHunter.Ir.IrCallKind.Interface) &&
+                           call.TargetMethodId is { } target && entries.Contains(target))
+            .Select(call => body.CallIdentities[call.Id])).ToDictionary(call => call, call => call.Target);
         var run = ScopePipeline.Run("scope:Fixture", [compilation], [(compilation, null)], ROOT_DIRECTORY, ProviderRegistry.BuiltIn, models,
             AnalysisLimits.Default, new(), null, CancellationToken.None,
-            reachability: ReachabilityRules.ClassHierarchy with { Admission = program.Library.Length == 0 ? null : new CallSiteAdmission("Forwarders",
-                ConcurrencyHunter.Frontend.ProgramIndexBuilder.Build("forwarders", [library], ROOT_DIRECTORY, CancellationToken.None).Methods
-                    .Where(method => method.MethodId.Contains(":ForwardLibrary.Entry(", StringComparison.Ordinal)).Select(method => method.MethodId).ToHashSet(StringComparer.Ordinal)) },
+            reachability: ReachabilityRules.ClassHierarchy with { Admission = program.Library.Length == 0 ? null : new CallSiteAdmission(calls) },
             libraryCompilations: program.Library.Length == 0 ? [] : [library]);
         Assert.False(run.Stopped);
         var accesses = run.Collection!.Accesses.Where(access => access.Resource.Member.Name == "Value" && !access.IsConstructionLocal).ToArray();

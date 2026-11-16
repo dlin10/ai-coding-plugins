@@ -83,6 +83,14 @@ internal static class GenerationTargets
     private const string NETCORE_FRAMEWORK = "Microsoft.NETCore.App";
     private const string ASPNETCORE_FRAMEWORK = "Microsoft.AspNetCore.App";
 
+    /// <summary>The reference's origin, independently of whether generation accepts this member.</summary>
+    /// <param name="assembly">The referenced assembly.</param>
+    /// <param name="compilation">The program compilation.</param>
+    /// <param name="resolver">The install owning package and framework paths.</param>
+    internal static string? LibraryOrigin(IAssemblySymbol assembly, Compilation compilation, ImplementationAssemblies resolver) =>
+        compilation.GetMetadataReference(assembly) is PortableExecutableReference { FilePath: { } file }
+            ? OriginOf(file, resolver) switch { PackageOrigin => "package", FrameworkOrigin => "framework", _ => null } : null;
+
     /// <summary>What a call's member comes to. The checks that need no disk come first, the function-pointer rule before anything is
     /// resolved, a member of a type a recognizer owns before the implementation is looked for; then the implementation is found, and the member's declaring type is read from its exported types. A package member is
     /// requested with the compilation's target framework, the <c>net&lt;major&gt;.0</c> folder of its <c>Microsoft.NETCore.App.Ref</c>

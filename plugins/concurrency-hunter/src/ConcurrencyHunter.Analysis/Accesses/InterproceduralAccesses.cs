@@ -467,7 +467,7 @@ public static partial class InterproceduralAccesses
     private sealed record LockInfo(string Display, string? SingleObjectId, SourceSpan Acquisition, int? Capacity)
     {
         /// <summary>The semantic gaps whose result the lock object may be: its identity is then theirs to decide (R6).</summary>
-        public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
+        public IReadOnlyList<GapOrigin> Gaps { get; init; } = [];
     }
 
     /// <summary>A lock held at an access: what the lock object is, plus the mechanism, the mode and the acquisition site the state
@@ -487,7 +487,7 @@ public static partial class InterproceduralAccesses
         public string Key { get; init; } = "";
 
         /// <inheritdoc cref="LockInfo.Gaps"/>
-        public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
+        public IReadOnlyList<GapOrigin> Gaps { get; init; } = [];
     }
 
     /// <summary>What a body does to primitives it does not both enter and leave: <see cref="Opened"/> are the entries it hands to its
@@ -2525,7 +2525,15 @@ public static partial class InterproceduralAccesses
                                                             ? new[] { new GapCheck(decided.Callee, decided.Kind, GapComponents.OPERATION,
                                                                                    "one side is its unknown effect, which may read and write the resource or leave it alone") }
                                                             : Array.Empty<GapCheck>())
-                                                .ToArray()
+                                                .ToArray(),
+                                DecidingCalls = held.SelectMany(info => info.Gaps).Distinct()
+                                                    .Select(gap => new DecidingCall(new GapCheck(gap.Callee, gap.Kind, GapComponents.PROTECTION,
+                                                                                              "the identity of a lock one side holds may be its result"), gap.Call))
+                                                    .Concat(operation.IsUnknownEffect() && origins.AtSite(instance.BodyId, access.OperationId) is { } decidedCall
+                                                        ? new[] { new DecidingCall(new GapCheck(decidedCall.Callee, decidedCall.Kind, GapComponents.OPERATION,
+                                                                                              "one side is its unknown effect, which may read and write the resource or leave it alone"), decidedCall.Call) }
+                                                        : Array.Empty<DecidingCall>())
+                                                    .ToArray()
                             };
                             kept.Add(new KeptAccess(conditionKeys, emitted));
                             accesses.Add(emitted);

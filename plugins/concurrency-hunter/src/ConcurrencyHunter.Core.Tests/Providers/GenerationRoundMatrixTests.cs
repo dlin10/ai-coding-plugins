@@ -270,7 +270,7 @@ public sealed class GenerationRoundMatrixTests
                     if (_calls[request.MemberId] > 1 && cell.Path == PathOfY.FailedX)
                         throw new InvalidOperationException("repeat failed");
                     if (_calls[request.MemberId] == 1 && (cell.Path == PathOfY.NoThenBudget || cell.Chain == Chain.ZBudget || cell.Second == Second.Budget))
-                        _clock.Advance(TimeSpan.FromSeconds(890));
+                        _clock.Advance(RunGeneration.RECORDING_LIMIT - TimeSpan.FromSeconds(10));
                     var model = cell.Path == PathOfY.SameX ? Model(request) : Model(request,
                         views[0].Entry?.Model?.Effects.Select(effect => effect with { Parameter = "value" }).ToArray() ?? []);
                     answer = cell.Outcome == Outcome.Refusal ? Refusal(request) : model;
@@ -289,7 +289,7 @@ public sealed class GenerationRoundMatrixTests
                     answer = cell.Path == PathOfY.NoThenRefusal || cell.Path == PathOfY.RefusalBecomesModel && !second || cell.Path == PathOfY.ModelRefused && second
                         ? Refusal(request) : Model(request, [second ? LibraryEffect.WriteOf("value") : LibraryEffect.DeepReadOf("value")]);
                     if (cell.Budget != Budget.Enough)
-                        _clock.Advance(RunGeneration.RUN_LIMIT - (cell.Budget == Budget.DuringRetry ? TimeSpan.FromSeconds(10) : TimeSpan.Zero));
+                        _clock.Advance(RunGeneration.RECORDING_LIMIT - (cell.Budget == Budget.DuringRetry ? TimeSpan.FromSeconds(10) : TimeSpan.Zero));
                 }
                 else if (request.MemberId == fixture.Z.MemberId)
                     answer = cell.Chain == Chain.ZBudget ? RunUntilCut(token) : cell.Chain == Chain.ZRefusal ? Refusal(request) : Model(request);
@@ -300,7 +300,7 @@ public sealed class GenerationRoundMatrixTests
                 return answer with { DependencyViews = views };
             }
 
-            Generation = new RunGeneration(_root, CancellationToken.None, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, _clock,
+            Generation = new RunGeneration(_root, CancellationToken.None, RunGeneration.RECORDING_LIMIT, RunGeneration.MEMBER_LIMIT, _clock,
                 (_, _, _) => throw new InvalidOperationException("must use prepared generation"), (_, _) => 0,
                 prepare: (request, _) =>
                 {

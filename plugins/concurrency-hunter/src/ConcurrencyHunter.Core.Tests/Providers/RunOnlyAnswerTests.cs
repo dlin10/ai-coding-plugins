@@ -231,7 +231,7 @@ public sealed class RunOnlyAnswerTests : IDisposable
         var target = Assert.IsType<GenerationTarget>(GenerationTargets.Of(member, compilation, _install.Resolver(), CancellationToken.None, generationFrameworkMajor: 8));
         var candidate = new GenerationCandidate(compilation, member, target, false);
         using var offline = new LibrarySources(true, library.Cache, new Uri(server.Address, "symbols/"), new Uri(server.Address, "nuget/"), httpsOnly: false);
-        using var first = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, _install.Resolver(), Sources: offline), Repository, CancellationToken.None)!;
+        using var first = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, _install.Resolver(), Budget: GenerationBudget.Recording, Sources: offline), Repository, CancellationToken.None)!;
 
         var layer = first.Prepare(LibraryModels.BuiltIn, [candidate]);
 
@@ -244,7 +244,7 @@ public sealed class RunOnlyAnswerTests : IDisposable
 
         // Both symbol servers now answer 404: best decompiled code, using the compilation still owned by the first run.
         using var online = new LibrarySources(false, library.Cache, new Uri(server.Address, "symbols/"), new Uri(server.Address, "nuget/"), httpsOnly: false);
-        using var second = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, _install.Resolver(), Sources: online), Repository, CancellationToken.None)!;
+        using var second = GenerationPass.Create(new GenerationSetup(ModelGeneration.Generate, _install.Resolver(), Budget: GenerationBudget.Recording, Sources: online), Repository, CancellationToken.None)!;
         var secondLayer = second.Prepare(LibraryModels.BuiltIn, [candidate]);
 
         Assert.NotEmpty(server.Requests);

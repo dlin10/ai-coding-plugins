@@ -105,7 +105,13 @@
         "System.Security.Claims.ClaimsPrincipal.FindFirst(Predicate\u003CClaim\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Catalog.API",
@@ -161,7 +167,13 @@
         "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Identity.API",
@@ -214,7 +226,13 @@
         "Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(PolicyBuilder, Func\u003Cint, TimeSpan\u003E, Action\u003CException, int, TimeSpan\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Mobile.Shopping.HttpAggregator",
@@ -271,7 +289,13 @@
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Ordering.API",
@@ -325,7 +349,13 @@
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Ordering.BackgroundTasks",
@@ -377,7 +407,13 @@
         "System.Threading.CancellationToken.Register(Action)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Ordering.SignalrHub",
@@ -432,7 +468,13 @@
         "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Payment.API",
@@ -480,7 +522,13 @@
         "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Web.Shopping.HttpAggregator",
@@ -537,7 +585,13 @@
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "WebMVC",
@@ -584,7 +638,13 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "WebSPA",
@@ -633,7 +693,13 @@
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "WebStatus",
@@ -680,7 +746,13 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "WebhookClient",
@@ -727,7 +799,13 @@
         "Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     },
     {
       "scopeId": "Webhooks.API",
@@ -776,7 +854,13 @@
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": []
+      "decidingGaps": [],
+      "callSiteAnalysis": {
+        "analyses": 1,
+        "calls": [],
+        "pairsRemoved": 0,
+        "pairsAdded": 0
+      }
     }
   ]
 }

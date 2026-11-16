@@ -34,7 +34,7 @@ public sealed partial class RunGenerationPassTests
         var w = Dependency("W");
         var earlier = "M:A.First.Run(System.Object)";
         w = w with { MemberId = earlier, LookupId = earlier, Request = w.Request with { MemberId = earlier } };
-        _ = await Run(Solution("Acme.Api.Run(() => { });"), ModelGeneration.Generate, (request, source, _) =>
+        await RunInQueueOrder(Solution("Acme.Api.Run(() => { });"), (request, source, _) =>
         {
             if (request.MemberId == w.MemberId)
                 return DependencyModel(request);
@@ -161,7 +161,7 @@ public sealed partial class RunGenerationPassTests
         {
             if (request.MemberId == y.MemberId)
             {
-                clock.Advance(RunGeneration.RUN_LIMIT);
+                clock.Advance(RunGeneration.RECORDING_LIMIT);
                 return DependencyModel(request);
             }
             return WithViews(Model(request), View(y, source));

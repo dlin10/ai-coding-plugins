@@ -192,7 +192,7 @@ public sealed class ModelGenerationModeTests : IDisposable
                                                 .ToArray();
 
         // An overload either names the whole setup of the run (the mode, and for a test the install and the generator), or takes the mode
-        // right after the token, with ReadOnly as its default, and may end in the budget, with the run's as its default: so that no caller
+        // right after the token, with ReadOnly as its default, and may end in a nullable budget, absent by default: so that no caller
         // that passes none generates, writes or records.
         var withSetup = overloads.Where(method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(GenerationSetup))).ToArray();
         var withMode = overloads.Except(withSetup).ToArray();
@@ -201,17 +201,94 @@ public sealed class ModelGenerationModeTests : IDisposable
         Assert.All(withMode, method =>
         {
             var parameters = method.GetParameters();
-            var mode = parameters[^1].ParameterType == typeof(GenerationBudget) ? parameters.Length - 2 : parameters.Length - 1;
+            var mode = parameters[^1].ParameterType == typeof(GenerationBudget?) ? parameters.Length - 2 : parameters.Length - 1;
             if (mode == parameters.Length - 2)
             {
                 Assert.True(parameters[^1].HasDefaultValue, $"{method} has no default budget");
-                Assert.Equal(GenerationBudget.Run, parameters[^1].DefaultValue);
+                Assert.Null(parameters[^1].DefaultValue);
             }
             Assert.Equal(typeof(ModelGeneration), parameters[mode].ParameterType);
             Assert.True(parameters[mode].HasDefaultValue, $"{method} has no default mode");
             Assert.Equal(ModelGeneration.ReadOnly, parameters[mode].DefaultValue);
             Assert.Equal(typeof(CancellationToken), parameters[mode - 1].ParameterType);
         });
+    }
+
+    [Fact]
+    public async Task Generate_without_a_recording_or_census_budget_is_refused_by_every_analyzer_overload()
+    {
+        var solution = Solution("Acme.Api.Touch(_state);");
+        var setup = new GenerationSetup(ModelGeneration.ReadOnly, _install.Resolver(), (request, _, _) =>
+        {
+            _requested.Add(request.MemberId);
+            return Model(request);
+        }) with { Mode = ModelGeneration.Generate };
+        var overloads = typeof(PhaseOneAnalyzer).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                                                .Where(method => method.Name == nameof(PhaseOneAnalyzer.AnalyzeAsync));
+        foreach (var method in overloads)
+        {
+            var arguments = method.GetParameters().Select(parameter => parameter.Name switch
+            {
+                "solution" => (object)solution,
+                "rootDirectory" or "repositoryRoot" => _repository,
+                "registry" => ProviderRegistry.BuiltIn,
+                "pairing" => (Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis>)InterproceduralPairing.Pair,
+                "limits" => AnalysisLimits.Default,
+                "solverFactory" => (Func<IConstraintSolver>)Z3ConstraintSolver.Create,
+                "generation" => parameter.ParameterType == typeof(GenerationSetup) ? setup : ModelGeneration.Generate,
+                "cancellationToken" => CancellationToken.None,
+                "budget" or "callSite" or "inspectScope" => null,
+                _ => throw new InvalidOperationException($"Uncovered analyzer parameter: {parameter.Name}")
+            }).ToArray();
+            var error = await Assert.ThrowsAsync<ArgumentException>(async () =>
+            {
+                try { await (Task<AnalysisResult>)method.Invoke(null, arguments)!; }
+                catch (TargetInvocationException invocation) when (invocation.InnerException is ArgumentException argument)
+                {
+                    throw argument;
+                }
+            });
+            Assert.Contains("Generate requires a Recording or Census budget.", error.Message, StringComparison.Ordinal);
+            Assert.Empty(_requested);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(_repository));
+        }
+    }
+
+    [Fact]
+    public void GenerationSetup_and_GenerationPass_refuse_Generate_without_a_budget()
+    {
+        var calls = 0;
+        GeneratedAnswer Generate(GenerationRequest request, DependencyAnswers _, CancellationToken token)
+        {
+            calls++;
+            return Model(request);
+        }
+        var constructor = Assert.Throws<ArgumentException>(() => new GenerationSetup(ModelGeneration.Generate, Generator: Generate));
+        var setup = new GenerationSetup(ModelGeneration.ReadOnly, Generator: Generate) with { Mode = ModelGeneration.Generate };
+        var pass = Assert.Throws<ArgumentException>(() => GenerationPass.Create(setup, _repository, CancellationToken.None));
+
+        Assert.Contains("Generate requires a Recording or Census budget.", constructor.Message, StringComparison.Ordinal);
+        Assert.Contains("Generate requires a Recording or Census budget.", pass.Message, StringComparison.Ordinal);
+        Assert.Equal(0, calls);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(_repository));
+    }
+
+    [Fact]
+    public async Task ReadOnly_and_None_need_no_budget()
+    {
+        var solution = Solution("Acme.Api.Touch(_state);");
+        foreach (var mode in new[] { ModelGeneration.ReadOnly, ModelGeneration.None })
+        {
+            var setup = new GenerationSetup(mode, _install.Resolver(), (request, _, _) =>
+            {
+                _requested.Add(request.MemberId);
+                return Model(request);
+            });
+            Assert.Null(setup.Budget);
+            _ = await PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, setup, CancellationToken.None);
+            Assert.Empty(_requested);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(_repository));
+        }
     }
 
     [Fact]
@@ -391,9 +468,10 @@ public sealed class ModelGenerationModeTests : IDisposable
                                              Z3ConstraintSolver.Create,
                                              new GenerationSetup(mode, _install.Resolver(), (request, dependencies, cancellation) =>
                                              {
-                                                 _requested.Add(request.MemberId);
+                                                 lock (_requested)
+                                                     _requested.Add(request.MemberId);
                                                  return generator(request, dependencies, cancellation);
-                                             }), token);
+                                             }, Budget: mode == ModelGeneration.Generate ? GenerationBudget.Recording : null), token);
     }
 
     private PairAnalysis Counted(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)

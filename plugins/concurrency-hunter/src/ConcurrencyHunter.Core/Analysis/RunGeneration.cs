@@ -33,9 +33,6 @@ internal readonly record struct ScopeLayer(GeneratedModelTable Table, bool Descr
 /// with no generation in flight.</summary>
 internal sealed class RunGeneration
 {
-    /// <summary>The run's limit: the time spent inside generations in one run.</summary>
-    internal static readonly TimeSpan RUN_LIMIT = TimeSpan.FromSeconds(900);
-
     /// <summary>The recording's limit: the time spent inside generations in the run that writes a repository's committed generated models.
     /// It must exceed what one run needs, so that the recording is one run, and still end a runaway: the demo's recording needs about 3,100 s,
     /// so two hours leave more than twice that.</summary>
@@ -57,13 +54,13 @@ internal sealed class RunGeneration
     /// a time.</summary>
     private const int RECORDING_WORKERS = 4;
 
-    /// <summary>The run limit a budget names: the recording's, the census's, or the run's.</summary>
+    /// <summary>The run limit a budget names: the recording's or the census's.</summary>
     /// <param name="budget">The budget.</param>
     internal static TimeSpan RunLimitOf(GenerationBudget budget) => budget switch
     {
         GenerationBudget.Recording => RECORDING_LIMIT,
         GenerationBudget.Census => CENSUS_LIMIT,
-        _ => RUN_LIMIT
+        _ => throw new ArgumentException("Generate requires a Recording or Census budget.", nameof(budget))
     };
 
     /// <summary>The worker threads a budget names: <see cref="RECORDING_WORKERS"/> for the recording and the census, one otherwise.</summary>
@@ -134,14 +131,23 @@ internal sealed class RunGeneration
     /// <summary>Whether dependencies or changed views still call for another generation round within the budget.</summary>
     internal bool HasWork => Spent < _runLimit && NextRound().Count != 0;
 
-    /// <summary>A run's generation with the server's limits, the system clock, and the model generator and assembly ranks over this process's
-    /// install.</summary>
+    /// <summary>A run's generated layer with the system clock and generator; a reading run has no generation budget or member limit.</summary>
     /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/generated/</c> the run reads and writes.</param>
     /// <param name="cancellationToken">The run's token: its own cancellation or deadline stops generation and the cancellation propagates.</param>
-    internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken)
-        : this(repositoryRoot, cancellationToken, RUN_LIMIT, MEMBER_LIMIT, TimeProvider.System, DefaultGenerator(),
-               new AssemblyRanks(ImplementationAssemblies.ForThisProcess()).Of)
+    /// <param name="budget">The recording or census budget for generation, or null for a reading run.</param>
+    internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken, GenerationBudget? budget = null)
     {
+        _repositoryRoot = repositoryRoot;
+        _runToken = cancellationToken;
+        _time = TimeProvider.System;
+        _generate = DefaultGenerator();
+        _rank = new AssemblyRanks(ImplementationAssemblies.ForThisProcess()).Of;
+        if (budget is { } selected)
+        {
+            _runLimit = RunLimitOf(selected);
+            _memberLimit = MemberLimitOf(selected);
+            _workers = WorkersOf(selected);
+        }
     }
 
     /// <summary>A run's generation with limits, a clock, a generator and assembly ranks of the caller's choosing.</summary>

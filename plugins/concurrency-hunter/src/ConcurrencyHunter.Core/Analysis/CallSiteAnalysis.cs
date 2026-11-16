@@ -6,11 +6,20 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ConcurrencyHunter.Analysis;
 
-internal sealed record CallSiteMeasurement(string ScopeId, int LibraryBodies, IReadOnlyList<string> Admitted);
+internal sealed record CallSiteCallMeasurement(string Callee, string Place, IReadOnlyList<string> Producers, int BodyCount, int Round);
+
+internal sealed record CallSiteMeasurement(string ScopeId, int LibraryBodies, IReadOnlyList<string> Admitted)
+{
+    public int Analyses { get; init; }
+    public IReadOnlyList<CallSiteCallMeasurement> Calls { get; init; } = [];
+}
+
+internal enum CallSiteMode { Withhold, Control, AssemblyWide }
 
 internal sealed record CallSiteAnalysis(string AssemblyName, Version Minimum, Version MaximumExclusive, IReadOnlySet<string> WithheldFamilies,
                                         bool AdmitBodies = true)
 {
+    internal CallSiteMode Mode { get; init; } = CallSiteMode.AssemblyWide;
     internal List<CallSiteMeasurement> Measurements { get; } = [];
 
     internal bool Matches(IMethodSymbol method) => method.ContainingAssembly.Name == AssemblyName &&
@@ -23,11 +32,30 @@ internal sealed class CallSiteCompilations : IDisposable
     private readonly CompilationOwnership _ownership = new();
     private readonly Dictionary<string, LibraryCompilationResult?> _compiled = new(StringComparer.Ordinal);
 
+    internal LibraryCompilationResult? ForTarget(GenerationTarget target, GenerationSetup generation, CancellationToken cancellationToken)
+    {
+        var request = target.Request;
+        var key = $"{request.AssemblyName}|{request.Version}|{request.PackageId}|{request.Framework}";
+        if (_compiled.TryGetValue(key, out var cached))
+            return cached;
+        var install = generation.Install ?? ImplementationAssemblies.ForThisProcess();
+        using var owned = _ownership.Open();
+        LibraryCompilationResult? compiled = null;
+        var resolved = install.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, cancellationToken);
+        if (resolved is { Reason: null, Assembly: { } assembly })
+        {
+            var sources = generation.Sources?.GetAsync(assembly.Path, cancellationToken).GetAwaiter().GetResult();
+            compiled = LibraryCompilation.Compile(assembly, sources, new GenerationChecks(cancellationToken), () => { });
+        }
+        _compiled.Add(key, compiled);
+        return compiled;
+    }
+
     internal (IReadOnlyList<Compilation> Libraries, ReachabilityRules Rules) ForScope(IReadOnlyList<Compilation> projects,
                                                                                    CallSiteAnalysis? setup, GenerationSetup generation,
                                                                                    CancellationToken cancellationToken)
     {
-        if (setup is not { AdmitBodies: true })
+        if (setup is not { AdmitBodies: true, Mode: CallSiteMode.AssemblyWide })
             return ([], ReachabilityRules.ClassHierarchy);
         var install = generation.Install ?? ImplementationAssemblies.ForThisProcess();
         foreach (var project in projects)

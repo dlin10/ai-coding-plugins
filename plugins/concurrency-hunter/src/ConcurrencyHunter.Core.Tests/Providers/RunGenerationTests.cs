@@ -47,7 +47,6 @@ public sealed partial class RunGenerationTests : IDisposable
     [Fact]
     public void Default_limits_are_the_server_constants()
     {
-        Assert.Equal(TimeSpan.FromSeconds(900), RunGeneration.RUN_LIMIT);
         Assert.Equal(TimeSpan.FromSeconds(120), RunGeneration.MEMBER_LIMIT);
     }
 
@@ -55,10 +54,8 @@ public sealed partial class RunGenerationTests : IDisposable
     public void Recording_budget_selects_the_recording_limit_and_every_other_run_keeps_the_run_limit()
     {
         Assert.Equal(TimeSpan.FromHours(2), RunGeneration.RECORDING_LIMIT);
-        Assert.True(RunGeneration.RECORDING_LIMIT > RunGeneration.RUN_LIMIT);
         Assert.Equal(RunGeneration.RECORDING_LIMIT, RunGeneration.RunLimitOf(GenerationBudget.Recording));
-        Assert.Equal(RunGeneration.RUN_LIMIT, RunGeneration.RunLimitOf(GenerationBudget.Run));
-        Assert.Equal(GenerationBudget.Run, new GenerationSetup(ModelGeneration.Generate).Budget);
+        Assert.Equal(GenerationBudget.Recording, new GenerationSetup(ModelGeneration.Generate, Budget: GenerationBudget.Recording).Budget);
     }
 
     [Fact]
@@ -71,7 +68,6 @@ public sealed partial class RunGenerationTests : IDisposable
         Assert.Equal(RunGeneration.WorkersOf(GenerationBudget.Recording), RunGeneration.WorkersOf(GenerationBudget.Census));
         Assert.Equal(TimeSpan.FromMinutes(5), RunGeneration.MemberLimitOf(GenerationBudget.Census));
         Assert.Equal(RunGeneration.MEMBER_LIMIT, RunGeneration.MemberLimitOf(GenerationBudget.Recording));
-        Assert.Equal(RunGeneration.MEMBER_LIMIT, RunGeneration.MemberLimitOf(GenerationBudget.Run));
     }
 
     [Fact]

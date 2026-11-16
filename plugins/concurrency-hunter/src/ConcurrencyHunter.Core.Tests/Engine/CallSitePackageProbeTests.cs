@@ -114,8 +114,10 @@ public sealed class CallSitePackageProbeFixture : IDisposable
 
     private async Task<CallSitePackageProbeRun> Analyze(string name, CallSiteAnalysis? setup)
     {
-        var directory = Environment.GetEnvironmentVariable("CH_H3_PACKAGE_PROBE_OUT");
-        var jsonPath = string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, $"demo-{name}.json");
+        setup ??= new CallSiteAnalysis(string.Empty, new Version(), new Version(), new HashSet<string>()) { Mode = CallSiteMode.Withhold };
+        var unified = Environment.GetEnvironmentVariable("CH_H3_CALLSITE_OUT");
+        var directory = unified ?? Environment.GetEnvironmentVariable("CH_H3_PACKAGE_PROBE_OUT");
+        var jsonPath = string.IsNullOrEmpty(directory) ? null : Path.Combine(directory, unified is null ? $"demo-{name}.json" : $"package-demo-{name}.json");
         try
         {
             var loaded = await _loaded.Value;
@@ -125,7 +127,7 @@ public sealed class CallSitePackageProbeFixture : IDisposable
             var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn,
                 InterproceduralPairing.Pair, AnalysisLimits.Default, Z3ConstraintSolver.Create, new GenerationSetup(ModelGeneration.ReadOnly), CancellationToken.None, setup);
             clock.Stop();
-            var run = new CallSitePackageProbeRun(analysis, setup?.Measurements.Sum(scope => scope.LibraryBodies) ?? 0, clock.Elapsed.TotalSeconds);
+            var run = new CallSitePackageProbeRun(analysis, setup.Measurements.Sum(scope => scope.LibraryBodies), clock.Elapsed.TotalSeconds);
             if (jsonPath is not null)
             {
                 Directory.CreateDirectory(directory!);
@@ -152,7 +154,8 @@ public sealed class CallSitePackageProbeFixture : IDisposable
                         }).ToArray()
                     }).ToArray(),
                     run.LibraryBodies,
-                    run.Seconds
+                    run.Seconds,
+                    Scopes = setup.Measurements
                 };
                 await File.WriteAllTextAsync(jsonPath, JsonSerializer.Serialize(record, JsonOptions));
             }

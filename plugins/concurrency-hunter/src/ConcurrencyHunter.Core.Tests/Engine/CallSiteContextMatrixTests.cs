@@ -509,9 +509,14 @@ public sealed class CallSiteContextMatrixTests
             .Where(method => method.ContainingTypeKey == LIBRARY + ":Entry" || method.ContainingTypeKey == LIBRARY + ":Held" ||
                              method.ContainingTypeKey == LIBRARY + ":Runner")
             .Select(method => method.MethodId).ToHashSet(StringComparer.Ordinal);
+        var before = ScopePipeline.Run("scope:Fixture", [project], [(project, null)], ROOT_DIRECTORY, ProviderRegistry.BuiltIn, Models(),
+            limits ?? AnalysisLimits.Default, new(), null, CancellationToken.None);
+        var calls = before.Reachable.Bodies.Values.SelectMany(body => body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+            .Where(call => call.CallKind is not (IrCallKind.Virtual or IrCallKind.Interface) && call.TargetMethodId is { } target && entries.Contains(target))
+            .Select(call => body.CallIdentities[call.Id])).ToDictionary(call => call, call => call.Target);
         var run = ScopePipeline.Run("scope:Fixture", [project], [(project, null)], ROOT_DIRECTORY, ProviderRegistry.BuiltIn, Models(),
             limits ?? AnalysisLimits.Default, new(), null, CancellationToken.None,
-            reachability: ReachabilityRules.ClassHierarchy with { Admission = admitted ? new CallSiteAdmission(LIBRARY, entries) : null },
+            reachability: ReachabilityRules.ClassHierarchy with { Admission = admitted ? new CallSiteAdmission(calls) : null },
             libraryCompilations: admitted ? [library] : []);
         Assert.False(run.Stopped);
         Assert.NotNull(run.Heap);
