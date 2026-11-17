@@ -2897,7 +2897,7 @@
     },
     {
       "id": "protobuf-parser-factory-at-parse/factory-runs-at-parse",
-      "phase": "5d-C",
+      "phase": "5h-C",
       "rule": "DCA1002",
       "confidence": "high",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] },
@@ -3039,7 +3039,7 @@
     {
       "id": "protobuf-parser-factory-at-parse/descriptor-unseeded",
       "phase": "5d-B4c",
-      "until": "5d-C",
+      "until": "5h-C",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
     },
     {

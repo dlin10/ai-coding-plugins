@@ -83,7 +83,10 @@ Issues live in `dlin10/ai-coding-plugins`, on the GitHub project "Concurrency Hu
 The work is a tree of sub-issues: a phase epic (`concurrency-hunter: phase 5g — …`), its runs
 (`concurrency-hunter: 5d run H3 — …`), and under them questions (`concurrency-hunter: Q55 — …`, label `question`) and
 tasks. A question no run has taken yet sits under its phase epic, and the run that takes it becomes its parent. Every issue
-carries the label `concurrency-hunter` and the project field `Phase` (`5d` … `8`, `Tooling`, `Unscheduled`). The title is
+carries the label `concurrency-hunter` and the project field `Phase` (`5d`, `5g`, `5h`, `5e`, `5f`, `6`, `7`, `8` in the
+order of work, then `Tooling` and `Unscheduled`). The engine on program code (`5g`) is built before the libraries (`5h`), and
+the row order of the project's Backlog view is the order of work. A question a `5g` run finds goes under run E6 unless it
+has an occurrence on a corpus or an example of a missed race in program code. The title is
 English; the body of a question moved from QUESTIONS.md is its Russian row, verbatim. Status is only `Todo`, `In Progress`
 or `Done`: work that waits for something is `Todo` with a "blocked by" link to the issue it waits for.
 

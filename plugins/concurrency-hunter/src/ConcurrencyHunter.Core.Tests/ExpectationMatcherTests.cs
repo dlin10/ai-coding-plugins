@@ -122,8 +122,8 @@ public sealed class ExpectationMatcherTests
     {
         string[] phases = ["0", "1a", "1b", "2", "2b", "3", "4", "4b", "5a", "5b", "5c",
                            "5d", "5d-A1", "5d-A2", "5d-B1", "5d-A3", "5d-B2", "5d-B2b", "5d-A4", "5d-A5", "5d-A6", "5d-A7", "5d-A8", "5d-A9",
-                           "5d-A10", "5d-B3", "5d-B3c", "5d-B4", "5d-B4b", "5d-B4c", "5d-C",
-                           "5e", "5f", "5g", "6", "7", "8"];
+                           "5d-A10", "5d-B3", "5d-B3c", "5d-B4", "5d-B4b", "5d-B4c",
+                           "5g", "5h", "5h-C", "5e", "5f", "6", "7", "8"];
 
         for (var first = 0; first < phases.Length; first++)
         {
@@ -139,7 +139,7 @@ public sealed class ExpectationMatcherTests
     {
         Assert.True(PhaseOrder.Compare("5d-A1", "5d") > 0);
         Assert.True(PhaseOrder.Compare("5d", "5d-A1") < 0);
-        Assert.True(PhaseOrder.Compare("5d-C", "5d") > 0);
+        Assert.True(PhaseOrder.Compare("5h-C", "5h") > 0);
         Assert.Equal(0, PhaseOrder.Compare("5d-B3", "5d-B3"));
         Assert.True(PhaseOrder.Compare("5d", "5c") > 0);
     }
@@ -147,8 +147,9 @@ public sealed class ExpectationMatcherTests
     [Fact]
     public void Run_of_a_phase_sorts_before_the_next_phase()
     {
-        Assert.True(PhaseOrder.Compare("5d-C", "5e") < 0);
-        Assert.True(PhaseOrder.Compare("5e", "5d-C") > 0);
+        Assert.True(PhaseOrder.Compare("5h-C", "5e") < 0);
+        Assert.True(PhaseOrder.Compare("5e", "5h-C") > 0);
+        Assert.True(PhaseOrder.Compare("5d-B4c", "5g") < 0);
         Assert.True(PhaseOrder.Compare("5c", "5d-A1") < 0);
         Assert.True(PhaseOrder.Compare("5d-B4", "8") < 0);
     }
@@ -156,14 +157,14 @@ public sealed class ExpectationMatcherTests
     [Fact]
     public void Runs_of_5d_follow_the_plan_order()
     {
-        string[] runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B3c", "B4", "B4b", "B4c", "C"];
+        string[] runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B3c", "B4", "B4b", "B4c"];
 
         for (var first = 0; first < runs.Length; first++)
         {
             for (var second = 0; second < runs.Length; second++)
                 Assert.Equal(first.CompareTo(second), PhaseOrder.Compare($"5d-{runs[first]}", $"5d-{runs[second]}"));
         }
-        foreach (var unknown in new[] { "5d-B5", "5d-b4", "5d-", "5e-A1", "5c-A1", "A1", "5d-A1-B1" })
+        foreach (var unknown in new[] { "5d-B5", "5d-C", "5d-b4", "5d-", "5e-A1", "5c-A1", "5g-C", "5h-A1", "A1", "5d-A1-B1" })
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => PhaseOrder.Compare(unknown, "5d"));
             Assert.Throws<ArgumentOutOfRangeException>(() => PhaseOrder.Compare("5d", unknown));
@@ -180,7 +181,7 @@ public sealed class ExpectationMatcherTests
         Assert.Equal(["expected"], ExpectationMatcher.Match([], file, "5d").Missing);
         Assert.Equal(["expected"], ExpectationMatcher.Match([], file, "5d-B3").Missing);
         Assert.True(ExpectationMatcher.Match([finding], file, "5d-B3").IsExactMatch);
-        foreach (var point in new[] { "5d-B4", "5d-C", "5e" })
+        foreach (var point in new[] { "5d-B4", "5g", "5h-C", "5e" })
         {
             Assert.True(ExpectationMatcher.Match([], file, point).IsExactMatch);
             Assert.Equal(["F1"], ExpectationMatcher.Match([finding], file, point).FalsePositives);
@@ -201,7 +202,7 @@ public sealed class ExpectationMatcherTests
 
         var phaseOnly = File(findings: [phaseEntry]);
         Assert.Equal(["expected"], ExpectationMatcher.Match([], phaseOnly, "5d-A1").Missing);
-        Assert.Equal(["expected"], ExpectationMatcher.Match([], phaseOnly, "5d-C").Missing);
+        Assert.Equal(["expected"], ExpectationMatcher.Match([], phaseOnly, "5d-B4c").Missing);
         Assert.Equal(["guarded: F1"], ExpectationMatcher.Match([finding], File(notDefects: [notDefect]), "5d-B3").ForbiddenHits);
         var withRun = File(findings: [phaseEntry, runEntry]);
         Assert.Equal(["expected"], ExpectationMatcher.Match([], withRun, "5d-B3").Missing);
