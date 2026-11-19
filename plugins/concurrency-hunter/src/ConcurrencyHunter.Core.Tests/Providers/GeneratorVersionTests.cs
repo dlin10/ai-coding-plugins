@@ -9,11 +9,15 @@ public sealed class GeneratorVersionTests
     private const string Core = "concurrency-hunter/src/ConcurrencyHunter.Core/";
     private const string BuiltIn = Core + "Providers/LibraryModels/BuiltIn/";
 
+    /// <summary>The built version is the pin while <c>build/generator-version.pin</c> exists (ADR 0023, amendment of 2026-11-19), and
+    /// the fingerprint of the sources otherwise.</summary>
     [Fact]
     public void Built_fingerprint_matches_the_sources()
     {
         var pluginsRoot = Path.GetFullPath("../../../../../../", AppContext.BaseDirectory);
-        Assert.Equal(GeneratorVersion.Fingerprint, GeneratorFingerprint.Compute(pluginsRoot));
+        var pin = Path.Combine(pluginsRoot, "concurrency-hunter", "build", "generator-version.pin");
+        var expected = File.Exists(pin) ? File.ReadAllText(pin).Trim() : GeneratorFingerprint.Compute(pluginsRoot);
+        Assert.Equal(GeneratorVersion.Fingerprint, expected);
     }
 
     [Fact]

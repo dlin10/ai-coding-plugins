@@ -641,7 +641,9 @@ engine and the **Model generator** together, as the plugin was built from its so
 generator's answers move with every part of the engine it reads. A file of generated models names
 one generator version; for a run of another version the file holds no answers: a run that only reads
 leaves those members **Opaque calls**, and a run that generates generates what it reaches, and its
-first write replaces the file whole. The built-in models need no generator
+first write replaces the file whole. While the generator's code is frozen the version is pinned: the
+build takes a committed fingerprint instead of computing one, and the pin moves only when a fresh
+generation of the demo's members answers differently. The built-in models need no generator
 version: their owner decides when to generate them again. A **Census** names instead the engine
 fingerprint it was generated with, the generator version without the built-in models, and a release
 refuses a census whose engine fingerprint is not the tree's.

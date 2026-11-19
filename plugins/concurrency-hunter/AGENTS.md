@@ -127,7 +127,8 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   of the tree (`dotnet msbuild src/ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj -restore -t:ComputeEngineFingerprint
   -getProperty:EngineFingerprint`) with the one `skills/hunt/evals/models/framework-census.tsv` names: with `-Release` a
   difference fails the script, without it the script warns and goes on (ADR 0022). Every change to Analysis or Core that
-  changes a token makes the census stale; regenerate it before merging to `main`.
+  changes a token makes the census stale; regenerate it before merging to `main`. With `-Release` it also refuses a tree
+  that holds `build/generator-version.pin` (ADR 0023, amendment of 2026-11-19).
 - `build/generate-frameworks.ps1` regenerates the built-in census of `Microsoft.NETCore.App` and
   `Microsoft.AspNetCore.App` 10.0 (ADR 0012 and ADR 0022, amendments of 2026-11-07). It needs `CH_ESHOP_ROOT`, a restored
   eShop and a working tree with nothing uncommitted in the engine; it runs `metrics --census <folder>` on the demo and eShop,
@@ -173,11 +174,42 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
   `demo/.concurrency-hunter/models/generated/`, with an online `--generation on` run of the demo, then re-reads them to show they suffice.
   Record online so transient offline source unavailability does not leave answers that apply only to that run unwritten.
-  A source edit in `Analysis` or `Core` that changes a token or a directive changes the generator version (an edit of
-  comments or whitespace alone does not, ADR 0023); `build/record-demo-models.ps1` rewrites the demo files.
+  While `build/generator-version.pin` exists, the build takes that fingerprint as the generator version, and an engine
+  edit leaves the demo's files current (ADR 0023, amendment of 2026-11-19). `-Check` sets the committed files aside,
+  generates afresh, compares the answers, puts the files back byte for byte, and exits 1 naming each member that differs;
+  `-Repin` sets the pin to the tree's computed fingerprint and then records. Without the pin, a source edit in `Analysis`
+  or `Core` that changes a token or a directive changes the generator version (an edit of comments or whitespace alone
+  does not, ADR 0023), and the script rewrites the demo files.
   Run it when a demo case reaches a library member no committed model describes: a demo run that would generate fails
   `DemoGeneratedModelsTests`. The committed files hold package members only: the script removes the framework folders first
   and fails when the run writes one again, since then the census misses a framework member the demo reaches.
+  A difference where either answer is a `timeout` refusal is unsettled, not moved: `-Check` names it apart and exits 2;
+  repeat on a quiet machine and repin only if the repeat gives the same.
+- `build/check-model-drift.ps1` runs the model evals without recording (`CH_MODEL_EVALS=1`, in its own process), with
+  `-Demo` also `build/record-demo-models.ps1 -Check`, and writes its logs to `scratch/model-drift/<commit>/`. See "Engine
+  runs and the generated models".
+
+## Engine runs and the generated models
+
+The generator's code is frozen until phase 5h (#427), and the generator version is pinned (ADR 0023, amendment of
+2026-11-19). An engine run is one whose diff leaves alone the generator (`src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation/`),
+the CoreLib tool (`tools/ConcurrencyHunter.CoreLibGeneration/`), the built-in models, the model evals' gold and snapshot
+(`skills/hunt/evals/models/`) and the pin; any other run is a generator run.
+
+- **An engine run's gates.** Its scope gate refuses every change below `demo/.concurrency-hunter/models/generated/`, to
+  `build/generator-version.pin` and to `skills/hunt/evals/models/generator-snapshot.json`, and no step sets
+  `CH_MODEL_EVALS`. Its final gate runs `build/record-demo-models.ps1 -Check` after the run's last engine change. When the
+  check fails, the run moved a demo answer: it runs `-Repin`, its scope then admits the pin and the demo's files, and its
+  record names each moved answer with its cause.
+- **A generator run's gates** run the model evals, and it may repin and record.
+- **Between runs.** After an engine run's commit, before the next run starts, run `build/check-model-drift.ps1` in its own
+  `pwsh -NoProfile -File` process. It runs the model evals only: the run's final gate already ran `-Check` on that tree. A
+  run is one commit, so a shift it finds belongs to that commit: open an issue naming the commit and the moved answers. A
+  failure of `ModelEvalTests.Answers_match_the_recorded_snapshot` on `SerializeToUtf8Bytes<T>` alone, `closure-bound`
+  against `timeout`, is the machine's load (#425), not a shift. After a census regeneration run it with `-Demo`: the
+  built-in models move answers without moving the pin, and no run gate ran `-Check`.
+- **The pin ends** when phase 5h opens the generator or before the branch merges to `main`, whichever comes first: delete
+  it, record the demo, and run the model evals.
 
 ## Environment variables
 

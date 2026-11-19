@@ -44,8 +44,19 @@
     </Task>
   </UsingTask>
 
+  <!-- While the generator is frozen, build/generator-version.pin holds the generator version and the build takes it instead of the
+       fingerprint it computes (docs/adr/0023, amendment of 2026-11-19). -->
+  <PropertyGroup>
+    <_GeneratorVersionPin>$(MSBuildThisFileDirectory)../../build/generator-version.pin</_GeneratorVersionPin>
+  </PropertyGroup>
+
   <Target Name="GenerateGeneratorVersion" BeforeTargets="CoreCompile">
-    <ComputeGeneratorFingerprint PluginsRoot="$(MSBuildThisFileDirectory)../../../">
+    <PropertyGroup Condition="Exists('$(_GeneratorVersionPin)')">
+      <_GeneratorFingerprint>$([System.IO.File]::ReadAllText('$(_GeneratorVersionPin)').Trim())</_GeneratorFingerprint>
+    </PropertyGroup>
+    <Error Condition="Exists('$(_GeneratorVersionPin)') And !$([System.Text.RegularExpressions.Regex]::IsMatch('$(_GeneratorFingerprint)', '^[0-9a-f]{64}$'))"
+           Text="$(_GeneratorVersionPin) must hold one fingerprint of 64 lowercase hex digits." />
+    <ComputeGeneratorFingerprint Condition="!Exists('$(_GeneratorVersionPin)')" PluginsRoot="$(MSBuildThisFileDirectory)../../../">
       <Output TaskParameter="Fingerprint" PropertyName="_GeneratorFingerprint" />
     </ComputeGeneratorFingerprint>
     <WriteLinesToFile File="$(IntermediateOutputPath)GeneratorVersion.g.cs"
@@ -63,6 +74,14 @@
   <Target Name="ComputeEngineFingerprint">
     <ComputeGeneratorFingerprint PluginsRoot="$(MSBuildThisFileDirectory)../../../" LeaveOutBuiltIn="true">
       <Output TaskParameter="Fingerprint" PropertyName="EngineFingerprint" />
+    </ComputeGeneratorFingerprint>
+  </Target>
+
+  <!-- The generator version the sources give, whether or not a pin holds another: `build/record-demo-models.ps1 -Repin` reads it with
+       `dotnet msbuild <this project> -restore -t:ComputeSourceFingerprint -getProperty:SourceFingerprint`. -->
+  <Target Name="ComputeSourceFingerprint">
+    <ComputeGeneratorFingerprint PluginsRoot="$(MSBuildThisFileDirectory)../../../">
+      <Output TaskParameter="Fingerprint" PropertyName="SourceFingerprint" />
     </ComputeGeneratorFingerprint>
   </Target>
 

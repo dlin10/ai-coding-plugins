@@ -7,6 +7,8 @@ Publishes the executable, checks its version and runs the full suite, as CI does
 skills/hunt/evals/models/framework-census.tsv, names the engine fingerprint the census was generated with, the generator version without the
 built-in models, and the tree's is computed by Core's ComputeEngineFingerprint target. Without -Release a stale census is named and the
 build goes on, so a change to the engine can be tested before the census is regenerated with build/generate-frameworks.ps1.
+-Release also refuses a tree that holds build/generator-version.pin (ADR 0023, amendment of 2026-11-19): the pin lasts while the generator
+is frozen and does not ship. Without -Release the pin is named and the build goes on.
 #>
 [CmdletBinding()]
 param(
@@ -31,6 +33,12 @@ if ($recorded -ne $engine) {
              "$engine; regenerate it with build/generate-frameworks.ps1 before a release."
     if ($Release) { throw $stale }
     Write-Warning $stale
+}
+$pin = Join-Path $root 'build/generator-version.pin'
+if (Test-Path -LiteralPath $pin) {
+    $pinned = "The generator version is pinned by $pin; delete the pin and record the demo (build/record-demo-models.ps1) before a release."
+    if ($Release) { throw $pinned }
+    Write-Warning $pinned
 }
 
 $previousBundleExtractRoot = $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR

@@ -85,3 +85,69 @@ changes every fingerprint once.
 
 Rejected: keeping the documentation comments counted. Nothing that writes a model reads them, and they
 are the comments edited most.
+
+## Amendment, 2026-11-19: while the generator is frozen, its version moves only when the demo's answers move
+
+Phase 5g changes the engine on program code and leaves the generator's code alone until phase 5h. Every engine
+change still changed the fingerprint, so each engine run left the demo's committed generated files stale and recorded
+them again: in runs H3e and H3f five files changed their `generator` field and no answer. The run's gates had to admit
+a diff of that field alone, the recording had to come after the run's last engine edit, and the model evals ran in
+every run although they do not read those files.
+
+One premise of the decision above no longer holds. It expected a run to generate what it reaches, so a stale file was
+generated again by the next run; since [ADR 0029](0029-a-deciding-gap-is-answered-by-a-record-the-call-site-or-ai.md)
+no run generates, and only `build/record-demo-models.ps1` writes the demo's files. They are the owner's, as the
+built-in models are under [ADR 0022](0022-the-owner-regenerates-the-built-in-corelib-models-from-a-recorded-commit.md).
+
+The decision: while the generator is frozen, the generator version is pinned.
+
+- **The pin.** `build/generator-version.pin` holds one fingerprint of the recipe above. While the file exists the build
+  takes it as the generator version instead of the fingerprint it computes; without the file nothing changes. The rule
+  of the file is unchanged: a file naming another version than the build's holds no answers.
+- **What moves the pin is a change of answers.** `build/record-demo-models.ps1 -Check` sets the committed files aside,
+  generates the demo's members afresh, compares the answers and puts the committed files back byte for byte. When an answer differs,
+  `-Repin` sets the pin to the tree's computed fingerprint and records the files again, and their diff shows the
+  answers that moved, as a version change did before.
+- **A timeout is not a move by itself.** The member limit counts CPU time (ADR 0033), and on a loaded machine it still
+  cuts members a quiet machine answers. A difference where either answer is a `timeout` refusal is reported apart, as
+  unsettled, and `-Check` exits 2 rather than 1; it becomes a move only when a repeat on a quiet machine gives it again.
+- **An engine run checks the demo and runs no model evals.** Its gates keep the demo's generated files, the pin and the
+  model evals' snapshot unchanged and run `-Check` after the run's last engine change. A run whose `-Check` fails
+  moved a demo answer: it repins, records, and names each moved answer with its cause. A run that changes the
+  generator's code, the CoreLib tool, the built-in models or the model evals' gold or snapshot runs the model evals in
+  its gates, as before.
+- **Between runs.** After each engine run's commit, before the next run starts, `build/check-model-drift.ps1` runs the
+  model evals without recording. A run is one commit, so a shift it finds names its commit. It does not run `-Check`
+  again: the run's final gate ran it on the tree the run commits.
+- **The pin does not ship.** `build/package.ps1 -Release` refuses a tree with the pin. It is removed when phase 5h opens
+  the generator, or before the branch merges to `main`, whichever comes first; the demo's files are then recorded once
+  under the computed fingerprint.
+- **The census is not pinned.** The engine fingerprint a census names (ADR 0022) is computed as before, and a stale
+  census is still regenerated before `main`. A regeneration changes the built-in models, inputs of the computed
+  version but not of the pin, so `build/check-model-drift.ps1 -Demo` runs after it: the regeneration has no run gate that
+  ran `-Check`.
+
+Why the rejections above do not apply to the pin. A number bumped by hand was rejected because nothing would bump it
+when a change far from the generator moved a model; the pin is bumped by a comparison of answers, which sees such a
+change on the members it compares. The plugin's release version was rejected because runs that change the generator
+would not see their own changes; while the generator is frozen no run changes its code, and a run that does ends the
+freeze.
+
+The consequences to hold:
+
+- **The check sees only what it compares.** An engine change can move the answer for a member that is neither in the
+  demo's files nor in the model evals, and nothing shows it until the pin is removed. While the pin exists no run
+  writes files outside the demo, and no release carries the pin, so no other repository reads such an answer.
+- **Between a run and its check, the demo can read an answer the engine no longer gives.** The window is one run:
+  `-Check` closes it inside the run for the demo, and the check between runs closes it for the model evals.
+- **Removing the pin is a version change.** Every generated file goes stale once, and the demo is recorded again.
+- **The demo is still generated in every engine run.** What leaves the run is the rewrite and the model evals, not the
+  generation: `-Check` generates the demo's 25 package members, about 80 s of generation and 85 s with the build on
+  2026-11-19, while the model evals took about 6 minutes on the same day. The cost follows the demo's package members; the
+  framework members it reaches are the census's and are not generated.
+
+Rejected: reading a file of any version in a run that only reads. It would change the rule for every repository for
+good, and a notice of another version would come on every engine change and mean nothing. Rejected: a fingerprint of
+the generator's own code, for the reason the decision above gives. Rejected: keeping the re-record and the model evals
+in the gates of an engine run. They cost every run its time and a diff of the `generator` field, and the evals fail at
+the member limit on a loaded machine (#425) in runs that changed nothing they measure.

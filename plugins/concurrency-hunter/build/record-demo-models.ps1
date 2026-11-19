@@ -16,10 +16,27 @@ depends on the machine and would not be written. Dependency members do not appea
 checks that the committed files are enough: it is refused when it lists a target of a scope call with the cause `not-generated`, including
 a target whose nonfinal answer was not saved by the generating run.
 
-Exit code: 0 when the files are written and a run that only reads them would generate nothing, 1 otherwise.
+While build/generator-version.pin exists the build takes it as the generator version (ADR 0023, amendment of 2026-11-19), and an engine
+change leaves the committed files current. -Check then shows whether the change moved an answer: it copies the committed files aside,
+generates into an empty folder, compares the members of each file with the committed ones (the `generator` field left out), and puts the
+committed files back byte for byte; it writes nothing. -Repin sets the pin to the generator version the sources give and records, so
+every file is generated again under the new version.
+
+A difference where either answer is a `timeout` refusal is reported apart, as unsettled: the member limit counts CPU time, and on a loaded
+machine it can cut a member that a quiet machine answers. Such a difference is no reason to repin until a repeat on a quiet machine gives it
+again.
+
+Exit code: 0 when the files are written and a run that only reads them would generate nothing, 1 otherwise. With -Check: 0 when a fresh
+generation answers every committed member exactly as the committed files do, 1 when an answer moved, 2 when the only differences are
+unsettled; each member that differs is named.
 #>
 [CmdletBinding()]
-param()
+param(
+    # Compares a fresh generation with the committed files and writes nothing.
+    [switch] $Check,
+    # Sets build/generator-version.pin to the tree's computed generator version, then records.
+    [switch] $Repin
+)
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -29,10 +46,13 @@ $env:MSBUILDDISABLENODEREUSE = '1'
 $env:DOTNET_CLI_USE_MSBUILD_SERVER = '0'
 
 $CLI_PROJECT = 'src/ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj'
+$CORE_PROJECT = 'src/ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj'
+$PIN = 'build/generator-version.pin'
 $TARGET = 'demo/Demo.slnx'
 $GENERATED_DIR = 'demo/.concurrency-hunter/models/generated'
 $BUDGET = 'budget'
 $NOT_GENERATED = 'not-generated'
+$TIMEOUT = 'timeout'
 $FRAMEWORKS = @('Microsoft.NETCore.App', 'Microsoft.AspNetCore.App')
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -70,10 +90,91 @@ function Get-Refusals($Measurement, [string]$Cause) {
         })
 }
 
+# Each entry of every file below $Folder, as "relative-path member" -> the entry's JSON in one line and whether it is a `timeout` refusal.
+function Get-Entries([string]$Folder) {
+    $entries = @{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $Folder -Recurse -Filter '*.json' -File -ErrorAction Ignore)) {
+        $relative = [IO.Path]::GetRelativePath($Folder, $file.FullName).Replace('\', '/')
+        $document = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+        foreach ($entry in @($document.members)) {
+            $cut = $null -ne $entry.refusal -and $entry.refusal.reason -ceq $TIMEOUT
+            $entries["$relative $($entry.member)"] = @{ Json = ($entry | ConvertTo-Json -Depth 64 -Compress); Timeout = $cut }
+        }
+    }
+    return $entries
+}
+
+if ($Check -and $Repin) { throw '-Check and -Repin do not go together.' }
+
 Push-Location $root
 try {
+    # 0. Repin: the version the sources give becomes the pin, so the build below takes it and every file is generated again.
+    if ($Repin) {
+        $pin = Join-Path $root $PIN
+        if (-not (Test-Path -LiteralPath $pin)) { throw "$PIN does not exist, so the version is not pinned; record without -Repin." }
+        $log = Join-Path $scratch 'record-demo-models-source-fingerprint.log'
+        & dotnet msbuild (Join-Path $root $CORE_PROJECT) -restore -t:ComputeSourceFingerprint -getProperty:SourceFingerprint -nologo `
+            --disable-build-servers -nodeReuse:false *> $log
+        if ($LASTEXITCODE -ne 0) { Show-Tail $log; throw "ComputeSourceFingerprint exited $LASTEXITCODE; log: $log" }
+        $fingerprint = @(Get-Content -LiteralPath $log -Encoding utf8 | Where-Object { $_ -match '^[0-9a-f]{64}$' }) | Select-Object -Last 1
+        if (-not $fingerprint) { throw "ComputeSourceFingerprint printed no fingerprint; log: $log" }
+        [IO.File]::WriteAllText($pin, "$fingerprint`n")
+        Write-Host "The pin is now $fingerprint."
+    }
+
     # 1. Build.
     Invoke-Dotnet 'build' @('build', $CLI_PROJECT, '-c', 'Release', '--disable-build-servers', '-nodeReuse:false')
+
+    if ($Check) {
+        # The committed files go aside and come back byte for byte whatever happens; the fresh generation starts from nothing.
+        $committed = Join-Path $scratch 'record-demo-models-check/committed'
+        Remove-Item -LiteralPath (Split-Path $committed) -Recurse -Force -ErrorAction Ignore
+        New-Item -ItemType Directory -Force -Path $committed | Out-Null
+        Copy-Item -Path (Join-Path $generatedRoot '*') -Destination $committed -Recurse
+        try {
+            Remove-Item -LiteralPath $generatedRoot -Recurse -Force
+            $generating = Invoke-Metrics 'check' 'on' @('--recording')
+            $cut = @(Get-Refusals $generating $BUDGET)
+            $before = Get-Entries $committed
+            $after = Get-Entries $generatedRoot
+        }
+        finally {
+            Remove-Item -LiteralPath $generatedRoot -Recurse -Force -ErrorAction Ignore
+            New-Item -ItemType Directory -Force -Path $generatedRoot | Out-Null
+            Copy-Item -Path (Join-Path $committed '*') -Destination $generatedRoot -Recurse
+        }
+        if ($cut.Count -gt 0) {
+            Write-Host "The fresh generation left $($cut.Count) member(s) at ${BUDGET}; their answers depend on the machine and are not compared:"
+            $cut | ForEach-Object { Write-Host "  $_" }
+            exit 1
+        }
+        # A difference where either side is a `timeout` refusal can be the member limit cutting the member on a loaded machine, so it is
+        # unsettled rather than moved: repeat on a quiet machine, and only a repeat that gives the same difference is a move.
+        $moved = [Collections.Generic.List[string]]::new()
+        $unsettled = [Collections.Generic.List[string]]::new()
+        foreach ($key in @(@($before.Keys) + @($after.Keys) | Sort-Object -Unique)) {
+            if (-not $after.ContainsKey($key)) { $moved.Add("  $key (committed only)") }
+            elseif (-not $before.ContainsKey($key)) { $moved.Add("  $key (fresh only)") }
+            elseif ($before[$key].Json -cne $after[$key].Json) {
+                if ($before[$key].Timeout -or $after[$key].Timeout) {
+                    $unsettled.Add("  $key ($(if ($after[$key].Timeout) { 'fresh' } else { 'committed' }) answer is $TIMEOUT)")
+                }
+                else { $moved.Add("  $key (answer differs)") }
+            }
+        }
+        if ($moved.Count -gt 0) {
+            Write-Host "A fresh generation answers $($moved.Count) member(s) differently from the committed files; record them with -Repin:"
+            $moved | ForEach-Object { Write-Host $_ }
+        }
+        if ($unsettled.Count -gt 0) {
+            Write-Host "$($unsettled.Count) member(s) differ by a $TIMEOUT, which the machine's load can cause; repeat -Check on a quiet machine, and repin only if it gives the same:"
+            $unsettled | ForEach-Object { Write-Host $_ }
+        }
+        if ($moved.Count -gt 0) { exit 1 }
+        if ($unsettled.Count -gt 0) { exit 2 }
+        Write-Host "A fresh generation answers all $($before.Count) committed member(s) as the committed files do."
+        exit 0
+    }
 
     # 2. Generate, without the framework folders, which the census answers.
     foreach ($framework in $FRAMEWORKS) {
