@@ -31,7 +31,9 @@ public sealed class DemoExpectationTests
         var results = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => AnalyzeDemoAsync()));
         var serializedRuns = results.Select(result => JsonSerializer.Serialize(result.Findings, JsonOptions)).ToArray();
 
-        Assert.All(serializedRuns.Skip(1), serialized => Assert.Equal(serializedRuns[0], serialized));
+        var scratchRoot = Path.Combine(Path.GetDirectoryName(expectationPath)!, "..", "scratch", "divergent-demo-runs");
+        var savedTo = SaveRunsIfTheyDiffer(serializedRuns, scratchRoot);
+        Assert.True(savedTo is null, $"The three demo runs gave different findings; every run's findings are saved in {savedTo}");
         var finalResult = results[^1];
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
@@ -42,6 +44,30 @@ public sealed class DemoExpectationTests
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
             $"False positives: {string.Join(", ", report.FalsePositives)}{Environment.NewLine}" +
             $"Confidence mismatches: {string.Join(", ", report.ConfidenceMismatches)}");
+    }
+
+    [Fact]
+    public void Divergent_runs_are_saved_one_file_each_and_equal_runs_write_nothing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"divergent-runs-{Guid.NewGuid():N}");
+        try
+        {
+            Assert.Null(SaveRunsIfTheyDiffer(["[1]", "[1]", "[1]"], root));
+            Assert.False(Directory.Exists(root));
+
+            var folder = SaveRunsIfTheyDiffer(["[1]", "[2]", "[1]"], root);
+
+            Assert.NotNull(folder);
+            Assert.StartsWith(Path.GetFullPath(root), folder);
+            Assert.Equal("[1]", File.ReadAllText(Path.Combine(folder, "run-0.json")));
+            Assert.Equal("[2]", File.ReadAllText(Path.Combine(folder, "run-1.json")));
+            Assert.Equal("[1]", File.ReadAllText(Path.Combine(folder, "run-2.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
     }
 
     /// <summary>A solver query is limited by Z3's work, not by time (ADR 0021): the demo analysed while a busy thread loads every
@@ -112,6 +138,24 @@ public sealed class DemoExpectationTests
         Assert.Equal(JsonSerializer.Serialize(reference.Findings, JsonOptions), JsonSerializer.Serialize(indexed.Findings, JsonOptions));
         Assert.Equal(reference.Pairs.Candidates, indexed.Pairs.Candidates);
         Assert.True(indexed.Pairs.Comparisons <= reference.Pairs.Comparisons);
+    }
+
+    /// <summary>The runs serialized differently: writes each one's findings to its own file in a new folder under the root, so
+    /// the evidence of a divergence outlives the failing test. Equal runs write nothing.</summary>
+    /// <param name="serializedRuns">The serialized findings of each run.</param>
+    /// <param name="scratchRoot">The folder under which the new folder is created.</param>
+    /// <returns>The new folder, or <see langword="null"/> when all runs are equal.</returns>
+    internal static string? SaveRunsIfTheyDiffer(IReadOnlyList<string> serializedRuns, string scratchRoot)
+    {
+        if (serializedRuns.All(serialized => serialized == serializedRuns[0]))
+            return null;
+
+        var folder = Path.GetFullPath(Path.Combine(scratchRoot, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"));
+        Directory.CreateDirectory(folder);
+        for (var index = 0; index < serializedRuns.Count; index++)
+            File.WriteAllText(Path.Combine(folder, $"run-{index}.json"), serializedRuns[index]);
+
+        return folder;
     }
 
     private static async Task<AnalysisResult> AnalyzeDemoAsync(
