@@ -15,7 +15,9 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
     private const string ENUMERABLE_ALL =
         "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})";
     private static readonly TimeSpan HANDSHAKE_TIMEOUT = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ANALYSIS_TIMEOUT = TimeSpan.FromMinutes(5);
+    // The published executable analyses the demo in about 65 s on a quiet machine, 137 s with every core busy and 275 s with twice as many
+    // busy processes as cores; the limit only has to stop a hang, and leaves room for what other sessions' suites do to the machine.
+    private static readonly TimeSpan ANALYSIS_TIMEOUT = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan PUBLISH_TIMEOUT = TimeSpan.FromMinutes(10);
 
     /// <summary>
@@ -25,7 +27,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
     /// </summary>
     private readonly string _bundleExtraction = Directory.CreateTempSubdirectory("concurrency-hunter-bundle-").FullName;
 
-    public void Dispose() => Directory.Delete(_bundleExtraction, true);
+    public void Dispose() => DeleteQuietly(_bundleExtraction);
 
     [Fact]
     public async Task Published_server_lists_exactly_the_five_tools_with_only_json_rpc_on_stdout()
@@ -206,8 +208,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         }
         finally
         {
-            if (Directory.Exists(localApplicationData))
-                Directory.Delete(localApplicationData, true);
+            DeleteQuietly(localApplicationData);
         }
     }
 
@@ -248,8 +249,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         }
         finally
         {
-            if (Directory.Exists(directory))
-                Directory.Delete(directory, true);
+            DeleteQuietly(directory);
         }
     }
 
@@ -275,8 +275,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         }
         finally
         {
-            if (Directory.Exists(directory))
-                Directory.Delete(directory, true);
+            DeleteQuietly(directory);
         }
     }
 
@@ -339,10 +338,18 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         }
         finally
         {
-            foreach (var folder in denied.Values.Where(Directory.Exists))
-                await RunAsync("icacls", [folder, "/remove:d", user, "/T"], HANDSHAKE_TIMEOUT);
-            if (Directory.Exists(directory))
-                Directory.Delete(directory, true);
+            try
+            {
+                foreach (var folder in denied.Values.Where(Directory.Exists))
+                    await RunAsync("icacls", [folder, "/remove:d", user, "/T"], HANDSHAKE_TIMEOUT);
+            }
+            catch (Exception exception)
+            {
+                // Like the delete below, this must not replace the exception that ended the test.
+                output.WriteLine($"Cleanup could not lift the denied rights: {exception.Message}");
+            }
+
+            DeleteQuietly(directory);
         }
     }
 
@@ -359,6 +366,91 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         await RunAsync(executable, ["--version"], HANDSHAKE_TIMEOUT);
 
         Assert.NotEmpty(Directory.EnumerateFiles(_bundleExtraction, "concurrency-hunter.dll", SearchOption.AllDirectories));
+    }
+
+    /// <summary>The processor time every process the test may read has used so far, by process id.</summary>
+    private static Dictionary<int, ProcessCpu> SnapshotCpu()
+    {
+        var snapshot = new Dictionary<int, ProcessCpu>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                try
+                {
+                    snapshot[process.Id] = new ProcessCpu(process.ProcessName, process.TotalProcessorTime);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    // A process that has exited or that the user may not read has no time to report, and the load is a lower bound.
+                }
+            }
+        }
+
+        return snapshot;
+    }
+
+    /// <summary>
+    /// A command that outlives its limit is stopped with everything it started, so that the folder it holds open can be deleted, and the
+    /// failure names the limit and how busy the machine was instead of an exception the cleanup would replace.
+    /// </summary>
+    [Fact]
+    public async Task A_command_that_times_out_is_stopped_and_the_failure_says_how_busy_the_machine_was()
+    {
+        var held = Path.Combine(_bundleExtraction, "held.txt");
+
+        var failure = await Assert.ThrowsAsync<TimeoutException>(
+            () => RunAsync("cmd.exe", ["/d", "/c", $"ping -n 60 127.0.0.1 > {held}"], TimeSpan.FromSeconds(3)));
+
+        Assert.Contains("did not finish within 00:00:03", failure.Message, StringComparison.Ordinal);
+        Assert.Contains($"of {Environment.ProcessorCount} cores", failure.Message, StringComparison.Ordinal);
+        File.Delete(held);
+        Assert.False(File.Exists(held));
+    }
+
+    /// <summary>
+    /// Says how busy the machine was while a command that timed out ran, so that a failure under load is told from a regression: the
+    /// processor time the processes running both at its start and now used, in cores averaged over the wait. The command's own
+    /// processes are gone by then and are not counted.
+    /// </summary>
+    /// <param name="before">The snapshot taken when the command started.</param>
+    /// <param name="elapsed">How long the command ran.</param>
+    private static string DescribeMachineLoad(IReadOnlyDictionary<int, ProcessCpu> before, TimeSpan elapsed)
+    {
+        var used = SnapshotCpu()
+                   .Where(process => before.TryGetValue(process.Key, out var earlier) && earlier.Name == process.Value.Name)
+                   .GroupBy(process => process.Value.Name,
+                            process => (process.Value.Time - before[process.Key].Time).TotalSeconds)
+                   .Select(group => new { Name = group.Key, Seconds = group.Sum() })
+                   .OrderByDescending(group => group.Seconds)
+                   .ToArray();
+        var top = string.Join(", ", used.Take(3).Select(group => $"{group.Name} {group.Seconds / elapsed.TotalSeconds:F1}"));
+        return $"Other processes used at least {used.Sum(group => group.Seconds) / elapsed.TotalSeconds:F1} of {Environment.ProcessorCount} cores " +
+               $"on average meanwhile (most: {top}); a figure near the core count means the machine was busy, not that the analysis regressed " +
+               "(the demo takes about 65 s on a quiet one).";
+    }
+
+    /// <summary>A process's name and the processor time it has used.</summary>
+    /// <param name="Name">The process name.</param>
+    /// <param name="Time">The processor time.</param>
+    private sealed record ProcessCpu(string Name, TimeSpan Time);
+
+    /// <summary>
+    /// Deletes a folder a test made, in the <c>finally</c> or <see cref="Dispose"/> that ends the test. A folder that cannot be deleted is
+    /// reported in the test's output and left; the exception that ended the test is the one the report shows.
+    /// </summary>
+    /// <param name="directory">The folder.</param>
+    private void DeleteQuietly(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+        catch (Exception exception)
+        {
+            output.WriteLine($"Cleanup could not delete {directory}: {exception.Message}");
+        }
     }
 
     /// <summary>Publishes the executable into a folder of its own.</summary>
@@ -387,7 +479,8 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
     private static int Counter(JsonElement counters, string name) =>
         counters.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
 
-    /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed. An executable it
+    /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed, and stopping it with
+    /// everything it started, with the machine's load in the failure, when it outlives <paramref name="timeout"/>. An executable it
     /// starts unpacks into the test's own extraction folder, unless <paramref name="configure"/> names another.</summary>
     /// <param name="fileName">The program.</param>
     /// <param name="arguments">Its arguments.</param>
@@ -406,11 +499,24 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         start.Environment[BUNDLE_EXTRACT_VARIABLE] = _bundleExtraction;
         configure?.Invoke(start);
 
+        var cpuBefore = SnapshotCpu();
         using var process = Process.Start(start)!;
         var standardOutput = process.StandardOutput.ReadToEndAsync();
         var standardError = process.StandardError.ReadToEndAsync();
-        using var cancellation = new CancellationTokenSource(timeout);
-        await process.WaitForExitAsync(cancellation.Token);
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(timeout);
+        }
+        catch (TimeoutException)
+        {
+            // The command keeps running and holds its files open unless it is stopped here, and the cleanup of the test's folders
+            // then fails with an exception of its own.
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new TimeoutException($"{fileName} {string.Join(' ', arguments)} did not finish within {timeout}. " +
+                                       $"{DescribeMachineLoad(cpuBefore, timeout)} Its output: {await standardOutput}{await standardError}");
+        }
+
         var text = $"{await standardOutput}{await standardError}";
         output.WriteLine($"{fileName} {string.Join(' ', arguments)} exited with {process.ExitCode}");
         Assert.True(process.ExitCode == 0, $"{fileName} failed with {process.ExitCode}: {text}");
