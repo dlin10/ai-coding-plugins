@@ -368,6 +368,24 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
         Assert.NotEmpty(Directory.EnumerateFiles(_bundleExtraction, "concurrency-hunter.dll", SearchOption.AllDirectories));
     }
 
+    /// <summary>
+    /// A command that outlives its limit is stopped with everything it started, so that the folder it holds open can be deleted, and the
+    /// failure names the limit and how busy the machine was instead of an exception the cleanup would replace.
+    /// </summary>
+    [Fact]
+    public async Task A_command_that_times_out_is_stopped_and_the_failure_says_how_busy_the_machine_was()
+    {
+        var held = Path.Combine(_bundleExtraction, "held.txt");
+
+        var failure = await Assert.ThrowsAsync<TimeoutException>(
+            () => RunAsync("cmd.exe", ["/d", "/c", $"ping -n 60 127.0.0.1 > {held}"], TimeSpan.FromSeconds(3)));
+
+        Assert.Contains("did not finish within 00:00:03", failure.Message, StringComparison.Ordinal);
+        Assert.Contains($"of {Environment.ProcessorCount} cores", failure.Message, StringComparison.Ordinal);
+        File.Delete(held);
+        Assert.False(File.Exists(held));
+    }
+
     /// <summary>The processor time every process the test may read has used so far, by process id.</summary>
     private static Dictionary<int, ProcessCpu> SnapshotCpu()
     {
@@ -391,34 +409,17 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
     }
 
     /// <summary>
-    /// A command that outlives its limit is stopped with everything it started, so that the folder it holds open can be deleted, and the
-    /// failure names the limit and how busy the machine was instead of an exception the cleanup would replace.
-    /// </summary>
-    [Fact]
-    public async Task A_command_that_times_out_is_stopped_and_the_failure_says_how_busy_the_machine_was()
-    {
-        var held = Path.Combine(_bundleExtraction, "held.txt");
-
-        var failure = await Assert.ThrowsAsync<TimeoutException>(
-            () => RunAsync("cmd.exe", ["/d", "/c", $"ping -n 60 127.0.0.1 > {held}"], TimeSpan.FromSeconds(3)));
-
-        Assert.Contains("did not finish within 00:00:03", failure.Message, StringComparison.Ordinal);
-        Assert.Contains($"of {Environment.ProcessorCount} cores", failure.Message, StringComparison.Ordinal);
-        File.Delete(held);
-        Assert.False(File.Exists(held));
-    }
-
-    /// <summary>
     /// Says how busy the machine was while a command that timed out ran, so that a failure under load is told from a regression: the
-    /// processor time the processes running both at its start and now used, in cores averaged over the wait. The command's own
-    /// processes are gone by then and are not counted.
+    /// processor time the processes running both at its start and now used, in cores averaged over the wait. Neither the test process
+    /// nor the command's own processes, which are gone by then, are counted.
     /// </summary>
     /// <param name="before">The snapshot taken when the command started.</param>
     /// <param name="elapsed">How long the command ran.</param>
     private static string DescribeMachineLoad(IReadOnlyDictionary<int, ProcessCpu> before, TimeSpan elapsed)
     {
         var used = SnapshotCpu()
-                   .Where(process => before.TryGetValue(process.Key, out var earlier) && earlier.Name == process.Value.Name)
+                   .Where(process => process.Key != Environment.ProcessId &&
+                                     before.TryGetValue(process.Key, out var earlier) && earlier.Name == process.Value.Name)
                    .GroupBy(process => process.Value.Name,
                             process => (process.Value.Time - before[process.Key].Time).TotalSeconds)
                    .Select(group => new { Name = group.Key, Seconds = group.Sum() })
@@ -426,8 +427,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) :
                    .ToArray();
         var top = string.Join(", ", used.Take(3).Select(group => $"{group.Name} {group.Seconds / elapsed.TotalSeconds:F1}"));
         return $"Other processes used at least {used.Sum(group => group.Seconds) / elapsed.TotalSeconds:F1} of {Environment.ProcessorCount} cores " +
-               $"on average meanwhile (most: {top}); a figure near the core count means the machine was busy, not that the analysis regressed " +
-               "(the demo takes about 65 s on a quiet one).";
+               $"on average meanwhile (most: {top}); a figure near the core count means the machine was busy, which alone can make a command overrun its limit.";
     }
 
     /// <summary>A process's name and the processor time it has used.</summary>
