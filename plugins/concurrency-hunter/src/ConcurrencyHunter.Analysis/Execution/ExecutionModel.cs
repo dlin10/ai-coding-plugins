@@ -1892,22 +1892,46 @@ public static class ExecutionModel
                 }
             }
 
-            var changed = true;
-            while (changed)
+            // A child runs in every execution of the regions that resolve it. Only what a region gains goes on to its children, so each
+            // execution crosses each edge once; every region on an edge has its entry, empty or not.
+            var edges = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var (parent, childRegions) in children)
             {
                 CheckCancellation();
-                changed = false;
-                foreach (var (parent, childRegions) in children)
+                foreach (var child in childRegions.Where(child => !IsContainerWide(heap.Regions[child]) && !startup.Contains(child)))
                 {
                     CheckCancellation();
-                    foreach (var child in childRegions.Where(child => !IsContainerWide(heap.Regions[child]) && !startup.Contains(child)))
+                    Executions(parent);
+                    Executions(child);
+                    if (!edges.TryGetValue(parent, out var targets))
+                        edges.Add(parent, targets = []);
+                    targets.Add(child);
+                }
+            }
+
+            var gained = edges.Keys.Where(region => Executions(region).Count != 0)
+                              .ToDictionary(region => region, region => Executions(region).ToList(), StringComparer.Ordinal);
+            var dirty = new Queue<string>(gained.Keys);
+            while (dirty.TryDequeue(out var parent))
+            {
+                CheckCancellation();
+                gained.Remove(parent, out var executions);
+                foreach (var child in edges[parent])
+                {
+                    CheckCancellation();
+                    var childExecutions = Executions(child);
+                    var forwards = edges.ContainsKey(child);
+                    foreach (var execution in executions!)
                     {
                         CheckCancellation();
-                        foreach (var execution in Executions(parent).ToArray())
+                        if (!childExecutions.Add(execution) || !forwards)
+                            continue;
+                        if (!gained.TryGetValue(child, out var news))
                         {
-                            CheckCancellation();
-                            changed |= Executions(child).Add(execution);
+                            gained.Add(child, news = []);
+                            dirty.Enqueue(child);
                         }
+                        news.Add(execution);
                     }
                 }
             }

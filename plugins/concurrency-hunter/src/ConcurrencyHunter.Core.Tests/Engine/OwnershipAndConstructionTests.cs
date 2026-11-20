@@ -503,6 +503,25 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
+    public void Transient_resolved_through_a_chain_of_transients_runs_in_every_execution_that_resolves_the_chain()
+    {
+        var run = Execute("""
+            public static class Log { public static object? Last; }
+            public sealed class Leaf { public Leaf() => Log.Last = new object(); }
+            public sealed class Middle { public readonly Leaf Leaf; public Middle(Leaf leaf) => Leaf = leaf; }
+            public sealed class Top { public readonly Middle Middle; public Top(Middle middle) => Middle = middle; }
+            public sealed class Cache { public readonly Middle Middle; public Cache(Middle middle) => Middle = middle; }
+            public class TopController(Top top) : ControllerBase { public void Get() => GC.KeepAlive(top); public void Post() => GC.KeepAlive(top); }
+            public class CacheController(Cache cache) : ControllerBase { public void Get() => GC.KeepAlive(cache); }
+            """ + Startup("services.AddTransient<Leaf>(); services.AddTransient<Middle>(); services.AddTransient<Top>(); services.AddSingleton<Cache>();"));
+
+        var executions = run.Accesses("Last", SummaryAccessKind.Store).Select(store => run.Analysis.Execution(store.ExecutionId)).DistinctBy(execution => execution.Id).ToArray();
+        Assert.Equal(2, executions.Count(execution => execution.Kind == ExecutionKind.Root));
+        Assert.Contains(executions, execution => execution.Display == "construction of di:Cache@Singleton");
+        Assert.Equal(3, executions.Length);
+    }
+
+    [Fact]
     public void Type_initializer_activated_by_a_startup_type_initializer_is_a_startup_construction()
     {
         var run = Execute("""
