@@ -84,6 +84,9 @@ public sealed class DiIndex
                                  .Concat(AmbiguousDiagnostics(registrations))
                                  .ToArray();
         UnresolvedRegistrations = registrations.Where(registration => registration.ServiceType is null).ToArray();
+        UnresolvedUncertainties = UnresolvedRegistrations
+            .Select(unresolved => $"An unresolved registration at {unresolved.Source.Path}:{unresolved.Source.StartLine} may change this binding.")
+            .ToArray();
     }
 
     public static DiIndex Empty(string scopeId) => new(scopeId, [], []);
@@ -95,6 +98,10 @@ public sealed class DiIndex
 
     /// <summary>Registrations whose service type is unknown; while any exist every bound answer is uncertain.</summary>
     public IReadOnlyList<DiRegistration> UnresolvedRegistrations { get; }
+
+    /// <summary>The uncertainty each of <see cref="UnresolvedRegistrations"/> puts on every bound answer and on every access to a
+    /// container object, one text per registration made once for the scope.</summary>
+    public IReadOnlyList<string> UnresolvedUncertainties { get; }
 
     /// <summary>A registration's region identity: its service type key, implementation type key, lifetime and number.</summary>
     public static string RegionId(string serviceTypeKey, string implementationTypeKey, DiLifetime lifetime, int number) =>
@@ -126,12 +133,9 @@ public sealed class DiIndex
 
         var (implementationKey, lifetime) = targets[0];
         var last = registrations[^1];
-        var uncertainties = UnresolvedRegistrations
-            .Select(unresolved => $"An unresolved registration at {unresolved.Source.Path}:{unresolved.Source.StartLine} may change this binding.")
-            .ToArray();
         var binding = new DiBinding(last.ServiceType!, last.ImplementationType!, lifetime,
                                     RegionId(serviceTypeKey, implementationKey, lifetime, last.Number),
-                                    registrations.Select(registration => registration.Source).ToArray(), uncertainties, serviceTypeKey,
+                                    registrations.Select(registration => registration.Source).ToArray(), UnresolvedUncertainties, serviceTypeKey,
                                     implementationKey, RegionDisplay(last.ImplementationType!, lifetime, last.Number));
         return new DiResolution(DiResolutionKind.Bound, serviceTypeKey, binding, registrations);
     }

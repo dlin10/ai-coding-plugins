@@ -93,6 +93,30 @@ public sealed class AccessExtractionTests
     }
 
     [Fact]
+    public void Accesses_to_one_container_object_share_its_binding_evidence_and_uncertainties()
+    {
+        // Two actions are two executions: what binds the object and what may change the binding are worked out once for the
+        // scope, not once per access (issue 443).
+        var run = Analyze(Shared + """
+            public interface IGate { }
+            public class RelayController : ControllerBase
+            {
+                private readonly Relay _relay;
+                public RelayController(Relay relay) => _relay = relay;
+                public void Post(string target) => _relay.Target = target;
+                public void Put() => _relay.Inner = null;
+            }
+            """ + Startup("services.AddSingleton<Relay>(); var type = typeof(IGate); services.AddScoped(type);"));
+
+        var target = run.Single("Target", AccessOperation.Write);
+        var inner = run.Single("Inner", AccessOperation.Write);
+        Assert.NotEmpty(target.BindingEvidence);
+        Assert.Same(target.BindingEvidence, inner.BindingEvidence);
+        static bool Unresolved(string uncertainty) => uncertainty.StartsWith("An unresolved registration", StringComparison.Ordinal);
+        Assert.Same(Assert.Single(target.Uncertainties, Unresolved), Assert.Single(inner.Uncertainties, Unresolved));
+    }
+
+    [Fact]
     public void Hosted_receiver_field_is_a_singleton_access_registered_as_hosted_service()
     {
         var run = Analyze("""

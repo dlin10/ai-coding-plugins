@@ -165,6 +165,8 @@ public static partial class InterproceduralAccesses
             var workHosts = WorkHosts(input, unknownCalls);
             // The collectors run one after another, so they share one pool: the accesses of every execution restate the same texts.
             var strings = new StringPool();
+            // What binds a container object is the same in every execution that touches it (issue 443).
+            var bindingEvidence = new Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>>(ReferenceEqualityComparer.Instance);
             foreach (var execution in input.Executions.Executions)
             {
                 WorkCancellation.Check();
@@ -178,7 +180,8 @@ public static partial class InterproceduralAccesses
                      workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, freshness, libraryInternal, strings, cancellationToken);
+                                                           unknownCalls, reach, freshness, libraryInternal, strings, bindingEvidence,
+                                                           cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
@@ -885,7 +888,8 @@ public static partial class InterproceduralAccesses
                                             Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
-                                            HandedFreshness freshness, LibraryInternalObjects? libraryInternal, StringPool strings, CancellationToken cancellationToken)
+                                            HandedFreshness freshness, LibraryInternalObjects? libraryInternal, StringPool strings,
+                                            Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>> bindingEvidence, CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -4411,21 +4415,29 @@ public static partial class InterproceduralAccesses
             else if (region.IsMerged || region.IsOpen)
                 uncertainties.Add(ConflictFindings.MergedContextUncertainty(region.SiteBodyId is { } site ? MethodSymbol(site) : MethodSymbol(instance.BodyId)));
             if (region.Kind == HeapRegionKind.Di)
-            {
-                uncertainties.AddRange(input.Scope.DiIndex.UnresolvedRegistrations.Select(unresolved =>
-                    $"An unresolved registration at {unresolved.Source.Path}:{unresolved.Source.StartLine} may change this binding."));
-            }
+                uncertainties.AddRange(input.Scope.DiIndex.UnresolvedUncertainties);
 
             uncertainties.AddRange(_heap.RegionUncertainties.GetValueOrDefault(region.Identity) ?? []);
             return uncertainties;
         }
 
-        /// <summary>What binds a container object's region: the injected members that hold its service, then its registrations.</summary>
+        /// <summary>What binds a container object's region: the injected members that hold its service, then its registrations. It is
+        /// the same for every access to the region, so it is worked out on the first and kept for the scope (issue 443).</summary>
         /// <param name="region">The container object's region.</param>
         private IReadOnlyList<BindingEvidence> BindingEvidenceOf(HeapRegion region)
         {
             if (region.Kind != HeapRegionKind.Di)
                 return [];
+            if (!bindingEvidence.TryGetValue(region, out var evidence))
+                bindingEvidence.Add(region, evidence = BindingEvidenceScan(region));
+            return evidence;
+        }
+
+        /// <summary>What binds a container object's region, read off every injection binding and registration of the scope
+        /// (<see cref="BindingEvidenceOf"/>).</summary>
+        /// <param name="region">The container object's region.</param>
+        private BindingEvidence[] BindingEvidenceScan(HeapRegion region)
+        {
             var serviceKey = region.Identity.Split('|')[1];
             var members = input.Scope.InjectionBindings
                                .SelectMany(type => type.Bindings)
