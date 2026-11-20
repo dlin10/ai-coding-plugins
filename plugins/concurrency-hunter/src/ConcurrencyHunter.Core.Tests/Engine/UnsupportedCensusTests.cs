@@ -59,8 +59,9 @@ public sealed class UnsupportedCensusTests
         var census = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "skills", "hunt", "evals", "metrics", "unsupported-census.md");
         var lines = File.ReadAllLines(census);
         var matches = lines.Select(line => Regex.Match(line,
-            @"^kind: (?<kind>.+) \| demo: (?<demo>\d+) \| eshop: (?<eshop>\d+) \| question: (?<question>\d+)$")).ToArray();
-        Assert.All(matches, match => Assert.True(match.Success, "Every census line names a kind, both counts and its question."));
+            @"^kind: (?<kind>.+) \| demo: (?<demo>\d+) \| eshop: (?<eshop>\d+)(?: \| [a-z]+: \d+)* \| question: (?<question>\d+|none)$")).ToArray();
+        // Columns after eshop count other corpora, which no test measures; a kind no question covers yet says none.
+        Assert.All(matches, match => Assert.True(match.Success, "Every census line names a kind, its counts and its question or none."));
         var expected = matches.Where(match => int.Parse(match.Groups[target].Value) != 0)
             .ToDictionary(match => match.Groups["kind"].Value,
                           match => int.Parse(match.Groups[target].Value), StringComparer.Ordinal);

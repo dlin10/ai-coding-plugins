@@ -1,13 +1,22 @@
-kind: AnonymousObjectCreation | demo: 0 | eshop: 11 | question: 65
-kind: CaughtException | demo: 0 | eshop: 25 | question: 55
-kind: CollectionExpression | demo: 10 | eshop: 1 | question: 60
-kind: DeconstructionAssignment | demo: 1 | eshop: 0 | question: 61
-kind: DefaultValue | demo: 0 | eshop: 179 | question: 66
-kind: DynamicMemberReference | demo: 0 | eshop: 1 | question: 67
-kind: FlowAnonymousFunction | demo: 0 | eshop: 18 | question: 154
-kind: InterpolatedString | demo: 0 | eshop: 72 | question: 69
-kind: InterpolatedStringText | demo: 0 | eshop: 114 | question: 69
-kind: Interpolation | demo: 0 | eshop: 83 | question: 69
-kind: SimpleAssignment | demo: 9 | eshop: 17 | question: 63
-kind: Tuple | demo: 0 | eshop: 6 | question: 70
-kind: TypeOf | demo: 4 | eshop: 19 | question: 64
+kind: AnonymousObjectCreation | demo: 0 | eshop: 11 | orchardcore: 103 | eshoponabp: 0 | question: 65
+kind: CaughtException | demo: 0 | eshop: 25 | orchardcore: 95 | eshoponabp: 10 | question: 55
+kind: CollectionExpression | demo: 10 | eshop: 1 | orchardcore: 372 | eshoponabp: 1 | question: 60
+kind: CollectionExpressionElementsPlaceholder | demo: 0 | eshop: 0 | orchardcore: 1 | eshoponabp: 0 | question: 60
+kind: DeconstructionAssignment | demo: 1 | eshop: 0 | orchardcore: 3 | eshoponabp: 0 | question: 61
+kind: DefaultValue | demo: 0 | eshop: 179 | orchardcore: 255 | eshoponabp: 10 | question: 66
+kind: DynamicInvocation | demo: 0 | eshop: 0 | orchardcore: 9 | eshoponabp: 0 | question: 67
+kind: DynamicMemberReference | demo: 0 | eshop: 1 | orchardcore: 6 | eshoponabp: 0 | question: 67
+kind: FlowAnonymousFunction | demo: 0 | eshop: 18 | orchardcore: 94 | eshoponabp: 0 | question: 154
+kind: ImplicitIndexerReference | demo: 0 | eshop: 0 | orchardcore: 34 | eshoponabp: 0 | question: none
+kind: InterpolatedString | demo: 0 | eshop: 72 | orchardcore: 114 | eshoponabp: 22 | question: 69
+kind: InterpolatedStringText | demo: 0 | eshop: 114 | orchardcore: 185 | eshoponabp: 32 | question: 69
+kind: Interpolation | demo: 0 | eshop: 83 | orchardcore: 156 | eshoponabp: 22 | question: 69
+kind: None | demo: 0 | eshop: 0 | orchardcore: 7 | eshoponabp: 0 | question: none
+kind: Range | demo: 0 | eshop: 0 | orchardcore: 34 | eshoponabp: 0 | question: none
+kind: SimpleAssignment | demo: 9 | eshop: 17 | orchardcore: 205 | eshoponabp: 0 | question: 63
+kind: Spread | demo: 0 | eshop: 0 | orchardcore: 2 | eshoponabp: 0 | question: 60
+kind: TranslatedQuery | demo: 0 | eshop: 0 | orchardcore: 3 | eshoponabp: 0 | question: none
+kind: Tuple | demo: 0 | eshop: 6 | orchardcore: 43 | eshoponabp: 0 | question: 70
+kind: TypeOf | demo: 4 | eshop: 19 | orchardcore: 194 | eshoponabp: 10 | question: 64
+kind: TypeParameterObjectCreation | demo: 0 | eshop: 0 | orchardcore: 11 | eshoponabp: 0 | question: none
+kind: Utf8String | demo: 0 | eshop: 0 | orchardcore: 4 | eshoponabp: 0 | question: none
