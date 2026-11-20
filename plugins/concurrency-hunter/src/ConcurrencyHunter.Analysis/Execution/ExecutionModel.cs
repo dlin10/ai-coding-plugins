@@ -4,6 +4,7 @@ using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
+using System.Numerics;
 
 namespace ConcurrencyHunter.Execution;
 
@@ -259,6 +260,9 @@ public sealed class ExecutionAnalysis
 
     /// <summary>How many times the walk took up a node of the graph the executions share, across all entries of this scope.</summary>
     public int WalkVisits { get; init; }
+
+    /// <summary>How many pairs of a constructed region and an execution its construction runs in this scope has.</summary>
+    public int RegionExecutionPairs { get; init; }
 
     internal IReadOnlyDictionary<WalkNodeKey, int> WalkNodeVisits { get; init; } = new Dictionary<WalkNodeKey, int>();
 
@@ -688,7 +692,8 @@ public static class ExecutionModel
         {
             throw new EngineStageCancelledException("executions", new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["walkVisits"] = builder.WalkVisits
+                ["walkVisits"] = builder.WalkVisits,
+                ["regionExecutionPairs"] = builder.RegionExecutionPairs
             }, cancellationToken, error);
         }
     }
@@ -727,6 +732,8 @@ public static class ExecutionModel
     {
         internal int WalkVisits { get; private set; }
 
+        internal int RegionExecutionPairs { get; private set; }
+
         private void CheckCancellation()
         {
             WorkCancellation.Check();
@@ -734,7 +741,8 @@ public static class ExecutionModel
         }
 
         private readonly Dictionary<string, ExecutionInstance> _executions = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, HashSet<string>> _regionExecutions = new(StringComparer.Ordinal);
+        /// <summary>The executions each constructed region's construction runs in, as bits over <see cref="_ids"/>.</summary>
+        private readonly Dictionary<string, ulong[]> _regionExecutions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<CallEdge>> _edges = heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                         .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly ExecutionIds _ids = new();
@@ -881,7 +889,7 @@ public static class ExecutionModel
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))
             {
                 CheckCancellation();
-                foreach (var execution in _regionExecutions.GetValueOrDefault(construction.RegionId) ?? [])
+                foreach (var execution in RegionExecutions(construction.RegionId))
                 {
                     CheckCancellation();
                     foreach (var instance in construction.ConstructorInstances)
@@ -981,6 +989,7 @@ public static class ExecutionModel
                 order)
             {
                 WalkVisits = WalkVisits,
+                RegionExecutionPairs = RegionExecutionPairs,
                 Constructions = _constructionIndex,
                 WalkNodeVisits = _walkNodes.ToDictionary(pair => pair.Key, pair => pair.Value.Visits),
                 Visits = _visitsByExecution,
@@ -1034,11 +1043,6 @@ public static class ExecutionModel
                 CheckCancellation();
                 OrderList(entries, entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.IntervalObject, StringComparer.Ordinal)
                                           .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal).ThenBy(entry => entry.Segment));
-            }
-            foreach (var set in _regionExecutions.Values)
-            {
-                CheckCancellation();
-                OrderSet(set, set.Order(StringComparer.Ordinal));
             }
             OrderDictionary(_regionExecutions);
             foreach (var handings in _fateHandings.Values)
@@ -1868,16 +1872,16 @@ public static class ExecutionModel
             foreach (var region in heap.Regions.Values.Where(region => region.Kind is HeapRegionKind.Di or HeapRegionKind.Receiver or HeapRegionKind.Container))
             {
                 CheckCancellation();
-                var executions = Executions(region.Identity);
+                Executions(region.Identity);
                 if (startup.Contains(region.Identity))
-                    executions.Add(STARTUP);
+                    AddExecution(region.Identity, STARTUP);
                 else if (region.Kind == HeapRegionKind.Receiver)
-                    executions.Add(region.Context);
+                    AddExecution(region.Identity, region.Context);
                 else if (IsContainerWide(region))
-                    executions.Add(Add(new ExecutionInstance($"construction:{region.Identity}", ExecutionKind.LazyConstruction,
-                                                             $"construction of {region.Display}", AT_MOST_ONCE, null, region.Identity)));
+                    AddExecution(region.Identity, Add(new ExecutionInstance($"construction:{region.Identity}", ExecutionKind.LazyConstruction,
+                                                                            $"construction of {region.Display}", AT_MOST_ONCE, null, region.Identity)));
                 else if (region.Context.StartsWith("invocation:", StringComparison.Ordinal))
-                    executions.Add(region.Context["invocation:".Length..]);
+                    AddExecution(region.Identity, region.Context["invocation:".Length..]);
             }
 
             foreach (var (rootId, instanceId) in heap.RootInstances)
@@ -1888,12 +1892,12 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     if (heap.Regions[region] is { Kind: HeapRegionKind.Di } di && !IsContainerWide(di) && !startup.Contains(region))
-                        Executions(region).Add(RootExecution(rootId));
+                        AddExecution(region, RootExecution(rootId));
                 }
             }
 
             // A child runs in every execution of the regions that resolve it. Only what a region gains goes on to its children, so each
-            // execution crosses each edge once; every region on an edge has its entry, empty or not.
+            // execution crosses each edge once, a word of 64 at a time; every region on an edge has its entry, empty or not.
             var edges = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             foreach (var (parent, childRegions) in children)
             {
@@ -1909,8 +1913,8 @@ public static class ExecutionModel
                 }
             }
 
-            var gained = edges.Keys.Where(region => Executions(region).Count != 0)
-                              .ToDictionary(region => region, region => Executions(region).ToList(), StringComparer.Ordinal);
+            var gained = edges.Keys.Where(region => !Bits.IsEmpty(Executions(region)))
+                              .ToDictionary(region => region, region => (ulong[])Executions(region).Clone(), StringComparer.Ordinal);
             var dirty = new Queue<string>(gained.Keys);
             while (dirty.TryDequeue(out var parent))
             {
@@ -1920,35 +1924,58 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     var childExecutions = Executions(child);
-                    var forwards = edges.ContainsKey(child);
-                    foreach (var execution in executions!)
+                    if (!edges.ContainsKey(child))
                     {
-                        CheckCancellation();
-                        if (!childExecutions.Add(execution) || !forwards)
-                            continue;
-                        if (!gained.TryGetValue(child, out var news))
-                        {
-                            gained.Add(child, news = []);
-                            dirty.Enqueue(child);
-                        }
-                        news.Add(execution);
+                        if (Bits.UnionWith(ref childExecutions, executions!))
+                            _regionExecutions[child] = childExecutions;
+                        continue;
                     }
+                    var queued = gained.TryGetValue(child, out var news);
+                    news ??= Bits.EMPTY;
+                    if (!Bits.UnionWith(ref childExecutions, executions!, ref news))
+                        continue;
+                    _regionExecutions[child] = childExecutions;
+                    gained[child] = news;
+                    if (!queued)
+                        dirty.Enqueue(child);
                 }
             }
+
+            RegionExecutionPairs = (int)Math.Min(int.MaxValue, _regionExecutions.Values.Sum(bits => (long)bits.Sum(BitOperations.PopCount)));
         }
 
-        private HashSet<string> Executions(string region)
+        /// <summary>The executions a region's construction runs in, as bits over <see cref="_ids"/>; the region gets its entry, empty, the
+        /// first time it is asked for.</summary>
+        /// <param name="region">The region.</param>
+        private ulong[] Executions(string region)
         {
             if (!_regionExecutions.TryGetValue(region, out var executions))
-                _regionExecutions.Add(region, executions = new HashSet<string>(StringComparer.Ordinal));
+                _regionExecutions.Add(region, executions = Bits.EMPTY);
             return executions;
         }
+
+        /// <summary>Adds an execution to those a region's construction runs in.</summary>
+        /// <param name="region">The region.</param>
+        /// <param name="execution">The execution.</param>
+        private void AddExecution(string region, string execution)
+        {
+            var executions = Executions(region);
+            Bits.Add(ref executions, _ids.Number(execution));
+            _regionExecutions[region] = executions;
+        }
+
+        /// <summary>The executions a region's construction runs in, in the order of their numbers; none for a region that has no entry.</summary>
+        /// <param name="region">The region.</param>
+        private IEnumerable<string> RegionExecutions(string region) =>
+            Bits.Numbers(_regionExecutions.GetValueOrDefault(region) ?? Bits.EMPTY).Select(_ids.Id);
 
         /// <summary>The closed types whose type initializer runs at startup: activated by an instance the startup constructions reach
         /// over call edges, or by a startup construction, transitively through the type initializers they activate.</summary>
         private HashSet<string> StartupTypeInitializers()
         {
-            var startupRegions = _regionExecutions.Where(pair => pair.Value.Contains(STARTUP)).Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
+            var startupRegions = _ids.TryGetNumber(STARTUP, out var startupNumber)
+                ? _regionExecutions.Where(pair => Bits.Contains(pair.Value, startupNumber)).Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
             var instances = new HashSet<string>(StringComparer.Ordinal);
             foreach (var construction in heap.Constructions.Where(construction => startupRegions.Contains(construction.RegionId)))
             {
@@ -3376,7 +3403,7 @@ public static class ExecutionModel
                     .SelectMany(instance => ExecutionsRunning(instance, region.Kind == HeapRegionKind.Closure ? BODY_ENTRY : region.SiteOperationId))
                     .ToHashSet(StringComparer.Ordinal),
             HeapRegionKind.Receiver => [region.Context],
-            _ => (_regionExecutions.GetValueOrDefault(region.Identity) ?? [])
+            _ => RegionExecutions(region.Identity)
                  .Concat((heap.LocatorCreators.GetValueOrDefault(region.Identity) ?? new HashSet<string>()).SelectMany(ExecutionsOf))
                  .ToHashSet(StringComparer.Ordinal)
         };
@@ -3435,8 +3462,7 @@ public static class ExecutionModel
             foreach (var construction in heap.Constructions)
             {
                 CheckCancellation();
-                var executions = _regionExecutions.GetValueOrDefault(construction.RegionId) ?? [];
-                if (!executions.Contains(STARTUP) && !executions.Any(id => id.StartsWith("construction:", StringComparison.Ordinal)))
+                if (!RegionExecutions(construction.RegionId).Any(id => id == STARTUP || id.StartsWith("construction:", StringComparison.Ordinal)))
                     continue;
 
                 var pending = new Stack<string>(construction.ConstructorInstances);

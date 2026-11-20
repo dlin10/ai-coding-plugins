@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -98,13 +99,33 @@ public sealed class EngineCounterTests
         Assert.Equal(run.Analysis.InstanceExecutions.Values.Sum(executions => executions.Count), run.Analysis.WalkVisits);
     }
 
+    /// <summary>Each pair of a constructed region and an execution its construction runs in is counted once, however many regions
+    /// resolve the region on the way.</summary>
+    [Fact]
+    public void Region_execution_pairs_are_counted()
+    {
+        var run = Execute("""
+            public sealed class Leaf { }
+            public sealed class Middle { public readonly Leaf Leaf; public Middle(Leaf leaf) => Leaf = leaf; }
+            public sealed class Top { public readonly Middle Middle; public Top(Middle middle) => Middle = middle; }
+            public sealed class Cache { public readonly Middle Middle; public Cache(Middle middle) => Middle = middle; }
+            public class TopController(Top top, Middle middle) : ControllerBase { public void Get() => GC.KeepAlive(top); public void Post() => GC.KeepAlive(middle); }
+            public class CacheController(Cache cache) : ControllerBase { public void Get() => GC.KeepAlive(cache); }
+            """ + Startup("services.AddTransient<Leaf>(); services.AddTransient<Middle>(); services.AddTransient<Top>(); services.AddSingleton<Cache>();"));
+
+        var constructed = run.Analysis.Entries.Sum(pair => pair.Value.Where(entry => entry.Kind == ExecutionEntryKind.Construction)
+                                                                      .Select(entry => entry.IntervalObject).Distinct().Count());
+        Assert.True(constructed > 0);
+        Assert.Equal(constructed, run.Analysis.RegionExecutionPairs);
+    }
+
     /// <summary>Solver work, including grouped unseen-write rounds and visits, stays out of user-facing coverage.</summary>
     [Fact]
     public void Engine_counters_reach_no_coverage_key()
     {
         var run = Analyze(ParameterChain(9, "var o = slot; o.Touch();"));
         string[] engineKeys = [HeapCounters.PROPAGATE_PASSES, HeapCounters.INSTANCE_PROCESSINGS, HeapCounters.REFERENCE_LOOKUPS,
-                               HeapCounters.UNSEEN_WRITE_ROUNDS, HeapCounters.UNSEEN_WALK_VISITS, "walkVisits"];
+                               HeapCounters.UNSEEN_WRITE_ROUNDS, HeapCounters.UNSEEN_WALK_VISITS, "walkVisits", "regionExecutionPairs"];
 
         Assert.True(run.Execution.Heap.Heap.Counters[HeapCounters.PROPAGATE_PASSES] > 0);
         Assert.True(run.Execution.Heap.Heap.Counters[HeapCounters.INSTANCE_PROCESSINGS] > 0);

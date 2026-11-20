@@ -229,7 +229,11 @@ public static class ScopePipeline
 
             Begin(ScopeStep.Executions);
             var executions = ExecutionModel.Build(scopeProgram, heap, cancellationToken);
-            counters[ScopeStep.Executions] = new Dictionary<string, int>(StringComparer.Ordinal) { ["walkVisits"] = executions.WalkVisits };
+            counters[ScopeStep.Executions] = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["walkVisits"] = executions.WalkVisits,
+                ["regionExecutionPairs"] = executions.RegionExecutionPairs
+            };
             var executionTime = Complete();
 
             Begin(ScopeStep.Accesses);
