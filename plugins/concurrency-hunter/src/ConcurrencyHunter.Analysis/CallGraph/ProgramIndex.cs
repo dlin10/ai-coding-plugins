@@ -75,6 +75,7 @@ public sealed class ProgramIndex
     private readonly Dictionary<string, ProgramVariantType> _variantTypes;
     private readonly Dictionary<string, ProgramMethod> _membersOfNestedBodies;
     private readonly ConcurrentDictionary<string, IReadOnlyList<IrFieldRef>?> _instanceFields = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string RuntimeTypeKey, string MethodId, string? InterfaceTypeKey), ProgramMethod?> _implementations = new();
 
     public ProgramIndex(string scopeId, IReadOnlyList<ProgramType> types, IReadOnlyList<ProgramMethod> methods,
                         IReadOnlyList<ProgramField> fields, IReadOnlyList<ClosedGenericType> closedGenericTypes,
@@ -179,7 +180,9 @@ public sealed class ProgramIndex
         MethodsOf(typeKey).Where(method => method.Kind == ProgramMethodKind.Constructor).ToArray();
 
     /// <summary>The method an instance of <paramref name="runtimeTypeKey"/> runs for a call of <paramref name="methodId"/>: the most
-    /// derived override or interface implementation along its base chain, the method itself when it has a body, or null.</summary>
+    /// derived override or interface implementation along its base chain, the method itself when it has a body, or null; null too
+    /// when the admission refuses the edge into it. The index never changes, so the walk is made once for each runtime type, method
+    /// and interface and shared by every caller; the admission is decided for each call, since it depends on the edge.</summary>
     /// <param name="runtimeTypeKey">The closed runtime type key.</param>
     /// <param name="methodId">The dispatched method id.</param>
     /// <param name="interfaceTypeKey">The closed interface type key, when dispatching through an interface.</param>
@@ -190,6 +193,20 @@ public sealed class ProgramIndex
     public ProgramMethod? Implementation(string runtimeTypeKey, string methodId, string? interfaceTypeKey = null,
                                           CallSiteAdmission? admission = null, string? origin = null, AdmissionRoute route = AdmissionRoute.Dispatch,
                                           CallIdentity? call = null)
+    {
+        WorkCancellation.Check();
+        var implementation = _implementations.GetOrAdd((runtimeTypeKey, methodId, interfaceTypeKey),
+                                                       key => Dispatched(key.RuntimeTypeKey, key.MethodId, key.InterfaceTypeKey));
+        return implementation is not null && admission?.Admits(origin, implementation.MethodId, route, call) != false ? implementation : null;
+    }
+
+    /// <summary>The method an instance of <paramref name="runtimeTypeKey"/> runs for a call of <paramref name="methodId"/>, whatever
+    /// edge reaches it: the most derived override or interface implementation along its base chain, the method itself when it is
+    /// not abstract, or null.</summary>
+    /// <param name="runtimeTypeKey">The closed runtime type key.</param>
+    /// <param name="methodId">The dispatched method id.</param>
+    /// <param name="interfaceTypeKey">The closed interface type key, when dispatching through an interface.</param>
+    private ProgramMethod? Dispatched(string runtimeTypeKey, string methodId, string? interfaceTypeKey)
     {
         WorkCancellation.Check();
         if (!_methods.TryGetValue(methodId, out var target))
@@ -213,7 +230,7 @@ public sealed class ProgramIndex
                                mappings.FirstOrDefault(mapping => InterfaceMatches(Substitute(mapping.InterfaceTypeKey, substitution),
                                                                                    interfaceTypeKey, mapping.Variances));
                 if (matching is not null)
-                    return matching.ImplementationMethodId is { } mapped ? Implementation(runtimeTypeKey, mapped, admission: admission, origin: origin, route: route, call: call) : null;
+                    return matching.ImplementationMethodId is { } mapped ? Dispatched(runtimeTypeKey, mapped, null) : null;
                 current = type.BaseTypeKey is { } baseKey ? Substitute(baseKey, substitution) : null;
             }
 
@@ -232,12 +249,12 @@ public sealed class ProgramIndex
                 if (method.MethodId == methodId && !method.IsAbstract || Overrides(method, methodId) ||
                     method.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal))
                 {
-                    return admission?.Admits(origin, method.MethodId, route, call) != false ? method : null;
+                    return method;
                 }
             }
         }
 
-        return target.IsAbstract || admission?.Admits(origin, target.MethodId, route, call) == false ? null : target;
+        return target.IsAbstract ? null : target;
     }
 
     private bool InterfaceMatches(string mapped, string called, IReadOnlyList<ProgramVariance>? variances)

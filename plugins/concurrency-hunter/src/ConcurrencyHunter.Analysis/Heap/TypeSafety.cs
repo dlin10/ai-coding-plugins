@@ -15,6 +15,11 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
     /// <summary>The definitions of the supertypes of each type the program index holds, which the index alone decides.</summary>
     private readonly Dictionary<string, IReadOnlySet<string>> _supertypes = new(StringComparer.Ordinal);
 
+    /// <summary>The <see cref="DefinitionOf"/> of each type key <see cref="CannotBe"/> has met, and the <see cref="NullableValueType"/> of
+    /// each declaring type key: a call asks for the same declaring type once per receiver, and the parse depends on the key alone.</summary>
+    private readonly Dictionary<string, string> _definitions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _nullableValueTypes = new(StringComparer.Ordinal);
+
     public static string DefinitionOf(string typeKey)
     {
         var arrayStart = typeKey.LastIndexOf('[');
@@ -62,7 +67,7 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
         if (!region.HasExactType || region.TypeKey is null)
             return false;
 
-        var declaring = DefinitionOf(declaringTypeKey);
+        var declaring = Definition(declaringTypeKey);
         if (declaring is "object" || declaring.EndsWith(":object", StringComparison.Ordinal) ||
             declaring.EndsWith("]object", StringComparison.Ordinal) ||
             declaring.EndsWith(":System.Object", StringComparison.Ordinal) ||
@@ -71,10 +76,12 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
 
         // A Nullable is the value it holds, so a member of Nullable<S> runs on a region of S, or of the type a generic instance binds to
         // its T; a T no instance binds yet may be any.
-        if (NullableValueType(declaringTypeKey) is { } held && (held == region.TypeKey || program.IsOpen(held)))
+        if (!_nullableValueTypes.TryGetValue(declaringTypeKey, out var held))
+            _nullableValueTypes.Add(declaringTypeKey, held = NullableValueType(declaringTypeKey));
+        if (held is not null && (held == region.TypeKey || program.IsOpen(held)))
             return false;
 
-        var definition = DefinitionOf(region.TypeKey);
+        var definition = Definition(region.TypeKey);
         // A span made from an array is the array: the conversion carries it, so a member of the span runs on the array's region.
         if (definition == "[]" && (declaring.EndsWith(":System.Span`1", StringComparison.Ordinal) ||
                                    declaring.EndsWith(":System.ReadOnlySpan`1", StringComparison.Ordinal)))
@@ -95,6 +102,15 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
             return false;
         return !StandsForAnyType(region.TypeKey) ||
                program.Type(declaringTypeKey) is { IsSealed: true } or { IsValueType: true } or { IsVisibleOutside: false };
+    }
+
+    /// <summary>The <see cref="DefinitionOf"/> of a type key, worked out once.</summary>
+    /// <param name="typeKey">The type key.</param>
+    private string Definition(string typeKey)
+    {
+        if (!_definitions.TryGetValue(typeKey, out var definition))
+            _definitions.Add(typeKey, definition = DefinitionOf(typeKey));
+        return definition;
     }
 
     /// <summary>The type a <c>Nullable&lt;S&gt;</c> holds, S, or null for any other type. The engine holds a <c>Nullable</c> as the value it

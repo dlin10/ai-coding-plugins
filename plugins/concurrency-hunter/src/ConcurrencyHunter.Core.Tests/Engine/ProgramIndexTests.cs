@@ -58,6 +58,29 @@ public sealed class ProgramIndexTests
     }
 
     [Fact]
+    public void Dispatch_walk_is_shared_while_each_edge_decides_its_admission()
+    {
+        // The walk to the implementation is made once per runtime type, method and interface; an edge the admission refuses
+        // must leave the shared answer to the next edge, which the admission lets in (issue 444).
+        var index = Index("""
+            public interface I { void M(); }
+            public class Base : I { public virtual void M() { } }
+            public sealed class Derived : Base { public override void M() { } }
+            """);
+        var admission = new CallSiteAdmission("Fixture", new HashSet<string>(StringComparer.Ordinal));
+        const string PROJECT = "body:Program:M:P.Main";
+        const string LIBRARY = "body:Fixture:M:Base.M";
+
+        foreach (var (method, interfaceKey) in new[] { ("body:Fixture:M:Base.M", (string?)null), ("body:Fixture:M:I.M", "Fixture:I") })
+        {
+            Assert.Null(index.Implementation("Fixture:Derived", method, interfaceKey, admission, PROJECT));
+            Assert.Equal("body:Fixture:M:Derived.M", index.Implementation("Fixture:Derived", method, interfaceKey, admission, LIBRARY)!.MethodId);
+            Assert.Null(index.Implementation("Fixture:Derived", method, interfaceKey, admission, PROJECT));
+            Assert.Equal("body:Fixture:M:Derived.M", index.Implementation("Fixture:Derived", method, interfaceKey)!.MethodId);
+        }
+    }
+
+    [Fact]
     public void New_tables_leave_the_type_and_method_tables_as_they_were()
     {
         var (index, compilation) = IndexAndCompilation("""

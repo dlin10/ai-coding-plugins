@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
@@ -2410,9 +2411,23 @@ public static partial class WholeProgram
             }
         }
 
-        private static string SubstitutionText(IReadOnlyDictionary<string, string> substitution) =>
-            substitution.Count == 0 ? "" : "|" + string.Join(";", substitution.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                                                                              .Select(pair => $"{pair.Key}={pair.Value}"));
+        /// <summary>The part of an instance key a substitution gives: its bindings in the ordinal order of their type parameters. Every
+        /// binding a call makes asks for it, so it sorts one array and builds one string rather than chaining enumerators.</summary>
+        /// <param name="substitution">The instance's substitution.</param>
+        private static string SubstitutionText(IReadOnlyDictionary<string, string> substitution)
+        {
+            if (substitution.Count == 0)
+                return string.Empty;
+            var bindings = substitution.ToArray();
+            Array.Sort(bindings, static (left, right) => string.CompareOrdinal(left.Key, right.Key));
+            var text = new StringBuilder();
+            foreach (var (parameter, argument) in bindings)
+            {
+                WorkCancellation.Check();
+                text.Append(text.Length == 0 ? '|' : ';').Append(parameter).Append('=').Append(argument);
+            }
+            return text.ToString();
+        }
 
         /// <summary>Propagates one instance's transfers and records unseen-write starts without walking the heap. Model writes and
         /// unseen outputs mark only their own targets here; <see cref="Run"/> applies transitive walks after propagation converges.</summary>
