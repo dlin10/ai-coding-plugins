@@ -837,6 +837,8 @@ public static class ExecutionModel
                 _delegateDisplays.TryAdd(work.Site.DelegateRegion!, work.Site.Callee);
             }
             AssignRegionExecutions();
+            DiagnosticCheckpoint.Reach($"executions-assigned:{scope.ScopeId}", collect: true,
+                                       () => [$"regionExecutionPairs={RegionExecutionPairs} regions={_regionExecutions.Count}"]);
             var startupTypeInitializers = StartupTypeInitializers();
 
             foreach (var (rootId, instanceId) in heap.RootInstances.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -912,6 +914,7 @@ public static class ExecutionModel
                                                 initializer.TypeKey) { IsInert = initializer.IsInert });
                 Entry(execution, new ExecutionEntry(initializer.InstanceId, ExecutionEntryKind.TypeInitializer, $"static:{initializer.TypeKey}"));
             }
+            DiagnosticCheckpoint.Reach($"entries:{scope.ScopeId}", collect: true, EntryCounts);
 
             do
             {
@@ -1024,6 +1027,54 @@ public static class ExecutionModel
                 entries.Add(entry);
             if (_entryWalks.Add((execution, entry, tail)))
                 _pendingEntries.Enqueue((execution, entry, tail));
+        }
+
+        /// <summary>What a diagnostic run reports once the entries before the walk are made (#457), a line as each is known: how many
+        /// entries there are, how many stay apart without their execution and without their instance too, and the elements and the
+        /// estimated bytes of the four structures that hold them (64-bit layout: a set slot is its value with a hash and a next
+        /// index, plus a bucket).</summary>
+        private IEnumerable<string> EntryCounts()
+        {
+            CheckCancellation();
+            long total = 0, listCapacity = 0;
+            var byKind = new SortedDictionary<ExecutionEntryKind, long>();
+            foreach (var list in _entries.Values)
+            {
+                CheckCancellation();
+                total += list.Count;
+                listCapacity += list.Capacity;
+                foreach (var entry in list)
+                {
+                    CheckCancellation();
+                    byKind[entry.Kind] = byKind.GetValueOrDefault(entry.Kind) + 1;
+                }
+            }
+            yield return $"entries={total} executionsWithEntries={_entries.Count} regionExecutionPairs={RegionExecutionPairs} " +
+                         $"byKind={string.Join(",", byKind.Select(pair => $"{pair.Key}:{pair.Value}"))}";
+
+            long entriesCapacity = _entries.EnsureCapacity(0), enteredCapacity = _entered.EnsureCapacity(0),
+                 walksCapacity = _entryWalks.EnsureCapacity(0), pendingCapacity = _pendingEntries.EnsureCapacity(0);
+            yield return $"_entries count={_entries.Count} capacity={entriesCapacity} listElements={total} listCapacity={listCapacity} " +
+                         $"bytes={entriesCapacity * 28 + _entries.Count * 56L + listCapacity * 8}";
+            yield return $"_entered count={_entered.Count} capacity={enteredCapacity} bytes={enteredCapacity * 28}";
+            yield return $"_entryWalks count={_entryWalks.Count} capacity={walksCapacity} bytes={walksCapacity * 36}";
+            yield return $"_pendingEntries count={_pendingEntries.Count} capacity={pendingCapacity} bytes={pendingCapacity * 24}";
+            yield return $"ExecutionEntry objects<={_entryWalks.Count} bytes<={_entryWalks.Count * 40L}";
+
+            var withoutExecution = new HashSet<ExecutionEntry>();
+            foreach (var list in _entries.Values)
+            {
+                CheckCancellation();
+                withoutExecution.UnionWith(list);
+            }
+            yield return $"distinctWithoutExecution={withoutExecution.Count}";
+            var withoutInstance = new HashSet<(ExecutionEntryKind Kind, string? IntervalObject, BodySegment Segment)>();
+            foreach (var entry in withoutExecution)
+            {
+                CheckCancellation();
+                withoutInstance.Add((entry.Kind, entry.IntervalObject, entry.Segment));
+            }
+            yield return $"distinctWithoutExecutionAndInstance={withoutInstance.Count}";
         }
 
         private IEnumerable<T> Permute<T>(IEnumerable<T> items)

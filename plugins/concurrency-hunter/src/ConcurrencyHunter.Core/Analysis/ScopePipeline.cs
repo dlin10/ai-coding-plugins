@@ -224,6 +224,7 @@ public static class ScopePipeline
                 MetadataSupertypes = metadataSupertypes
             };
             var heap = WholeProgram.Solve(scopeProgram, limits, cancellationToken);
+            DiagnosticCheckpoint.Reach($"heap-end:{scopeId}", collect: true);
             counters[ScopeStep.SummariesAndFixpoint] = new Dictionary<string, int>(heap.Counters, StringComparer.Ordinal);
             var summariesAndFixpoint = Complete();
 
