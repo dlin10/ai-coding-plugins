@@ -117,6 +117,37 @@ public sealed class AccessExtractionTests
     }
 
     [Fact]
+    public void One_access_in_two_executions_shares_its_resource_and_state()
+    {
+        // Two actions are two executions running one helper: its access's resource, steps and empty state are one object in
+        // both, not a copy per execution (issue 454).
+        var run = Analyze(Shared + """
+            public sealed class Writer
+            {
+                private readonly Relay _relay;
+                public Writer(Relay relay) => _relay = relay;
+                public void Set(string target) => _relay.Target = target;
+            }
+            public class RelayController : ControllerBase
+            {
+                private readonly Writer _writer;
+                public RelayController(Writer writer) => _writer = writer;
+                public void Post(string target) => _writer.Set(target);
+                public void Put() => _writer.Set("put");
+            }
+            """ + Startup("services.AddSingleton<Relay>(); services.AddSingleton<Writer>();"));
+
+        var writes = run.Of("Target").Where(access => access.Operation == AccessOperation.Write).ToArray();
+        Assert.Equal(2, writes.Length);
+        Assert.NotEqual(writes[0].ExecutionId, writes[1].ExecutionId);
+        Assert.Same(writes[0].Resource, writes[1].Resource);
+        Assert.Same(writes[0].Resource.WildcardExclusions, writes[1].Resource.WildcardExclusions);
+        Assert.Same(writes[0].CodeFlow[^1], writes[1].CodeFlow[^1]);
+        Assert.Same(writes[0].HeldProtections, writes[1].HeldProtections);
+        Assert.Same(writes[0].Uncertainties, writes[1].Uncertainties);
+    }
+
+    [Fact]
     public void Hosted_receiver_field_is_a_singleton_access_registered_as_hosted_service()
     {
         var run = Analyze("""

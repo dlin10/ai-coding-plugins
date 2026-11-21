@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+using System.Collections.ObjectModel;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Execution;
@@ -57,8 +59,9 @@ internal sealed record StoragePath(IReadOnlyList<IrFieldRef> Fields, int Cell, s
 public sealed record AccessResource(string Assembly, string Scope, string Region, IReadOnlyList<string> AccessPath, MemberKey Member,
                                     string? RegionId = null, bool IsWildcard = false)
 {
-    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none.</summary>
-    internal IReadOnlySet<string> WildcardExclusions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none,
+    /// and share the one empty set (issue 454).</summary>
+    internal IReadOnlySet<string> WildcardExclusions { get; init; } = FrozenSet<string>.Empty;
 
     /// <summary>The fields of the structs the access goes on through below <see cref="Member"/>, or below the cell of the collection it
     /// holds, outermost first (R1): a struct kept in the region's storage is part of it, and a field of it is the region's resource with
@@ -157,7 +160,7 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     /// object identity is unknown has no id and no entry: it can never exclude the other side. One object can be held by several
     /// mechanisms at once - a <c>lock</c> taken over a <c>Lock</c> already entered, say - so an id carries every holding of it.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<HeldProtection>> HeldProtections { get; init; } =
-        new Dictionary<string, IReadOnlyList<HeldProtection>>();
+        ReadOnlyDictionary<string, IReadOnlyList<HeldProtection>>.Empty;
 
     /// <summary>The predicates that hold wherever this access runs (TD-090): a pair whose two conditions cannot both hold is no
     /// race at all.</summary>

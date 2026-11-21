@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
@@ -167,6 +168,8 @@ public static partial class InterproceduralAccesses
             var strings = new StringPool();
             // What binds a container object is the same in every execution that touches it (issue 443).
             var bindingEvidence = new Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>>(ReferenceEqualityComparer.Instance);
+            // So are the resources an access names and the steps, labels and checks of its accesses (issue 454).
+            var shares = new CollectorShares();
             foreach (var execution in input.Executions.Executions)
             {
                 WorkCancellation.Check();
@@ -180,7 +183,7 @@ public static partial class InterproceduralAccesses
                      workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, freshness, libraryInternal, strings, bindingEvidence,
+                                                           unknownCalls, reach, freshness, libraryInternal, strings, bindingEvidence, shares,
                                                            cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
@@ -883,13 +886,31 @@ public static partial class InterproceduralAccesses
         return (false, false);
     }
 
+    /// <summary>What the collectors of one scope share because it is the same in every execution (issue 454): the resources each
+    /// access of an instance's summary names, and one copy of each code flow, label list and gap check list. Only the summary's
+    /// accesses are keys: an unknown effect's accesses are made anew in each execution, and a scope cache would keep every copy.</summary>
+    private sealed class CollectorShares
+    {
+        internal Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> Resources { get; } =
+            new(ReferenceEqualityComparer.Instance);
+
+        internal Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> ValueResources { get; } =
+            new(ReferenceEqualityComparer.Instance);
+
+        internal SequencePool<CodeFlowStep> Flows { get; } = new();
+        internal SequencePool<string> Labels { get; } = new();
+        internal SequencePool<GapCheck> GapChecks { get; } = new();
+        internal SequencePool<DecidingCall> DecidingCalls { get; } = new();
+    }
+
     private sealed partial class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
                                             Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
                                             HandedFreshness freshness, LibraryInternalObjects? libraryInternal, StringPool strings,
-                                            Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>> bindingEvidence, CancellationToken cancellationToken)
+                                            Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>> bindingEvidence, CollectorShares shares,
+                                            CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -958,14 +979,18 @@ public static partial class InterproceduralAccesses
         /// <summary>What the visits of each unresolved call made of it (<see cref="UnknownEffectAccesses"/>).</summary>
         private readonly Dictionary<UnknownCall, UnknownEffects> _unknownEffects = new(ReferenceEqualityComparer.Instance);
 
-        /// <summary>The resources of each access an instance makes, by the access object (<see cref="Resources"/>), and the identity of
-        /// each of them (<see cref="IdentityOf"/>).</summary>
-        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources =
+        /// <summary>The resources of each access an instance's summary makes, by the access object (<see cref="Resources"/>): the
+        /// scope's, since they depend on the heap and the instance alone (issue 454).</summary>
+        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources = shares.Resources;
+
+        /// <summary>The resources of each access an unknown effect makes (<see cref="EffectResources"/>), and the identity of each
+        /// resource either cache keeps (<see cref="IdentityOf"/>): this execution's, since its unknown effects make their accesses
+        /// anew (issue 454).</summary>
+        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _effectResources =
             new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The storage each access of an instance reads or writes as a value lives in (<see cref="ValueResources"/>).</summary>
-        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources =
-            new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources = shares.ValueResources;
         private readonly Dictionary<AccessResource, string> _identities = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
@@ -2393,7 +2418,10 @@ public static partial class InterproceduralAccesses
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
                     Guards? guards = null;
-                    var resources = isStable ? Resources(source, access) : ResourcesOf(source, access);
+                    // A stable unseen write is an unknown effect's access, kept for this execution alone (issue 454).
+                    var resources = !isStable ? ResourcesOf(source, access)
+                                    : isUnseenWrite ? EffectResources(source, access)
+                                    : Resources(source, access);
                     if (resources.Count == 0 && !UnresolvedBases.Contains((instance.BodyId, access.OperationId)) &&
                         IsUnresolvedBase(instance, access.OperationId, BaseRegions(source, access), isCopy: false, access.IsFresh, isOnUnheldCollection: false))
                         UnresolvedBases.Add((instance.BodyId, access.OperationId));
@@ -2489,15 +2517,18 @@ public static partial class InterproceduralAccesses
                                 Uncertainties(instance, region, access, resource, conditions))
                             {
                                 // One object can be held by more than one mechanism at once, and the two are independent, so the
-                                // holdings of an object are a list and never one entry that the last mechanism wins (TD-083).
-                                HeldProtections = held.Where(info => info.SingleObjectId is not null)
-                                                      .GroupBy(info => info.SingleObjectId!, StringComparer.Ordinal)
-                                                      .ToDictionary(group => group.Key,
-                                                                    group => (IReadOnlyList<HeldProtection>)group
-                                                                             .Select(info => new HeldProtection(info.Primitive, info.Mode, info.IsExclusive))
-                                                                             .Distinct()
-                                                                             .ToArray(),
-                                                                    StringComparer.Ordinal),
+                                // holdings of an object are a list and never one entry that the last mechanism wins (TD-083). An
+                                // access holding no object keeps the one empty map (issue 454).
+                                HeldProtections = !held.Any(info => info.SingleObjectId is not null)
+                                    ? ReadOnlyDictionary<string, IReadOnlyList<HeldProtection>>.Empty
+                                    : held.Where(info => info.SingleObjectId is not null)
+                                          .GroupBy(info => info.SingleObjectId!, StringComparer.Ordinal)
+                                          .ToDictionary(group => group.Key,
+                                                        group => (IReadOnlyList<HeldProtection>)group
+                                                                 .Select(info => new HeldProtection(info.Primitive, info.Mode, info.IsExclusive))
+                                                                 .Distinct()
+                                                                 .ToArray(),
+                                                        StringComparer.Ordinal),
                                 UnseenWriteOperation = unseenWrite,
                                 WritesWholeStruct = unseenWrite is not null && StructStorage.IsWholeStorage(access.Field),
                                 ExecutionId = execution.Id,
@@ -2521,23 +2552,23 @@ public static partial class InterproceduralAccesses
                                 // Values of independent executions are independent unknowns, whatever they are called in the
                                 // body they come from (TD-092).
                                 SelectorTerm = term,
-                                GapChecks = held.SelectMany(info => info.Gaps)
-                                                .Distinct()
-                                                .Select(gap => new GapCheck(gap.Callee, gap.Kind, GapComponents.PROTECTION,
-                                                                            "the identity of a lock one side holds may be its result"))
-                                                .Concat(operation.IsUnknownEffect() && origins.AtSite(instance.BodyId, access.OperationId) is { } decided
-                                                            ? new[] { new GapCheck(decided.Callee, decided.Kind, GapComponents.OPERATION,
-                                                                                   "one side is its unknown effect, which may read and write the resource or leave it alone") }
-                                                            : Array.Empty<GapCheck>())
-                                                .ToArray(),
-                                DecidingCalls = held.SelectMany(info => info.Gaps).Distinct()
-                                                    .Select(gap => new DecidingCall(new GapCheck(gap.Callee, gap.Kind, GapComponents.PROTECTION,
-                                                                                              "the identity of a lock one side holds may be its result"), gap.Call))
-                                                    .Concat(operation.IsUnknownEffect() && origins.AtSite(instance.BodyId, access.OperationId) is { } decidedCall
-                                                        ? new[] { new DecidingCall(new GapCheck(decidedCall.Callee, decidedCall.Kind, GapComponents.OPERATION,
-                                                                                              "one side is its unknown effect, which may read and write the resource or leave it alone"), decidedCall.Call) }
-                                                        : Array.Empty<DecidingCall>())
-                                                    .ToArray()
+                                GapChecks = shares.GapChecks.Get(
+                                    held.SelectMany(info => info.Gaps)
+                                        .Distinct()
+                                        .Select(gap => new GapCheck(gap.Callee, gap.Kind, GapComponents.PROTECTION,
+                                                                    "the identity of a lock one side holds may be its result"))
+                                        .Concat(operation.IsUnknownEffect() && origins.AtSite(instance.BodyId, access.OperationId) is { } decided
+                                                    ? new[] { new GapCheck(decided.Callee, decided.Kind, GapComponents.OPERATION,
+                                                                           "one side is its unknown effect, which may read and write the resource or leave it alone") }
+                                                    : Array.Empty<GapCheck>())),
+                                DecidingCalls = shares.DecidingCalls.Get(
+                                    held.SelectMany(info => info.Gaps).Distinct()
+                                        .Select(gap => new DecidingCall(new GapCheck(gap.Callee, gap.Kind, GapComponents.PROTECTION,
+                                                                                  "the identity of a lock one side holds may be its result"), gap.Call))
+                                        .Concat(operation.IsUnknownEffect() && origins.AtSite(instance.BodyId, access.OperationId) is { } decidedCall
+                                                    ? new[] { new DecidingCall(new GapCheck(decidedCall.Callee, decidedCall.Kind, GapComponents.OPERATION,
+                                                                                          "one side is its unknown effect, which may read and write the resource or leave it alone"), decidedCall.Call) }
+                                                    : Array.Empty<DecidingCall>()))
                             };
                             kept.Add(new KeptAccess(conditionKeys, emitted));
                             accesses.Add(emitted);
@@ -4346,7 +4377,7 @@ public static partial class InterproceduralAccesses
             steps.AddRange(held.OrderBy(info => info.Acquisition.Path, StringComparer.Ordinal).ThenBy(info => info.Acquisition.StartLine)
                                .Select(info => new CodeFlowStep("acquire", strings.Get($"acquires {info.Display}"), info.Acquisition)));
             steps.Add(new CodeFlowStep("access", strings.Get(accessText), accessSource));
-            return steps;
+            return shares.Flows.Get(steps);
         }
 
         private SourceSpan? BodySource(string bodyId) =>
@@ -4418,7 +4449,7 @@ public static partial class InterproceduralAccesses
                 uncertainties.AddRange(input.Scope.DiIndex.UnresolvedUncertainties);
 
             uncertainties.AddRange(_heap.RegionUncertainties.GetValueOrDefault(region.Identity) ?? []);
-            return uncertainties;
+            return shares.Labels.Get(uncertainties);
         }
 
         /// <summary>What binds a container object's region: the injected members that hold its service, then its registrations. It is
@@ -4462,6 +4493,14 @@ public static partial class InterproceduralAccesses
         private IReadOnlyList<AccessResource> Resources(MethodInstance instance, SummaryAccess access) =>
             Cached(_resources, instance, access, copies: false);
 
+        /// <summary>The resources an unknown effect's access touches (<see cref="ResourcesOf"/>), worked out once for each access
+        /// object in this execution: its accesses are made anew in each execution, so the scope's <see cref="Resources"/> would keep
+        /// every execution's copy (issue 454).</summary>
+        /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
+        /// <param name="access">The unknown effect's access whose resources are named.</param>
+        private IReadOnlyList<AccessResource> EffectResources(MethodInstance instance, SummaryAccess access) =>
+            Cached(_effectResources, instance, access, copies: false);
+
         /// <summary>The storage a load reads or a store writes as a value lives in, for the readers that ask what a field holds — a readonly
         /// field's construction, a guard's canonical subject — rather than where an access is: a struct copy is the value it is, with the
         /// path through its own fields, where <see cref="Resources"/> names no location (R2). Worked out once for each access object.</summary>
@@ -4486,7 +4525,7 @@ public static partial class InterproceduralAccesses
         }
 
         /// <summary>The identity of a resource <see cref="Resources"/> keeps, which every visit of its access asks for again.</summary>
-        /// <param name="resource">A resource <see cref="Resources"/> returned.</param>
+        /// <param name="resource">A resource <see cref="Resources"/> or <see cref="EffectResources"/> returned.</param>
         private string IdentityOf(AccessResource resource)
         {
             if (!_identities.TryGetValue(resource, out var identity))

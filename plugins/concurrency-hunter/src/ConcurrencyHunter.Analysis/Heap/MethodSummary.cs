@@ -1,4 +1,5 @@
-﻿using ConcurrencyHunter.Analysis;
+﻿using System.Collections.Frozen;
+using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Ir;
 
@@ -398,8 +399,9 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// <summary>The full origin of a stored value, null for an access that does not store a value.</summary>
     public SummaryValue? StoredValue { get; init; }
 
-    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none.</summary>
-    internal IReadOnlySet<string> WildcardExclusions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none,
+    /// and share the one empty set (issue 454).</summary>
+    internal IReadOnlySet<string> WildcardExclusions { get; init; } = FrozenSet<string>.Empty;
 
     /// <summary>What the atomic mark of this load or store says it does to the cell, null when it carries none (TD-082).</summary>
     public IrAtomicEffect? Atomic { get; init; }
