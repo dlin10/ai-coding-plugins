@@ -78,6 +78,31 @@ public sealed class ExecutionSet : IReadOnlySet<string>
 
     public override string ToString() => $"[{string.Join(", ", this)}]";
 
+    /// <summary>The numbers this set's analysis gave some execution ids, as bits to match its sets against; an id it never numbered is
+    /// in none of them and is left out.</summary>
+    /// <param name="ids">The execution ids.</param>
+    internal ulong[] NumbersOf(IEnumerable<string> ids)
+    {
+        var numbers = Bits.EMPTY;
+        foreach (var id in ids)
+        {
+            WorkCancellation.Check();
+            if (_ids.TryGetNumber(id, out var number))
+                Bits.Add(ref numbers, number);
+        }
+        return numbers;
+    }
+
+    /// <summary>The executions of the set that a mask of numbers of the same analysis also holds, in the order of their numbers,
+    /// without listing the others.</summary>
+    /// <param name="mask">The numbers, as bits (<see cref="NumbersOf"/>).</param>
+    internal IEnumerable<string> Among(ulong[] mask)
+    {
+        var shared = Bits.EMPTY;
+        Bits.UnionWith(ref shared, _bits, mask);
+        return Bits.Numbers(shared).Select(_ids.Id);
+    }
+
     private string[] Ordered() => _ordered ??= Bits.Numbers(_bits).Select(_ids.Id).Order(StringComparer.Ordinal).ToArray();
 
     private HashSet<string> Copy() => new(this, StringComparer.Ordinal);

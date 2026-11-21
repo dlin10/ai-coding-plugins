@@ -162,6 +162,9 @@ public static partial class InterproceduralAccesses
             var slotFields = new Lazy<IReadOnlyDictionary<string, IrFieldRef>>(() => SlotFields(input));
             // The gaps come first: a lock whose identity is a gap's result is a check that gap decides on every access holding it (R6).
             var gaps = SemanticGaps.Find(input);
+            DiagnosticCheckpoint.Reach($"gaps:{input.Scope.ScopeId}", collect: true,
+                                       () => [$"gaps={gaps.Count} regions={gaps.Sum(gap => (long)gap.Regions)} callSites={gaps.Sum(gap => (long)gap.CallSites)} " +
+                                              $"executionAccesses={input.Executions.Accesses.Count}"]);
             var origins = new GapOrigins(input.Heap, gaps);
             // What an unresolved call may do is made where it stands, as its unknown effect (R1); a locator has none.
             var unknownCalls = UnknownCalls.Of(input.Scope, input.Heap).Where(call => !call.IsLocator)

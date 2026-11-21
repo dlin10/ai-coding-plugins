@@ -46,19 +46,19 @@ public static class SemanticGaps
         var gaps = new Dictionary<string, (string Kind, HashSet<OperationSite> Sites, HashSet<string> Instances, HashSet<string> Regions)>(StringComparer.Ordinal);
         var results = heap.Instances.Values.ToDictionary(instance => instance.Id, instance => instance.Summary.ResultStores.ToLookup(store => store.SourceOperationId),
                                                          StringComparer.Ordinal);
-        var executionRegions = (accesses?.SelectMany(access => access.ExecutionIds.Select(execution => (ExecutionId: execution,
-                                                                                                   RegionId: access.Resource.CollectionId ?? access.Resource.RegionId!))) ??
-                                input.Executions.Accesses.SelectMany(access => access.Executions.Select(execution => (ExecutionId: execution, access.RegionId))))
-                               .GroupBy(access => access.ExecutionId, StringComparer.Ordinal)
-                               .ToDictionary(group => group.Key, group => group.Select(access => access.RegionId).ToHashSet(StringComparer.Ordinal),
-                                             StringComparer.Ordinal);
-        foreach (var call in UnknownCalls.Of(input.Scope, heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED))
+        var calls = UnknownCalls.Of(input.Scope, heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED)
+                                .Select(call => (Call: call, Delegates: reach.Delegates(call).ToArray()))
+                                .ToArray();
+        // Only the unknown executions of the delegates the calls are handed are read, so only theirs are worked out (#462).
+        var executionRegions = ExecutionRegions(input, accesses, calls.SelectMany(item => item.Delegates).Select(ExecutionModel.UnknownDelegateCallId)
+                                                                      .ToHashSet(StringComparer.Ordinal));
+        foreach (var (call, delegates) in calls)
         {
             WorkCancellation.Check();
             // An object of one execution handed to the call is only read by it and is no gap; only what is shared counts (R2, R4). What
             // the unknown execution of a delegate it is handed touches is the call's reach too (R3).
             var (reached, takesDelegate) = reach.Of(call);
-            var run = reach.Delegates(call).SelectMany(region => executionRegions.GetValueOrDefault(ExecutionModel.UnknownDelegateCallId(region)) ?? []);
+            var run = delegates.SelectMany(region => executionRegions.GetValueOrDefault(ExecutionModel.UnknownDelegateCallId(region)) ?? []);
             var regions = reached.Concat(run).Where(region => IsShared(input, region)).Distinct(StringComparer.Ordinal).ToArray();
             if (regions.Length == 0 && !takesDelegate && !FeedsShared(input, call, results[call.Instance.Id][call.OperationId]))
                 continue;
@@ -82,6 +82,61 @@ public static class SemanticGaps
                    .ThenByDescending(gap => gap.CallSites)
                    .ThenBy(gap => gap.Callee, StringComparer.Ordinal)
                    .ToArray();
+    }
+
+    /// <summary>The regions the accesses of some executions touch, by execution: of the collected accesses, or before collection of the
+    /// execution model's own, whose executions are bits. Each set of those is read once, for the executions asked for only, without
+    /// spelling out the executions it holds: on a large program a set holds hundreds, and the accesses are millions (#462).</summary>
+    /// <param name="input">The scope whose execution model holds the accesses before collection.</param>
+    /// <param name="accesses">The collected accesses, each with the executions that run it (ADR 0038), or null before access
+    /// collection.</param>
+    /// <param name="executions">The executions asked for.</param>
+    private static Dictionary<string, HashSet<string>> ExecutionRegions(InterproceduralInput input, IReadOnlyList<Access>? accesses,
+                                                                        IReadOnlySet<string> executions)
+    {
+        var regions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        void Add(string execution, string region)
+        {
+            WorkCancellation.Check();
+            if (!regions.TryGetValue(execution, out var touched))
+                regions.Add(execution, touched = new HashSet<string>(StringComparer.Ordinal));
+            touched.Add(region);
+        }
+
+        if (executions.Count == 0)
+            return regions;
+        if (accesses is not null)
+        {
+            foreach (var access in accesses)
+            {
+                WorkCancellation.Check();
+                foreach (var execution in access.ExecutionIds)
+                {
+                    WorkCancellation.Check();
+                    if (executions.Contains(execution))
+                        Add(execution, access.Resource.CollectionId ?? access.Resource.RegionId!);
+                }
+            }
+            return regions;
+        }
+
+        // The sets of one analysis number their executions alike, and equal sets are one object (ADR 0017): the executions asked for
+        // are one mask, and each set is matched against it once.
+        ulong[]? asked = null;
+        var found = new Dictionary<ExecutionSet, string[]>(ReferenceEqualityComparer.Instance);
+        foreach (var access in input.Executions.Accesses)
+        {
+            WorkCancellation.Check();
+            asked ??= access.Executions.NumbersOf(executions);
+            if (!found.TryGetValue(access.Executions, out var among))
+                found.Add(access.Executions, among = access.Executions.Among(asked).ToArray());
+            foreach (var execution in among)
+            {
+                WorkCancellation.Check();
+                Add(execution, access.RegionId);
+            }
+        }
+        return regions;
     }
 
     /// <summary>Whether the call writes its result into a shared region: one that is neither owned nor confined to one execution. An

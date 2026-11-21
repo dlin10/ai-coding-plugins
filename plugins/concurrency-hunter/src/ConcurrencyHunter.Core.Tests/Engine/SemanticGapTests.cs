@@ -2,6 +2,7 @@ using System.Text.Json;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Reporting;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -78,6 +79,35 @@ public sealed class SemanticGapTests
         var run = Run("System.Threading.CancellationToken.None.Register(() => { });");
 
         Assert.Single(Gaps(run), gap => gap.Callee == "System.Threading.CancellationToken.Register(Action)");
+    }
+
+    [Fact]
+    public void Handed_delegate_counts_what_its_unknown_execution_touches_before_and_after_collection()
+    {
+        // The delegate the call is handed writes a static of its own; the worker writes another static itself. The gap counts the
+        // delegate's, through the unknown execution of the delegate, and not the worker's, both when the gaps are found before the
+        // accesses are collected, from the execution model's accesses, and after, from the collected ones (#462).
+        var run = EngineFixture.Analyze("""
+            public static class HandedMarks { public static int Count; }
+            public static class OwnMarks { public static int Count; }
+            public sealed class Worker : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken token)
+                {
+                    OwnMarks.Count++;
+                    System.Threading.CancellationToken.None.Register(static () => HandedMarks.Count++);
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddHostedService<Worker>();"));
+        var heap = run.Execution.Heap;
+        var program = heap.Program;
+        var scope = new ScopeProgram(program.ScopeId, program.Input.Roots, program.Result, heap.Summaries, program.Input.Program,
+                                     program.Input.DiIndex, program.Input.InjectionBindings) { MetadataSupertypes = program.MetadataSupertypes };
+        var before = SemanticGaps.Find(new InterproceduralInput(scope, heap.Heap, run.Execution.Analysis));
+
+        Assert.All([before, Gaps(run)],
+                   gaps => Assert.Equal(1, Assert.Single(gaps, gap => gap.Callee == "System.Threading.CancellationToken.Register(Action)").Regions));
     }
 
     [Fact]
