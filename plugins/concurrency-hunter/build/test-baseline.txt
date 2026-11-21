@@ -12590,6 +12590,7 @@ ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_and_a_writ
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_costs_the_operation_component_alone_and_names_its_gap	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_under_a_flag_and_a_write_under_its_negation_make_no_pair	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_under_a_lock_the_other_side_does_not_hold_is_partial_protection	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnknownReachTests.Each_start_is_walked_once_and_a_call_reaches_what_one_walk_of_its_starts_in_turn_reaches	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a construction-local base", body: "_ = new Built();", constructor: "N = 1;", expected: 0)	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a fresh base", body: "var box = new Box(); box.N = 1;", constructor: "", expected: 0)	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a resolved base", body: "Holder.Shared.N = 1;", constructor: "", expected: 0)	Passed

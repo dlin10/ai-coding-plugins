@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 
@@ -506,19 +507,148 @@ public static class UnknownCalls
         /// <param name="call">The unknown call whose reach is computed.</param>
         public (IReadOnlySet<string> Regions, bool TakesDelegate) Of(UnknownCall call)
         {
-            var reached = new HashSet<string>(StringComparer.Ordinal);
-            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var (regions, takesDelegate) = BitsOf(call);
+            return (Bits.Numbers(regions).Select(RegionId).ToHashSet(StringComparer.Ordinal), takesDelegate);
+        }
+
+        /// <summary>What <see cref="Of"/> answers, the regions as bits over <see cref="Number"/>. The same receivers and arguments start
+        /// the unknown effects of many calls, so each start's walk is made once and kept, and a call joins its starts' (#462). The one
+        /// walk of a call's starts in turn reads alike, but for a receiver seen through its declaring type that its own walk meets again:
+        /// that walk stops there, and the receiver stays unseen whole for a later start of the call too. Such a call is walked whole,
+        /// its starts in turn, as before.</summary>
+        /// <param name="call">The unknown call whose reach is computed.</param>
+        internal (ulong[] Regions, bool TakesDelegate) BitsOf(UnknownCall call)
+        {
+            var starts = new List<(int Region, string? DeclaringTypeKey)>();
             foreach (var start in Starts(call))
             {
                 WorkCancellation.Check();
                 foreach (var region in start.Values.SelectMany(value => heap.Resolve(call.Instance.Id, value)).Distinct(StringComparer.Ordinal))
                 {
                     WorkCancellation.Check();
-                    Visit(region, reached, visited, start.DeclaringTypeKey);
+                    starts.Add((Number(region), start.DeclaringTypeKey));
                 }
             }
 
+            _calls++;
+            var reached = Bits.EMPTY;
+            var metItself = false;
+            foreach (var start in starts)
+            {
+                WorkCancellation.Check();
+                var walk = WalkOf(start);
+                metItself |= walk.MetItself;
+                Bits.UnionWith(ref reached, walk.Reached);
+            }
+            if (metItself && starts.Count > 1)
+            {
+                _wholeWalks++;
+                reached = Walk(starts).Reached;
+            }
+
             return (reached, Delegates(call).Any());
+        }
+
+        /// <summary>The number of a region in this reach's numbering, given the first time it is asked for.</summary>
+        /// <param name="regionId">The region.</param>
+        internal int Number(string regionId)
+        {
+            if (!_numbers.TryGetValue(regionId, out var number))
+            {
+                _numbers.Add(regionId, number = _regionIds.Count);
+                _regionIds.Add(regionId);
+            }
+            return number;
+        }
+
+        /// <summary>The region a number stands for.</summary>
+        /// <param name="number">The number (<see cref="Number"/>).</param>
+        internal string RegionId(int number) => _regionIds[number];
+
+        /// <summary>How many regions are numbered so far: a number is below it.</summary>
+        internal int Numbered => _regionIds.Count;
+
+        /// <summary>What the reach did, for a diagnostic run: the calls asked, the distinct starts walked, the calls walked whole, the
+        /// regions numbered and the region visits all walks made.</summary>
+        internal string Counts() =>
+            $"calls={_calls} startWalks={_walks.Count} wholeCallWalks={_wholeWalks} regions={_regionIds.Count} visits={_visits} " +
+            $"distinctReaches={_reaches.Count}";
+
+        /// <summary>The walk of one start, made the first time it is asked for.</summary>
+        /// <param name="start">The start region and the type restricting it, if it is a receiver seen through its declaring type.</param>
+        private Walked WalkOf((int Region, string? DeclaringTypeKey) start)
+        {
+            if (!_walks.TryGetValue(start, out var walked))
+                _walks.Add(start, walked = Walk([start]));
+            return walked;
+        }
+
+        /// <summary>Walks the reach of starts in turn, sharing what is visited: what an effect from them reaches, as bits, and whether
+        /// the walk of a receiver seen through its declaring type met that receiver again.</summary>
+        /// <param name="starts">The starts, each a region and the type restricting it or null.</param>
+        private Walked Walk(IReadOnlyList<(int Region, string? DeclaringTypeKey)> starts)
+        {
+            var reached = Bits.EMPTY;
+            var visited = Bits.EMPTY;
+            var restrictedVisited = new HashSet<(int, string)>();
+            var metItself = false;
+            var pending = new Stack<int>();
+            foreach (var (start, declaringTypeKey) in starts)
+            {
+                WorkCancellation.Check();
+                pending.Push(start);
+                while (pending.TryPop(out var region))
+                {
+                    WorkCancellation.Check();
+                    // A receiver seen as its declaring type only is not yet seen whole: the same object handed as an argument still is.
+                    var isRestrictedStart = region == start && declaringTypeKey is not null;
+                    if (isRestrictedStart ? !restrictedVisited.Add((region, declaringTypeKey!)) : !Bits.Add(ref visited, region))
+                    {
+                        metItself |= isRestrictedStart;
+                        continue;
+                    }
+                    _visits++;
+                    var step = StepOf(region);
+                    // An immutable pair still holds its key and value, which the effect reaches as it reaches a collection's.
+                    if (step.IsImmutable)
+                        continue;
+                    if (step.Captures is { } captures)
+                    {
+                        foreach (var captured in captures)
+                        {
+                            WorkCancellation.Check();
+                            pending.Push(captured);
+                        }
+                        continue;
+                    }
+
+                    // A receiver is seen only through the state of the type declaring the member, and only where the walk starts.
+                    var restricted = isRestrictedStart
+                        ? Seen(FieldsOf(RegionId(region), declaringTypeKey), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
+                        : null;
+                    if (step.IsCollection || restricted?.Count > 0 || restricted is null && step.HasState)
+                        Bits.Add(ref reached, region);
+                    // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second
+                    // run). A slot of a struct the object keeps is decided by the field, or the cell, the struct is kept in (R1).
+                    foreach (var (root, targets) in step.Slots)
+                    {
+                        WorkCancellation.Check();
+                        if (restricted is null || restricted.Contains(root) || root == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(root))
+                        {
+                            foreach (var target in targets)
+                            {
+                                WorkCancellation.Check();
+                                pending.Push(target);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Starts in one strongly connected part of the heap reach the same regions: they keep one copy.
+            if (!_reaches.TryGetValue(reached, out var kept))
+                _reaches.Add(reached, kept = reached);
+            return new Walked(kept, metItself);
         }
 
         /// <summary>The fields of an object an unknown effect starting at it sees: all of them, or, through the receiver of a member a
@@ -536,91 +666,61 @@ public static class UnknownCalls
         /// <param name="regionId">The object's region.</param>
         public IReadOnlyList<IrFieldRef> LibraryFieldsOf(string regionId) => _libraryFields.Value.GetValueOrDefault(regionId) ?? [];
 
-        private void Visit(string start, HashSet<string> reached, HashSet<string> visited, string? declaringTypeKey)
+        /// <summary>What a walk of reach learns at a region, asked of the heap once per region: whether it is a collection, an immutable
+        /// object or a delegate (with what it captures), whether it has state an effect reaches, and its slots' roots with their targets,
+        /// regions as numbers.</summary>
+        /// <param name="number">The region's number.</param>
+        private RegionStep StepOf(int number)
         {
-            var pending = new Stack<string>([start]);
-            while (pending.TryPop(out var regionId))
+            while (_steps.Count <= number)
             {
                 WorkCancellation.Check();
-                // A receiver seen as its declaring type only is not yet seen whole: the same object handed as an argument still is.
-                var isRestrictedStart = regionId == start && declaringTypeKey is not null;
-                if (!visited.Add(isRestrictedStart ? $"{regionId}|{declaringTypeKey}" : regionId))
-                    continue;
-                var step = StepOf(regionId);
-                // An immutable pair still holds its key and value, which the effect reaches as it reaches a collection's.
-                if (step.IsImmutable)
-                    continue;
-                if (step.Captures is { } captures)
-                {
-                    foreach (var captured in captures)
-                    {
-                        WorkCancellation.Check();
-                        pending.Push(captured);
-                    }
-                    continue;
-                }
-
-                // A receiver is seen only through the state of the type declaring the member, and only where the walk starts.
-                var restricted = isRestrictedStart
-                    ? Seen(FieldsOf(regionId, declaringTypeKey), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
-                    : null;
-                if (step.IsCollection || restricted?.Count > 0 || restricted is null && step.HasState)
-                    reached.Add(regionId);
-                // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second run).
-                // A slot of a struct the object keeps is decided by the field, or the cell, the struct is kept in (R1).
-                foreach (var (slot, targets) in step.Slots)
-                {
-                    WorkCancellation.Check();
-                    var root = FieldSlot.Root(slot);
-                    if (restricted is null || restricted.Contains(root) || root == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(root))
-                    {
-                        foreach (var target in targets)
-                        {
-                            WorkCancellation.Check();
-                            pending.Push(target);
-                        }
-                    }
-                }
+                _steps.Add(null);
             }
-        }
-
-        /// <summary>What a walk of reach learns at a region, asked of the heap once per region: whether it is a collection, an immutable
-        /// object or a delegate (with what it captures), whether it has state an effect reaches, and its slots with their targets.</summary>
-        /// <param name="regionId">The region.</param>
-        private RegionStep StepOf(string regionId)
-        {
-            if (_steps.TryGetValue(regionId, out var step))
+            if (_steps[number] is { } step)
                 return step;
+            var regionId = RegionId(number);
             var region = heap.Regions[regionId];
             var isCollection = InterproceduralAccesses.CollectionKindOf(heap, scope.Program, regionId).IsCollection;
             step = !isCollection && region.TypeKey is { } key && scope.Program.ImmutableTypeKeys.Contains(key)
                 ? new RegionStep(isCollection, true, null, false, [])
                 : region.Kind == HeapRegionKind.Delegate
-                    ? new RegionStep(isCollection, false, heap.DelegateCaptures(regionId).ToArray(), false, [])
+                    ? new RegionStep(isCollection, false, heap.DelegateCaptures(regionId).Select(Number).ToArray(), false, [])
                     // A struct copy is no location and a struct's storage none of its own (R1, R2): the walk goes on through what their
                     // reference fields hold.
                     : new RegionStep(isCollection, false, null,
                                      region.Kind is not (HeapRegionKind.StructCopy or HeapRegionKind.StructStorage) &&
                                      (IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0),
-                                     heap.FieldsOf(regionId).Select(slot => new SlotTargets(slot, heap.PointsTo(regionId, slot).ToArray())).ToArray());
-            _steps.Add(regionId, step);
+                                     heap.FieldsOf(regionId).Select(slot => new SlotTargets(FieldSlot.Root(slot), heap.PointsTo(regionId, slot).Select(Number).ToArray()))
+                                         .ToArray());
+            _steps[number] = step;
             return step;
         }
 
-        private readonly Dictionary<string, RegionStep> _steps = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _numbers = new(StringComparer.Ordinal);
+        private readonly List<string> _regionIds = [];
+        private readonly List<RegionStep?> _steps = [];
+        private readonly Dictionary<(int Region, string? DeclaringTypeKey), Walked> _walks = [];
+        private readonly Dictionary<ulong[], ulong[]> _reaches = new(ExecutionIds.BitsComparer.INSTANCE);
+        private long _calls, _wholeWalks, _visits;
 
         /// <summary>What a walk of reach learns at one region.</summary>
         /// <param name="IsCollection">Whether the region is a collection ADR 0010 models.</param>
         /// <param name="IsImmutable">Whether it is an immutable object that is no collection: the walk stops there.</param>
-        /// <param name="Captures">What a delegate captures, or null for any other region.</param>
+        /// <param name="Captures">What a delegate captures, as numbers, or null for any other region.</param>
         /// <param name="HasState">Whether it is an object of the run's own with state, or one whose library fields the program names.</param>
-        /// <param name="Slots">Its slots, each with the regions it points to.</param>
-        private sealed record RegionStep(bool IsCollection, bool IsImmutable, string[]? Captures, bool HasState, SlotTargets[] Slots);
+        /// <param name="Slots">Its slots, each by its root with the regions it points to.</param>
+        private sealed record RegionStep(bool IsCollection, bool IsImmutable, int[]? Captures, bool HasState, SlotTargets[] Slots);
 
-        /// <summary>A slot of a region, with the regions it points to.</summary>
-        /// <param name="Slot">The slot.</param>
-        /// <param name="Targets">The regions it points to.</param>
-        private sealed record SlotTargets(string Slot, string[] Targets);
+        /// <summary>A slot of a region, by its root (<see cref="FieldSlot.Root"/>), with the regions it points to.</summary>
+        /// <param name="Root">The slot's root: its field, or the storage of a collection.</param>
+        /// <param name="Targets">The regions it points to, as numbers.</param>
+        private sealed record SlotTargets(string Root, int[] Targets);
+
+        /// <summary>What a walk of reach found.</summary>
+        /// <param name="Reached">The regions an effect from its starts reaches, as bits; one copy for every walk reaching the same.</param>
+        /// <param name="MetItself">Whether the walk of a receiver seen through its declaring type met that receiver again.</param>
+        private sealed record Walked(ulong[] Reached, bool MetItself);
 
         /// <summary>Whether a region is an object of a type of the run's own with state of its own: its fields are resources.</summary>
         public bool IsSourceObject(string regionId) =>

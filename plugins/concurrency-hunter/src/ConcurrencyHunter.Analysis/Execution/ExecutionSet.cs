@@ -146,7 +146,8 @@ internal sealed class ExecutionIds
         return set;
     }
 
-    private sealed class BitsComparer : IEqualityComparer<ulong[]>
+    /// <summary>Equality of bit sets by the numbers they hold, a trailing zero word making no difference.</summary>
+    internal sealed class BitsComparer : IEqualityComparer<ulong[]>
     {
         internal static readonly BitsComparer INSTANCE = new();
 

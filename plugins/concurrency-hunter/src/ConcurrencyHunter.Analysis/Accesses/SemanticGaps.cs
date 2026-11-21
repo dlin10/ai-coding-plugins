@@ -43,7 +43,7 @@ public static class SemanticGaps
     {
         var heap = input.Heap;
         var reach = new UnknownCalls.Reach(input.Scope, heap);
-        var gaps = new Dictionary<string, (string Kind, HashSet<OperationSite> Sites, HashSet<string> Instances, HashSet<string> Regions)>(StringComparer.Ordinal);
+        var gaps = new Dictionary<string, (string Kind, HashSet<OperationSite> Sites, HashSet<string> Instances, ulong[] Regions)>(StringComparer.Ordinal);
         var results = heap.Instances.Values.ToDictionary(instance => instance.Id, instance => instance.Summary.ResultStores.ToLookup(store => store.SourceOperationId),
                                                          StringComparer.Ordinal);
         var calls = UnknownCalls.Of(input.Scope, heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED)
@@ -52,28 +52,55 @@ public static class SemanticGaps
         // Only the unknown executions of the delegates the calls are handed are read, so only theirs are worked out (#462).
         var executionRegions = ExecutionRegions(input, accesses, calls.SelectMany(item => item.Delegates).Select(ExecutionModel.UnknownDelegateCallId)
                                                                       .ToHashSet(StringComparer.Ordinal));
+        // The regions are bits over the reach's numbering, and whether one is shared is asked once per region (#462).
+        var shared = Bits.EMPTY;
+        var judged = 0;
+        ulong[] Shared(ulong[] regions)
+        {
+            WorkCancellation.Check();
+            for (; judged < reach.Numbered; judged++)
+            {
+                WorkCancellation.Check();
+                if (IsShared(input, reach.RegionId(judged)))
+                    Bits.Add(ref shared, judged);
+            }
+            var kept = Bits.EMPTY;
+            Bits.UnionWith(ref kept, regions, shared);
+            return kept;
+        }
+
         foreach (var (call, delegates) in calls)
         {
             WorkCancellation.Check();
             // An object of one execution handed to the call is only read by it and is no gap; only what is shared counts (R2, R4). What
             // the unknown execution of a delegate it is handed touches is the call's reach too (R3).
-            var (reached, takesDelegate) = reach.Of(call);
-            var run = delegates.SelectMany(region => executionRegions.GetValueOrDefault(ExecutionModel.UnknownDelegateCallId(region)) ?? []);
-            var regions = reached.Concat(run).Where(region => IsShared(input, region)).Distinct(StringComparer.Ordinal).ToArray();
-            if (regions.Length == 0 && !takesDelegate && !FeedsShared(input, call, results[call.Instance.Id][call.OperationId]))
+            var (reached, takesDelegate) = reach.BitsOf(call);
+            var touched = reached;
+            foreach (var region in delegates.SelectMany(region => executionRegions.GetValueOrDefault(ExecutionModel.UnknownDelegateCallId(region)) ?? []))
+            {
+                WorkCancellation.Check();
+                if (touched == reached)
+                    touched = (ulong[])reached.Clone();
+                Bits.Add(ref touched, reach.Number(region));
+            }
+            var regions = Shared(touched);
+            if (Bits.IsEmpty(regions) && !takesDelegate && !FeedsShared(input, call, results[call.Instance.Id][call.OperationId]))
                 continue;
             if (!gaps.TryGetValue(call.Callee, out var gap))
-                gaps.Add(call.Callee, gap = (call.Kind, [], new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)));
+                gap = (call.Kind, [], new HashSet<string>(StringComparer.Ordinal), Bits.EMPTY);
             gap.Sites.Add(new OperationSite(call.Instance.BodyId, call.OperationId));
             gap.Instances.Add(call.Instance.Id);
-            gap.Regions.UnionWith(regions);
+            Bits.UnionWith(ref gap.Regions, regions);
+            gaps[call.Callee] = gap;
         }
 
+        DiagnosticCheckpoint.Reach($"gaps-reach:{input.Scope.ScopeId}:{(accesses is null ? "before" : "after")}", collect: false,
+                                   () => [reach.Counts()]);
         var rootsReaching = RootsReaching(heap);
         return gaps.Select(pair => new SemanticGap(pair.Key, pair.Value.Kind,
                                                    pair.Value.Instances.SelectMany(instance => rootsReaching.GetValueOrDefault(instance) ?? [])
                                                        .Distinct(StringComparer.Ordinal).Count(),
-                                                   pair.Value.Regions.Count, pair.Value.Sites.Count)
+                                                   Bits.Numbers(pair.Value.Regions).Count(), pair.Value.Sites.Count)
                    {
                        Sites = pair.Value.Sites.OrderBy(site => site.BodyId, StringComparer.Ordinal).ThenBy(site => site.OperationId).ToArray()
                    })
