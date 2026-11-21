@@ -697,7 +697,8 @@ public static class ReportRenderer
                 report.ProjectsExpected,
                 report.ProjectsLoaded,
                 Roots = analysis?.Roots.Count ?? 0,
-                Accesses = analysis?.Accesses.Count ?? 0,
+                Accesses = analysis?.Folded.Count ?? 0,
+                AccessExecutions = analysis?.Accesses.Count ?? 0,
                 Findings = analysis?.Findings.Count ?? 0,
                 Groups = analysis?.Groups.Count ?? 0,
                 NarrativesAccepted = report.AcceptedGroupNarratives.Count +

@@ -307,8 +307,10 @@ _Avoid_: new object, local object, unpublished object (it may already be publish
 
 **Access**:
 One read, write, read-modify-write, atomic or compound operation, or **Unknown effect**, on a
-resource, carried with the execution instance it runs in, the protection held, and the guard it runs
-under.
+resource, recorded once with the **Execution instances** that run it so, the protection held, and the
+guard it runs under. Each of those instances gives it a root and the path that reaches it; two instances
+that hold different protections at one site, or reach it in different instances of its body, make two
+accesses.
 _Avoid_: use, reference, touch
 
 **Candidate**:
@@ -846,7 +848,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - An **Opaque call** changes no object's **Ownership**: an object of one execution it receives is
   only read, and a shared object it reaches gets the whole **Unknown effect**. A **Construction**
   that hands a shared object it produces to one has published it.
-- Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
+- Two **Accesses** on one **Resource** form a **Candidate** when two **Execution instances**, one running each, may overlap; they form one per pair of the instances' roots and paths, and a **Candidate** becomes at most one **Finding**.
 - Two **Accesses** are compared only inside one **Bucket** or across the wildcard and open-region joins the bucket's definition names; an access in no bucket is compared with nothing.
 - A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
 - A file **Suppression** names a **Fingerprint** and nothing else.

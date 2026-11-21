@@ -38,7 +38,7 @@ public static class SemanticGaps
     /// their delegates touch, deep reads and unknown effects included, is known only after, so <paramref name="accesses"/>, once
     /// collected, count those regions (R4).</summary>
     /// <param name="input">The scope whose gaps are collected.</param>
-    /// <param name="accesses">The collected accesses, or null before access collection.</param>
+    /// <param name="accesses">The collected accesses, each with the executions that run it, or null before access collection.</param>
     public static IReadOnlyList<SemanticGap> Find(InterproceduralInput input, IReadOnlyList<Access>? accesses = null)
     {
         var heap = input.Heap;
@@ -46,7 +46,8 @@ public static class SemanticGaps
         var gaps = new Dictionary<string, (string Kind, HashSet<OperationSite> Sites, HashSet<string> Instances, HashSet<string> Regions)>(StringComparer.Ordinal);
         var results = heap.Instances.Values.ToDictionary(instance => instance.Id, instance => instance.Summary.ResultStores.ToLookup(store => store.SourceOperationId),
                                                          StringComparer.Ordinal);
-        var executionRegions = (accesses?.Select(access => (access.ExecutionId, RegionId: access.Resource.CollectionId ?? access.Resource.RegionId!)) ??
+        var executionRegions = (accesses?.SelectMany(access => access.ExecutionIds.Select(execution => (ExecutionId: execution,
+                                                                                                   RegionId: access.Resource.CollectionId ?? access.Resource.RegionId!))) ??
                                 input.Executions.Accesses.SelectMany(access => access.Executions.Select(execution => (ExecutionId: execution, access.RegionId))))
                                .GroupBy(access => access.ExecutionId, StringComparer.Ordinal)
                                .ToDictionary(group => group.Key, group => group.Select(access => access.RegionId).ToHashSet(StringComparer.Ordinal),

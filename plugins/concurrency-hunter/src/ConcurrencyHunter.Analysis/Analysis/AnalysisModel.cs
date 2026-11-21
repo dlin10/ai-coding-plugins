@@ -235,6 +235,10 @@ public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnl
     /// fixpoint, executions, accesses, pairing, findings.</summary>
     public IReadOnlyList<StepTiming> Timings { get; init; } = [];
 
+    /// <summary>The scopes' accesses, each recorded once with its runs (ADR 0038), which the <c>accesses</c> counter counts;
+    /// <see cref="Accesses"/> is every run of them as an access of its own, and stands for them where none were given.</summary>
+    public IReadOnlyList<Access> Folded { get => field ?? Accesses; init; }
+
     public IReadOnlyList<ScopeSize> ScopeSizes { get; init; } = [];
 
     /// <summary>For a read-only run, the generation targets a run that generates would have generated, once each across the scopes, in ordinal

@@ -103,8 +103,15 @@ public sealed record InterproceduralCoverage(string ScopeId, IReadOnlyDictionary
     public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
 }
 
+/// <summary>What a scope's collection found: every execution's run of each access, as an access of its own, and the coverage.</summary>
+/// <param name="Accesses">Every run of the scope's accesses as an access of its own, in collection order (<see cref="AccessExecutionList"/>).</param>
+/// <param name="Coverage">What the scope's analysis covered.</param>
 public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, InterproceduralCoverage Coverage)
 {
+    /// <summary>The scope's accesses, each recorded once with its runs (ADR 0038): what pairing, coverage and the counters read.
+    /// <see cref="Accesses"/> where none were given.</summary>
+    public IReadOnlyList<Access> Folded { get => field ?? Accesses; init; }
+
     /// <summary>The struct storage the unknown effects and model writes of the scope may put a value into, before an unknown effect on an
     /// object one execution owns is made a read: what the heap's walk of the same writes marks (<see cref="HeapSolution.UnseenFilledStorage"/>,
     /// R9).</summary>
@@ -139,7 +146,8 @@ public static partial class InterproceduralAccesses
     // bounded: the same-named call delegates once per execution to a distinct collector; it never recurses into this method.
     public static InterproceduralCollection Collect(InterproceduralInput input, CancellationToken cancellationToken)
     {
-        var accesses = new List<Access>();
+        // Each access is recorded once with the runs of the executions that make it so (ADR 0038).
+        var folding = new AccessFolding();
         var collected = 0;
         try
         {
@@ -185,7 +193,7 @@ public static partial class InterproceduralAccesses
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
                                                            unknownCalls, reach, freshness, libraryInternal, strings, bindingEvidence, shares,
                                                            cancellationToken);
-                    accesses.AddRange(collector.Collect());
+                    folding.Add(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
                     unresolved.UnionWith(collector.UnresolvedBases);
@@ -195,9 +203,14 @@ public static partial class InterproceduralAccesses
                 collected++;
             }
 
+            var accesses = folding.Accesses();
+            DiagnosticCheckpoint.Reach($"accesses-end:{input.Scope.ScopeId}", collect: true,
+                                       () => [$"accesses={folding.Count} accessExecutions={folding.ExecutionCount}"]);
             // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
-            return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)))
+            return new InterproceduralCollection(new AccessExecutionList([accesses]),
+                                                 Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)))
             {
+                Folded = accesses,
                 UnseenFilledStorage = filled
             };
         }
@@ -206,7 +219,8 @@ public static partial class InterproceduralAccesses
             throw new EngineStageCancelledException("accesses", new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["executions"] = collected,
-                ["accesses"] = accesses.Count
+                ["accesses"] = folding.Count,
+                ["accessExecutions"] = folding.ExecutionCount
             }, cancellationToken, error);
         }
     }
@@ -4885,53 +4899,119 @@ public static class InterproceduralPairing
 
     private static readonly IReadOnlySet<string> NoAssumptions = new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The candidate pairs of a scope's accesses (ADR 0038). An access recorded once with its executions is compared once with each
+    /// access it meets: what the pair filters read of the two accesses is decided for the pair, and only whether two executions may run
+    /// at once, whether a hosted transient is one object and whether two iterations are disjoint is asked of pairs of executions. The pair
+    /// stands when some pair of executions passes, and gives one candidate per pair of the two sides' variants: the first pair of
+    /// executions, in collection order, that passes. So a finding keeps the occurrence, code flow and held protection the pairs of
+    /// executions gave. The counters count pairs of accesses: a skipped pair once, under the reason of its first pair of executions, and a
+    /// pair that stands once for each candidate it gives.
+    /// </summary>
+    /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
+    /// <param name="executions">The scope's executions, which decide the timing.</param>
+    /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
-        var pairs = new List<AccessPair>();
+        var found = new List<(AccessPair Pair, long Order)>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var counted = 0;
         var suppressed = 0;
+        var sides = new Dictionary<Access, PairingSide>(ReferenceEqualityComparer.Instance);
+        for (var at = 0; at < candidates.Length; at++)
+            sides.TryAdd(candidates[at], new PairingSide(candidates[at], at));
 
-        void Consider(Access first, Access second, AccessResource reported, IReadOnlyList<string> uncertainties)
+        void Count(string skip, IReadOnlySet<string> assumptions)
+        {
+            skips[skip] = skips.GetValueOrDefault(skip) + 1;
+            // bounded: the at most three assumptions of a pair the timing ordered; every other pair has none.
+            foreach (var assumption in assumptions)
+                assumed[assumption] = assumed.GetValueOrDefault(assumption) + 1;
+        }
+
+        void Consider(CandidatePair candidate)
         {
             counted++;
-            var assumptions = NoAssumptions;
-            var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? SKIP_READ_READ
-                : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? SKIP_NO_CONFLICTING_OPERATION
-                : first.Resource.Scope != second.Resource.Scope || first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first)
-                    ? SKIP_NO_OVERLAP
-                : Skip(executions.Timing(first, second, out assumptions)) is { } timing ? timing
-                : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
-                : PathConditions.Contradict(first.Conditions, second.Conditions) ? SKIP_UNSATISFIABLE_PATH
-                : IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION
-                // Two invocations touch two fresh objects, and the accesses of one invocation follow one another (R12).
-                : first.IsFresh && second.IsFresh ? SKIP_FRESH_OBJECT
+            var (one, other) = (candidate.First, candidate.Second);
+            var early = one.Operation == AccessOperation.Read && other.Operation == AccessOperation.Read ? SKIP_READ_READ
+                : !one.Operation.Conflicts() && !other.Operation.Conflicts() ? SKIP_NO_CONFLICTING_OPERATION
+                : one.Resource.Scope != other.Resource.Scope ? SKIP_NO_OVERLAP
                 : null;
-            if (skip is not null)
+            if (early is not null)
             {
-                skips[skip] = skips.GetValueOrDefault(skip) + 1;
-                // bounded: the at most three assumptions of a pair the timing ordered; every other pair has none.
-                foreach (var assumption in assumptions)
-                    assumed[assumption] = assumed.GetValueOrDefault(assumption) + 1;
+                Count(early, NoAssumptions);
                 return;
             }
 
-            var protection = PairProtection.Of(first, second);
+            var middle = IsConfined(one) || IsConfined(other) ? SKIP_CONFINED
+                : PathConditions.Contradict(one.Conditions, other.Conditions) ? SKIP_UNSATISFIABLE_PATH
+                : null;
+            // Two invocations touch two fresh objects, and the accesses of one invocation follow one another (R12).
+            var last = one.IsFresh && other.IsFresh ? SKIP_FRESH_OBJECT : null;
+            var pair = new ExecutionPairs(sides[one], sides[other], candidate.ByPosition);
+            var (firstOne, firstOther) = pair.FirstExecutions();
+            var firstSkip = Reason(pair.Oriented(firstOne, firstOther), middle, last, out var firstAssumptions);
+            // The pair's own confinement, conditions or freshness skips every pair of executions that the executions do not.
+            if (middle is not null || last is not null)
+            {
+                Count(firstSkip!, firstAssumptions);
+                return;
+            }
+
+            // Only a sufficient protection or two library-internal sides are left: one pair of executions that passes is enough.
+            var protection = PairProtection.Of(one, other);
+            var once = protection == PairProtection.SUFFICIENT || one.IsLibraryInternal && other.IsLibraryInternal;
+            var witnesses = pair.Witnesses(taken => taken == (firstOne, firstOther)
+                                                        ? firstSkip is null
+                                                        : Reason(pair.Oriented(taken.One, taken.Other), null, null, out _) is null, once,
+                                           candidate.ReportsFirst && !ReferenceEquals(one.Resource, other.Resource));
+            if (witnesses.Count == 0)
+            {
+                Count(firstSkip!, firstAssumptions);
+                return;
+            }
+
             if (protection == PairProtection.SUFFICIENT)
             {
                 suppressed++;
                 return;
             }
 
-            if (first.IsLibraryInternal && second.IsLibraryInternal)
+            if (one.IsLibraryInternal && other.IsLibraryInternal)
             {
-                skips[SKIP_LIBRARY_INTERNAL] = skips.GetValueOrDefault(SKIP_LIBRARY_INTERNAL) + 1;
+                Count(SKIP_LIBRARY_INTERNAL, NoAssumptions);
                 return;
             }
 
-            pairs.Add(new AccessPair(first, second, protection) { Resource = reported, Uncertainties = uncertainties });
+            // A pair that stands is counted once for each candidate it gives, so every comparison is still a skip, a suppression or a
+            // candidate.
+            counted += witnesses.Count - 1;
+            foreach (var (taken, order) in witnesses)
+            {
+                var (first, second) = pair.Oriented(taken.One, taken.Other);
+                found.Add((new AccessPair(first, second, protection)
+                           {
+                               Resource = candidate.ReportsFirst ? first.Resource : candidate.Reported,
+                               Uncertainties = candidate.Uncertainties
+                           }, order));
+            }
+        }
+
+        // What a pair of executions alone decides, in the order of the filters around it: the hosted transient and the timing before
+        // the pair's confinement and conditions, the disjoint iteration before its freshness.
+        string? Reason((Access First, Access Second) views, string? middle, string? last, out IReadOnlySet<string> assumptions)
+        {
+            var (first, second) = views;
+            assumptions = NoAssumptions;
+            if (first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first))
+                return SKIP_NO_OVERLAP;
+            if (Skip(executions.Timing(first, second, out assumptions)) is { } timing)
+                return timing;
+            if (middle is not null)
+                return middle;
+            return IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION : last;
         }
 
         // A transient resolved for a hosted service is one object per hosted instance: an execution overlapping itself because the
@@ -4948,9 +5028,12 @@ public static class InterproceduralPairing
             ownership.Kind == OwnershipKind.ThreadConfined;
 
         var index = CandidateIndex.Build(candidates, heap);
-        foreach (var candidate in index.OrderedPairs())
-            Consider(candidate.First, candidate.Second, candidate.Reported, candidate.Uncertainties);
+        foreach (var candidate in index.Pairs())
+            Consider(candidate);
 
+        // In the order of an all-pairs loop over every execution of every access: by the earlier one, then the later one. Findings keep the
+        // first of two pairs with one identity, so this order makes them what the plain loop gives.
+        var pairs = found.OrderBy(item => item.Order).Select(item => item.Pair).ToArray();
         return new PairAnalysis(pairs, counted, suppressed, skips)
         {
             CartesianBound = (int)((long)candidates.Length * (candidates.Length + 1) / 2),
@@ -4958,6 +5041,171 @@ public static class InterproceduralPairing
             LargestBucket = index.LargestBucket,
             Assumed = assumed
         };
+    }
+
+    /// <summary>One access as pairing sees it (ADR 0038): where each of its executions stands in collection order, the view each gives,
+    /// made once when first asked, and its executions grouped by variant. An access built for one execution alone is one execution, at its
+    /// place in the list, and its own view.</summary>
+    private sealed class PairingSide
+    {
+        private readonly Access?[] _views;
+
+        /// <summary>The access as pairing sees it.</summary>
+        /// <param name="access">The access.</param>
+        /// <param name="index">Its place among the scope's candidates: its position when it has no executions.</param>
+        internal PairingSide(Access access, int index)
+        {
+            Access = access;
+            if (access.Executions.Count == 0)
+            {
+                Positions = [index];
+                Variants = [[0]];
+            }
+            else
+            {
+                Positions = access.Executions.Select(execution => execution.Position).ToArray();
+                var byVariant = new Dictionary<AccessVariant, List<int>>(ReferenceEqualityComparer.Instance);
+                var variants = new List<List<int>>();
+                for (var execution = 0; execution < access.Executions.Count; execution++)
+                {
+                    if (!byVariant.TryGetValue(access.Executions[execution].Variant, out var executions))
+                    {
+                        byVariant.Add(access.Executions[execution].Variant, executions = []);
+                        variants.Add(executions);
+                    }
+                    executions.Add(execution);
+                }
+                Variants = variants.Select(executions => executions.ToArray()).ToArray();
+            }
+
+            _views = new Access?[Positions.Length];
+        }
+
+        internal Access Access { get; }
+
+        /// <summary>Each execution's position, in execution order, which is collection order.</summary>
+        internal int[] Positions { get; }
+
+        /// <summary>The executions of each variant, in collection order; the variants in the order of their first executions.</summary>
+        internal int[][] Variants { get; }
+
+        internal Access View(int execution) =>
+            Access.Executions.Count == 0 ? Access : _views[execution] ??= Access.View(Access.Executions[execution]);
+    }
+
+    /// <summary>The pairs of executions of two accesses a candidate pair compares, one of them taken from each side; the same access twice
+    /// is the self-pair of a bucket, whose executions pair with themselves and with each other once.</summary>
+    /// <param name="one">The candidate's first side.</param>
+    /// <param name="other">Its second side.</param>
+    /// <param name="byPosition">Whether a pair of executions puts the earlier one first, as the loop within a bucket does, rather than
+    /// <paramref name="one"/>'s.</param>
+    private sealed class ExecutionPairs(PairingSide one, PairingSide other, bool byPosition)
+    {
+        private bool IsSelf => ReferenceEquals(one, other);
+
+        /// <summary>The first pair of executions in collection order: the first execution of each side, or of the one access with
+        /// itself.</summary>
+        internal (int One, int Other) FirstExecutions() => (0, 0);
+
+        /// <summary>The two views of a pair of executions, in the order the pair compares them.</summary>
+        /// <param name="oneExecution">The execution of the first side.</param>
+        /// <param name="otherExecution">The execution of the second side.</param>
+        internal (Access First, Access Second) Oriented(int oneExecution, int otherExecution) =>
+            Swapped((oneExecution, otherExecution))
+                ? (other.View(otherExecution), one.View(oneExecution))
+                : (one.View(oneExecution), other.View(otherExecution));
+
+        /// <summary>For each pair of the two sides' variants, the first pair of executions in collection order that passes, with its
+        /// order: the earlier execution's position, then the later's.</summary>
+        /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
+        /// <param name="once">Whether one witness is enough.</param>
+        /// <param name="byOrientation">Whether each orientation of a pair of variants gives its own witness: a pair reported on its
+        /// earlier execution's resource names another resource when the earlier execution is the other side's.</param>
+        internal List<((int One, int Other) Executions, long Order)> Witnesses(Func<(int One, int Other), bool> passes, bool once,
+                                                                               bool byOrientation)
+        {
+            var witnesses = new List<((int One, int Other) Executions, long Order)>();
+            Func<(int One, int Other), bool>[] filters = byOrientation
+                ? [executions => !Swapped(executions) && passes(executions), executions => Swapped(executions) && passes(executions)]
+                : [passes];
+            for (var oneVariant = 0; oneVariant < one.Variants.Length; oneVariant++)
+            {
+                for (var otherVariant = IsSelf ? oneVariant : 0; otherVariant < other.Variants.Length; otherVariant++)
+                {
+                    foreach (var filter in filters)
+                    {
+                        WorkCancellation.Check();
+                        var (ones, others) = (one.Variants[oneVariant], other.Variants[otherVariant]);
+                        if (First(ones, others, IsSelf && oneVariant == otherVariant, filter) is not { } witness)
+                            continue;
+                        witnesses.Add(witness);
+                        if (once)
+                            return witnesses;
+                    }
+                }
+            }
+
+            return witnesses;
+        }
+
+        /// <summary>Whether a pair of executions puts the second side's execution first.</summary>
+        /// <param name="executions">The execution of each side.</param>
+        private bool Swapped((int One, int Other) executions) => byPosition && other.Positions[executions.Other] < one.Positions[executions.One];
+
+        /// <summary>The first pair of executions of two variants, in collection order, that passes: by the earlier execution, then the
+        /// later one. A variant of the self-pair with itself pairs each execution with itself and with every later one; two variants pair
+        /// each execution of one with each execution of the other.</summary>
+        /// <param name="ones">The first side's executions of one variant, in collection order.</param>
+        /// <param name="others">The second side's executions of one variant, in collection order.</param>
+        /// <param name="self">Whether the two are one variant of the self-pair, so that <paramref name="ones"/> stands for both.</param>
+        /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
+        private ((int One, int Other) Executions, long Order)? First(int[] ones, int[] others, bool self,
+                                                                     Func<(int One, int Other), bool> passes)
+        {
+            if (self)
+            {
+                for (var first = 0; first < ones.Length; first++)
+                {
+                    for (var second = first; second < ones.Length; second++)
+                    {
+                        WorkCancellation.Check();
+                        if (passes((ones[first], ones[second])))
+                            return ((ones[first], ones[second]), Order(one.Positions[ones[first]], one.Positions[ones[second]]));
+                    }
+                }
+
+                return null;
+            }
+
+            var (atOne, atOther) = (0, 0);
+            while (atOne < ones.Length || atOther < others.Length)
+            {
+                WorkCancellation.Check();
+                // The earlier of the two next executions pairs with every execution of the other side that comes after it, in order.
+                if (atOther >= others.Length || atOne < ones.Length && one.Positions[ones[atOne]] < other.Positions[others[atOther]])
+                {
+                    for (var later = atOther; later < others.Length; later++)
+                    {
+                        if (passes((ones[atOne], others[later])))
+                            return ((ones[atOne], others[later]), Order(one.Positions[ones[atOne]], other.Positions[others[later]]));
+                    }
+                    atOne++;
+                }
+                else
+                {
+                    for (var later = atOne; later < ones.Length; later++)
+                    {
+                        if (passes((ones[later], others[atOther])))
+                            return ((ones[later], others[atOther]), Order(other.Positions[others[atOther]], one.Positions[ones[later]]));
+                    }
+                    atOther++;
+                }
+            }
+
+            return null;
+        }
+
+        private static long Order(int earlier, int later) => (long)earlier << 32 | (uint)later;
     }
 
     /// <summary>The skip a pair's timing gives: none for two accesses that may run at once (<see cref="ExecutionAnalysis.Timing"/>).</summary>
@@ -4994,7 +5242,16 @@ internal enum PairEnumeration
 /// <param name="Uncertainties">The uncertainties the pair carries.</param>
 /// <param name="Enumeration">The enumeration that produced the pair.</param>
 internal sealed record CandidatePair(Access First, Access Second, AccessResource Reported, IReadOnlyList<string> Uncertainties,
-                                     PairEnumeration Enumeration);
+                                     PairEnumeration Enumeration)
+{
+    /// <summary>Whether the pair puts the earlier access first, as the loop within a bucket and between two field buckets of one region
+    /// does, rather than the first bucket's: a pair of executions of two recorded-once accesses is oriented the same way (ADR 0038).</summary>
+    internal bool ByPosition { get; init; }
+
+    /// <summary>Whether the pair is reported on its first access's resource, as a pair within a bucket is: a pair of executions is then reported
+    /// on its earlier execution's.</summary>
+    internal bool ReportsFirst { get; init; }
+}
 
 /// <summary>
 /// The buckets of one scope's non-construction-local accesses (R4): a resource bucket per resource identity, and a wildcard bucket per
@@ -5134,7 +5391,10 @@ internal sealed class CandidateIndex
                         {
                             // Oriented as the all-pairs loop meets them: the earlier access first.
                             var (earlier, later) = _positions[item] <= _positions[otherItem] ? (item, otherItem) : (otherItem, item);
-                            yield return new CandidatePair(earlier, later, byOne ? item.Resource : otherItem.Resource, [], PairEnumeration.Resource);
+                            yield return new CandidatePair(earlier, later, byOne ? item.Resource : otherItem.Resource, [], PairEnumeration.Resource)
+                            {
+                                ByPosition = true
+                            };
                         }
                     }
                 }
@@ -5343,7 +5603,7 @@ internal sealed class CandidateIndex
         {
             for (var second = first; second < bucket.Count; second++)
                 if (WildcardCovers(bucket[first].Resource, bucket[second].Resource) && WildcardCovers(bucket[second].Resource, bucket[first].Resource))
-                    yield return new CandidatePair(bucket[first], bucket[second], bucket[first].Resource, [], enumeration);
+                    yield return new CandidatePair(bucket[first], bucket[second], bucket[first].Resource, [], enumeration) { ByPosition = true, ReportsFirst = true };
         }
     }
 

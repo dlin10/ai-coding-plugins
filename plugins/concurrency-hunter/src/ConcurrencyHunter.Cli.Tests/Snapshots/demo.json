@@ -12,26 +12,27 @@
     "summaries": 1701,
     "regions": 1259,
     "instances": 1792,
-    "accesses": 2335,
+    "accesses": 2228,
+    "accessExecutions": 2335,
     "pairs": {
-      "comparisons": 3216,
-      "cartesianBound": 1445851,
+      "comparisons": 3036,
+      "cartesianBound": 1316254,
       "largestBucket": 19,
       "buckets": 988,
       "skips": {
-        "confined": 23,
+        "confined": 22,
         "disjoint-iteration": 1,
         "library-internal": 598,
         "no-conflicting-operation": 85,
-        "no-overlap": 397,
-        "ordered": 68,
-        "read-read": 1717,
+        "no-overlap": 333,
+        "ordered": 63,
+        "read-read": 1607,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "assumed": {
-        "observers": 7,
-        "thread-context": 7,
+        "observers": 4,
+        "thread-context": 4,
         "thread-pool-entry": 0
       },
       "suppressed": 17,
@@ -328,7 +329,7 @@
         "aspnetcore": 170,
         "hosting": 227
       },
-      "accesses": 1700,
+      "accesses": 1622,
       "counters": {
         "delegate-to-opaque": 11,
         "element-operation": 41,

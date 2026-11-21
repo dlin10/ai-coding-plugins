@@ -12,18 +12,19 @@
     "summaries": 953,
     "regions": 1520,
     "instances": 1483,
-    "accesses": 4552,
+    "accesses": 4434,
+    "accessExecutions": 4552,
     "pairs": {
-      "comparisons": 8284,
-      "cartesianBound": 1293838,
-      "largestBucket": 17,
+      "comparisons": 8021,
+      "cartesianBound": 1253535,
+      "largestBucket": 14,
       "buckets": 1578,
       "skips": {
         "confined": 1849,
         "fresh-object": 9,
         "no-overlap": 800,
         "ordered": 1659,
-        "read-read": 3965
+        "read-read": 3702
       },
       "assumed": {
         "observers": 1659,
@@ -48,7 +49,7 @@
         "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 183,
+      "accesses": 182,
       "counters": {
         "delegate-to-opaque": 19,
         "element-operation": 9,
@@ -119,7 +120,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 1118,
+      "accesses": 1088,
       "counters": {
         "delegate-to-opaque": 11,
         "element-operation": 47,
@@ -240,7 +241,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 456,
+      "accesses": 454,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 6,
@@ -303,7 +304,7 @@
         "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 234,
+      "accesses": 211,
       "counters": {
         "delegate-to-opaque": 10,
         "element-operation": 37,
@@ -536,7 +537,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 488,
+      "accesses": 486,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 10,

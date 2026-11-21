@@ -216,13 +216,14 @@ public static class EngineFixture
     /// <summary>The pairing before the candidate index, kept as the tests' reference: every unordered pair of non-construction-local
     /// accesses is tested against the rule that admits it (one resource; one collection's cells; one region's storage continuing another's
     /// or a wildcard on either side; an open region and a closed region of its group, by the same rule or with a wildcard on either side),
-    /// then compared as the index's <c>Consider</c> compares it.</summary>
-    /// <param name="accesses">The scope's accesses.</param>
+    /// then compared as the index's <c>Consider</c> compares it. An access recorded once with its executions is paired as its
+    /// executions' copies were before (ADR 0038), each a view of its own in collection order.</summary>
+    /// <param name="accesses">The scope's accesses, recorded once with their executions or one per execution.</param>
     /// <param name="executions">The executions that say which accesses overlap and which are ordered.</param>
     /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
     internal static PairAnalysis ReferencePair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
-        var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
+        var candidates = new AccessExecutionList([accesses]).Where(access => !access.IsConstructionLocal).ToArray();
         var pairs = new List<AccessPair>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);

@@ -81,7 +81,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(STEPS, steps.Select(step => step.GetProperty("step").GetString()));
         Assert.All(steps, step => Assert.True(step.GetProperty("seconds").GetDouble() >= 0));
         Assert.Equal(["projectsExpected", "projectsLoaded", "scopes", "roots", "rootsPerProvider", "reachableBodies", "summaries", "regions",
-                      "instances", "accesses", "pairs", "findings", "occurrences", "groups", "fingerprints"],
+                      "instances", "accesses", "accessExecutions", "pairs", "findings", "occurrences", "groups", "fingerprints"],
                      Names(root.GetProperty("counts")));
         Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "assumed", "suppressed", "candidates"],
                      Names(root.GetProperty("counts").GetProperty("pairs")));
@@ -172,7 +172,9 @@ public sealed class MetricsCommandTests
         Assert.Equal(analysis.ScopeSizes.Sum(size => size.Summaries), counts.Summaries);
         Assert.Equal(analysis.ScopeSizes.Sum(size => size.Regions), counts.Regions);
         Assert.Equal(analysis.ScopeSizes.Sum(size => size.Instances), counts.Instances);
-        Assert.Equal(analysis.Accesses.Count, counts.Accesses);
+        // An access is counted once however many executions run it so; its runs are the accesses as each execution made them (ADR 0038).
+        Assert.Equal(analysis.Folded.Count, counts.Accesses);
+        Assert.Equal(analysis.Accesses.Count, counts.AccessExecutions);
         Assert.Equal(analysis.Findings.Count, counts.Findings);
         Assert.Equal(analysis.Findings.Sum(finding => finding.OccurrenceCount), counts.Occurrences);
         Assert.Equal(analysis.Groups.Count, counts.Groups);
@@ -190,7 +192,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(analysis.Scopes.Select(scope => scope.Id), measurement.Coverage.Select(scope => scope.ScopeId));
         Assert.All(measurement.Coverage, scope =>
         {
-            Assert.Equal(analysis.Accesses.Count(access => access.Resource.Scope == scope.ScopeId && !access.IsConstructionLocal), scope.Accesses);
+            Assert.Equal(analysis.Folded.Count(access => access.Resource.Scope == scope.ScopeId && !access.IsConstructionLocal), scope.Accesses);
             Assert.Equal(analysis.Coverage.Single(item => item.ScopeId == scope.ScopeId).Skips.ToDictionary(), scope.Counters.ToDictionary());
             Assert.Equal(analysis.Coverage.Single(item => item.ScopeId == scope.ScopeId).Ordering.ToDictionary(), scope.Ordering.ToDictionary());
         });

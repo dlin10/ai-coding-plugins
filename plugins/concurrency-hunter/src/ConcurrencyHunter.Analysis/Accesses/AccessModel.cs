@@ -113,8 +113,28 @@ public sealed record SpawnSiteLocation(string Segment, SourceSpan Source);
 /// <summary>A load that feeds a read-modify-write store: its symbol, source and code flow.</summary>
 public sealed record ReadSource(string Symbol, SourceSpan Source, IReadOnlyList<CodeFlowStep> CodeFlow);
 
-/// <summary>An access as one execution runs it on one resource. It carries its region's ownership and evidence chain; a construction-local
-/// access touches the object its construction builds and never pairs; a read-modify-write lists the loads it depends on.</summary>
+/// <summary>What an execution gives an access besides the execution itself, and what pairing never reads: the root it runs under, the
+/// path the walk reached it by and the loads it depends on, as the report shows them (ADR 0038).</summary>
+/// <param name="Root">The root whose execution runs the access.</param>
+/// <param name="PathRoot">The root the call path starts at.</param>
+/// <param name="CallPath">The member symbols of the access's discovery path.</param>
+/// <param name="SpawnSites">The sites of the call path's spawn and timer-callback segments.</param>
+/// <param name="CodeFlow">The steps reaching the access.</param>
+/// <param name="ReadSources">The loads a read-modify-write depends on.</param>
+public sealed record AccessVariant(AccessRoot Root, AccessRoot PathRoot, IReadOnlyList<string> CallPath, IReadOnlyList<SpawnSiteLocation> SpawnSites,
+                                   IReadOnlyList<CodeFlowStep> CodeFlow, IReadOnlyList<ReadSource> ReadSources);
+
+/// <summary>One execution of an access recorded once (ADR 0038): the execution, what it gives the access, and where the access stood
+/// among every access the scope's executions made, in the order they made them.</summary>
+/// <param name="ExecutionId">The execution that runs the access.</param>
+/// <param name="Variant">The root, path and loads that execution gives it.</param>
+/// <param name="Position">The access's place in the scope's collection order, which pairing keeps.</param>
+public readonly record struct AccessExecution(string ExecutionId, AccessVariant Variant, int Position);
+
+/// <summary>An access on one resource, recorded once with the executions that run it so (ADR 0038). It carries its region's ownership and
+/// evidence chain; a construction-local access touches the object its construction builds and never pairs; a read-modify-write lists the
+/// loads it depends on. Its own execution, root and path are its first execution's; <see cref="Executions"/> lists every execution, and an
+/// access built for one execution alone lists none.</summary>
 /// <param name="Resource">The storage this access touches.</param>
 /// <param name="Operation">What the access does to that storage.</param>
 /// <param name="Root">The root whose execution runs the access.</param>
@@ -188,6 +208,30 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
 
     /// <summary>The calls deciding this access's checks, retained separately from check equality.</summary>
     public IReadOnlyList<DecidingCall> DecidingCalls { get; init; } = [];
+
+    /// <summary>The executions of this access in collection order (ADR 0038); empty for an access built for one execution alone.</summary>
+    public IReadOnlyList<AccessExecution> Executions { get; init; } = [];
+
+    /// <summary>How many executions the access has: at least one.</summary>
+    public int ExecutionCount => Executions.Count == 0 ? 1 : Executions.Count;
+
+    /// <summary>The ids of the executions that run the access, in order; one execution that makes it twice, by two paths, is named twice.</summary>
+    public IEnumerable<string> ExecutionIds => Executions.Count == 0 ? [ExecutionId] : Executions.Select(execution => execution.ExecutionId);
+
+    /// <summary>The access as one of its executions has it: that execution, its root, path and loads, and no executions of its own.</summary>
+    /// <param name="execution">One of <see cref="Executions"/>.</param>
+    public Access View(AccessExecution execution) =>
+        this with
+        {
+            ExecutionId = execution.ExecutionId,
+            Root = execution.Variant.Root,
+            PathRoot = execution.Variant.PathRoot,
+            CallPath = execution.Variant.CallPath,
+            SpawnSites = execution.Variant.SpawnSites,
+            CodeFlow = execution.Variant.CodeFlow,
+            ReadSources = execution.Variant.ReadSources,
+            Executions = []
+        };
 }
 
 /// <summary>What one access holds on one lock object: the mechanism that took it, the mode it is held in, and whether that holding

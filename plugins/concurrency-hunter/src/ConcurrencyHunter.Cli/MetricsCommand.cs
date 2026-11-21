@@ -163,6 +163,7 @@ internal static class MetricsCommand
             analysis.ScopeSizes.Sum(size => size.Summaries),
             analysis.ScopeSizes.Sum(size => size.Regions),
             analysis.ScopeSizes.Sum(size => size.Instances),
+            analysis.Folded.Count,
             analysis.Accesses.Count,
             new PairCountsInfo(pairs.Comparisons,
                                pairs.CartesianBound,
@@ -341,7 +342,7 @@ internal sealed record PairCountsInfo(int Comparisons, long CartesianBound, int 
                                       IReadOnlyDictionary<string, int> Assumed, int Suppressed, int Candidates);
 
 internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoaded, int Scopes, int Roots, IReadOnlyDictionary<string, int> RootsPerProvider,
-                                         int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses, PairCountsInfo Pairs,
+                                         int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses, int AccessExecutions, PairCountsInfo Pairs,
                                          int Findings, int Occurrences, int Groups, IReadOnlyList<string> Fingerprints);
 
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,

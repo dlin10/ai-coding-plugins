@@ -242,6 +242,8 @@ public static class PhaseOneAnalyzer
         var lowered = new Dictionary<LoweringKey, IrLoweredMethod?>();
         var scopes = new List<ProcessScope>();
         var roots = new List<ExecutionRootDescriptor>();
+        // Each scope's accesses, recorded once with their runs (ADR 0038), and all of them.
+        var scopeAccesses = new List<IReadOnlyList<Access>>();
         var accesses = new List<Access>();
         var pairs = new List<AccessPair>();
         var coverage = new List<ScopeCoverage>();
@@ -430,14 +432,15 @@ public static class PhaseOneAnalyzer
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
             Record(timings, SOLVER, step);
             sizes.Add(new ScopeSize(scope.Id, run.Heap.ReachableBodies.Count, run.Summaries.Built, run.Heap.Regions.Count,
-                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal))
+                                    run.Heap.Instances.Count, collection.Folded.Count(access => !access.IsConstructionLocal))
             {
                 Analyses = analyses,
                 Seconds = analysisSeconds
             });
 
             roots.AddRange(run.Roots);
-            accesses.AddRange(collection.Accesses);
+            scopeAccesses.Add(collection.Folded);
+            accesses.AddRange(collection.Folded);
             pairs.AddRange(scopePairs.Pairs);
             comparisons += scopePairs.Comparisons;
             cartesianBound += scopePairs.CartesianBound;
@@ -498,7 +501,7 @@ public static class PhaseOneAnalyzer
                                             .Select(range => $"{range.AssemblyName} {range.Minimum}..{range.MaximumExclusive}")
                                             .ToArray()))
                                 .ToArray();
-        return new AnalysisResult(scopes, roots, accesses, conflicts.Findings, conflicts.Groups, coverage,
+        return new AnalysisResult(scopes, roots, new AccessExecutionList(scopeAccesses), conflicts.Findings, conflicts.Groups, coverage,
                                   new PairCounters(comparisons, cartesianBound, buckets, largestBucket, candidates, suppressed, pairSkips)
                                   {
                                       Assumed = pairAssumed
@@ -512,6 +515,7 @@ public static class PhaseOneAnalyzer
                       }
                       .Select(name => new StepTiming(name, timings.GetValueOrDefault(name).TotalSeconds))
                       .ToArray(),
+            Folded = accesses,
             ScopeSizes = sizes,
             Sources = generation.Sources?.Statistics ?? new(false, new(0, 0, 0), new(0, 0, 0)),
             GenerationWanted = wanted.OrderBy(item => item.MemberId, StringComparer.Ordinal).ThenBy(item => item.FileKey, StringComparer.Ordinal).ToArray()
@@ -547,7 +551,7 @@ public static class PhaseOneAnalyzer
     private static PairAnalysis PairWithGaps(ScopeRun run, Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing)
     {
         Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
-        var pairs = pairing(run.Collection.Accesses, run.Executions, run.Heap);
+        var pairs = pairing(run.Collection.Folded, run.Executions, run.Heap);
         return pairs with { Pairs = GapDecisions.Mark(pairs.Pairs, run.Interprocedural, run.Collection.Coverage.Gaps) };
     }
 

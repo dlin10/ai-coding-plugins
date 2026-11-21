@@ -243,7 +243,8 @@ public static class ScopePipeline
             counters[ScopeStep.Accesses] = new Dictionary<string, int>(StringComparer.Ordinal)
             {
                 ["executions"] = executions.Executions.Count,
-                ["accesses"] = collection.Accesses.Count
+                ["accesses"] = collection.Folded.Count,
+                ["accessExecutions"] = collection.Accesses.Count
             };
             var accesses = Complete();
             return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, summaries, scopeProgram, heap, executions,
