@@ -918,7 +918,31 @@ public static partial class InterproceduralAccesses
         internal SequencePool<string> Labels { get; } = new();
         internal SequencePool<GapCheck> GapChecks { get; } = new();
         internal SequencePool<DecidingCall> DecidingCalls { get; } = new();
+
+        /// <summary>The numbers the emission's keys are made of, in place of the strings they stand for (issue 464).</summary>
+        internal TextNumbers Numbers { get; } = new();
+
+        /// <summary>The numbers of each instance's id and body, by the instance object.</summary>
+        internal Dictionary<MethodInstance, InstanceNumbers> Instances { get; } = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>What the emission asks of each region for every access on it, by region id: the same in every execution.</summary>
+        internal Dictionary<string, RegionFacts> Regions { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The storage each region id an access names is located at (<see cref="HeapSolution.Located"/>), by region id.</summary>
+        internal Dictionary<string, (string Region, string Slot)?> Locations { get; } = new(StringComparer.Ordinal);
     }
+
+    /// <summary>The numbers of an instance's id and of its body (<see cref="TextNumbers"/>).</summary>
+    /// <param name="Id">The number of the instance's id.</param>
+    /// <param name="Body">The number of its body's id.</param>
+    private readonly record struct InstanceNumbers(int Id, int Body);
+
+    /// <summary>What the emission asks of a region for every access on it, looked up once (issue 464).</summary>
+    /// <param name="Number">The number of the region's id (<see cref="TextNumbers"/>).</param>
+    /// <param name="Region">The region.</param>
+    /// <param name="Ownership">Its ownership, if the execution model decided one.</param>
+    /// <param name="Published">Whether its construction publishes it.</param>
+    private sealed record RegionFacts(int Number, HeapRegion Region, RegionOwnership? Ownership, bool Published);
 
     private sealed partial class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
@@ -990,8 +1014,16 @@ public static partial class InterproceduralAccesses
         /// <summary>The object or type each construction edge the walk followed builds.</summary>
         private readonly Dictionary<CallEdge, string> _constructedBy = [];
 
-        /// <summary>Whether an object is under construction where this execution runs an operation of an instance, once asked.</summary>
-        private readonly Dictionary<ConstructionQuery, ConstructionStatus> _constructions = [];
+        /// <summary>Whether an object is under construction where this execution runs an operation of an instance, once asked, by the
+        /// numbers of the instance and the object and the operation (issue 464).</summary>
+        private readonly Dictionary<(int Instance, int Operation, int Region), ConstructionStatus> _constructions = [];
+
+        /// <summary>The locks each operation of an instance holds where no enumeration along the path adds any, with the number of their
+        /// key (<see cref="HeldLocks"/>): they depend on the instance and the operation alone once the locks are solved.</summary>
+        private readonly Dictionary<string, Dictionary<int, HeldLocksAt>> _heldLocks = new(StringComparer.Ordinal);
+
+        /// <summary>The number of each root a call path starts at, by the root object <see cref="CallPaths"/> keeps.</summary>
+        private readonly Dictionary<AccessRoot, int> _rootNumbers = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>What the visits of each unresolved call made of it (<see cref="UnknownEffectAccesses"/>).</summary>
         private readonly Dictionary<UnknownCall, UnknownEffects> _unknownEffects = new(ReferenceEqualityComparer.Instance);
@@ -1008,7 +1040,7 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The storage each access of an instance reads or writes as a value lives in (<see cref="ValueResources"/>).</summary>
         private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources = shares.ValueResources;
-        private readonly Dictionary<AccessResource, string> _identities = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<AccessResource, NumberedText> _identities = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
         private readonly Dictionary<MethodInstance, Dictionary<IrCallOperation, string[]>> _liftedCallees = new(ReferenceEqualityComparer.Instance);
@@ -1275,20 +1307,23 @@ public static partial class InterproceduralAccesses
             }
         }
 
-        /// <summary>One question to the construction analysis: an object, at an operation of an instance.</summary>
-        /// <param name="Instance">The instance making the operation.</param>
-        /// <param name="Operation">The operation.</param>
-        /// <param name="Region">The object.</param>
-        private sealed record ConstructionQuery(string Instance, int Operation, string Region);
-
         /// <summary>Whether an object is under construction where this execution runs an operation of an instance (ADR 0017, ADR 0018).</summary>
         /// <param name="instance">The instance making the operation.</param>
         /// <param name="operationId">The operation.</param>
         /// <param name="regionId">The object.</param>
-        private ConstructionStatus Construction(MethodInstance instance, int operationId, string regionId)
+        private ConstructionStatus Construction(MethodInstance instance, int operationId, string regionId) =>
+            NumberedConstruction(instance, operationId, regionId, shares.Numbers.Of(regionId));
+
+        /// <summary>Whether an object is under construction where this execution runs an operation of an instance, the object's number
+        /// already looked up (ADR 0017, ADR 0018).</summary>
+        /// <param name="instance">The instance making the operation.</param>
+        /// <param name="operationId">The operation.</param>
+        /// <param name="regionId">The object.</param>
+        /// <param name="regionNumber">The number of the object's id (<see cref="TextNumbers"/>).</param>
+        private ConstructionStatus NumberedConstruction(MethodInstance instance, int operationId, string regionId, int regionNumber)
         {
             CheckCancellation();
-            var query = new ConstructionQuery(instance.Id, operationId, regionId);
+            var query = (NumberOf(instance).Id, operationId, regionNumber);
             if (!_constructions.TryGetValue(query, out var status))
                 _constructions.Add(query, status = input.Executions.Construction(execution.Id, instance.Id, operationId, regionId, cancellationToken));
             return status;
@@ -1300,14 +1335,69 @@ public static partial class InterproceduralAccesses
         /// <param name="instance">The instance making the access.</param>
         /// <param name="operationId">The access's operation.</param>
         /// <param name="regionId">The region it touches.</param>
-        private IEnumerable<bool> Localities(MethodInstance instance, int operationId, string regionId)
+        private IEnumerable<bool> Localities(MethodInstance instance, int operationId, string regionId) =>
+            LocalitiesOf(Construction(instance, operationId, regionId), input.Executions.PublishedObjects.Contains(regionId));
+
+        /// <summary>The ways an access on a region is construction-local where this execution runs it
+        /// (<see cref="Localities(MethodInstance, int, string)"/>), the region's facts already looked up.</summary>
+        /// <param name="instance">The instance making the access.</param>
+        /// <param name="operationId">The access's operation.</param>
+        /// <param name="regionId">The region it touches.</param>
+        /// <param name="facts">The region's facts (<see cref="Facts"/>).</param>
+        private IEnumerable<bool> Localities(MethodInstance instance, int operationId, string regionId, RegionFacts facts) =>
+            LocalitiesOf(NumberedConstruction(instance, operationId, regionId, facts.Number), facts.Published);
+
+        /// <summary>The ways an access on a region is construction-local, given where the region stands in its construction.</summary>
+        /// <param name="status">Whether the region is under construction where the access runs.</param>
+        /// <param name="published">Whether its construction publishes it.</param>
+        private static IEnumerable<bool> LocalitiesOf(ConstructionStatus status, bool published)
         {
-            var status = Construction(instance, operationId, regionId);
-            var published = input.Executions.PublishedObjects.Contains(regionId);
             if (status.May && !published)
                 yield return true;
             if (status.NotMust || !status.Reached || published)
                 yield return false;
+        }
+
+        /// <summary>What the emission asks of a region for every access on it, looked up once for the scope (issue 464).</summary>
+        /// <param name="regionId">The region's id.</param>
+        private RegionFacts Facts(string regionId)
+        {
+            if (!shares.Regions.TryGetValue(regionId, out var facts))
+            {
+                shares.Regions.Add(regionId, facts = new RegionFacts(shares.Numbers.Of(regionId), _heap.Regions[regionId],
+                                                                     input.Executions.Ownership.GetValueOrDefault(regionId),
+                                                                     input.Executions.PublishedObjects.Contains(regionId)));
+            }
+
+            return facts;
+        }
+
+        /// <summary>The region an access's region id is located in (<see cref="HeapSolution.Located"/>), looked up once for the
+        /// scope.</summary>
+        /// <param name="regionId">The region id.</param>
+        private string? LocatedRegion(string regionId)
+        {
+            if (!shares.Locations.TryGetValue(regionId, out var located))
+                shares.Locations.Add(regionId, located = _heap.Located(regionId, string.Empty));
+            return located?.Region;
+        }
+
+        /// <summary>The numbers of an instance's id and body (<see cref="TextNumbers"/>), worked out once for the scope.</summary>
+        /// <param name="instance">The instance.</param>
+        private InstanceNumbers NumberOf(MethodInstance instance)
+        {
+            if (!shares.Instances.TryGetValue(instance, out var numbers))
+                shares.Instances.Add(instance, numbers = new InstanceNumbers(shares.Numbers.Of(instance.Id), shares.Numbers.Of(instance.BodyId)));
+            return numbers;
+        }
+
+        /// <summary>The number of the root a call path starts at (<see cref="TextNumbers"/>).</summary>
+        /// <param name="root">A root <see cref="CallPaths"/> keeps.</param>
+        private int NumberOf(AccessRoot root)
+        {
+            if (!_rootNumbers.TryGetValue(root, out var number))
+                _rootNumbers.Add(root, number = shares.Numbers.Of(root.RootId));
+            return number;
         }
 
         /// <summary>The member symbols of a body's discovery path in this execution, consecutive duplicates (a lambda in its member)
@@ -2216,19 +2306,46 @@ public static partial class InterproceduralAccesses
         private readonly record struct VisitAccess(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference,
                                                    bool IsStable, bool IsUnseenWrite = false);
 
-        /// <summary>What the emission tells accesses apart by, besides their guards.</summary>
-        /// <param name="BodyId">The body making the access.</param>
+        /// <summary>What the emission tells accesses apart by, besides their guards. The strings are their numbers
+        /// (<see cref="TextNumbers"/>): equal numbers are equal strings, so the key tells apart what the strings do, and a lookup
+        /// hashes no string (issue 464).</summary>
+        /// <param name="Body">The number of the body making the access.</param>
         /// <param name="Operation">The access's operation.</param>
-        /// <param name="Resource">The identity of the resource it touches.</param>
+        /// <param name="Resource">The number of the identity of the resource it touches.</param>
         /// <param name="Kind">What it does to the resource.</param>
         /// <param name="Local">Whether it is construction-local.</param>
-        /// <param name="Held">The protections it holds.</param>
-        /// <param name="Root">The root its call path starts at.</param>
-        /// <param name="Term">The expression naming its cell.</param>
+        /// <param name="Held">The number of the protections it holds, as one key.</param>
+        /// <param name="Root">The number of the root its call path starts at.</param>
+        /// <param name="Term">The number of the expression naming its cell.</param>
         /// <param name="Fresh">Whether this observation reaches a fresh object's own field.</param>
         /// <param name="LibraryInternal">Whether a library body touches a library-internal object.</param>
-        private sealed record EmittedKey(string BodyId, int Operation, string Resource, AccessOperation Kind, bool Local, string Held, string Root,
-                                         string Term, bool Fresh, bool LibraryInternal);
+        private readonly record struct EmittedKey(int Body, int Operation, int Resource, AccessOperation Kind, bool Local, int Held, int Root,
+                                                  int Term, bool Fresh, bool LibraryInternal);
+
+        /// <summary>A string and its number (<see cref="TextNumbers"/>).</summary>
+        /// <param name="Text">The string.</param>
+        /// <param name="Number">Its number.</param>
+        private readonly record struct NumberedText(string Text, int Number);
+
+        /// <summary>The locks an operation holds, with the number of the key the emission tells their protections apart by.</summary>
+        /// <param name="Held">The locks.</param>
+        /// <param name="Key">The number of their key (<see cref="HeldKey"/>).</param>
+        private sealed record HeldLocksAt(IReadOnlyList<HeldProtectionInfo> Held, int Key);
+
+        /// <summary>What the stores of the visited instances say of one access of an instance on one resource (R1): the reads that
+        /// feed it, whether it is a read folded into a write, and whether a compare-and-swap checks the cell against it. One entry
+        /// answers all three, so the emission looks once (issue 464).</summary>
+        private sealed class Feed
+        {
+            /// <summary>The instances and operations of the reads that feed the write, in the order found; null for none.</summary>
+            internal List<(string Instance, int Operation)>? Sources { get; set; }
+
+            /// <summary>Whether the access is a read folded into a write of the very resource.</summary>
+            internal bool Dropped { get; set; }
+
+            /// <summary>Whether a compare-and-swap of the write checks the cell against what its reads produced.</summary>
+            internal bool Verified { get; set; }
+        }
 
         /// <summary>An access the emission keeps for its key, with the numbers of its guards' keys, as bits.</summary>
         /// <param name="Conditions">The numbers of its guards' keys.</param>
@@ -2237,12 +2354,11 @@ public static partial class InterproceduralAccesses
 
         private IReadOnlyList<Access> Emit()
         {
-            var feeding = new Dictionary<(string Instance, int Operation, string Resource), List<(string Instance, int Operation)>>();
-            // Only the load of the instance that feeds the write is folded into it; another instance of that body still reads.
-            var dropped = new HashSet<(string Instance, int Operation, string Resource)>();
-            // The stores whose compare-and-swap checks the cell against what the value it writes was read from. That, and not
-            // the name of the member called, is what makes the sequence around it as atomic as the call itself (R1).
-            var verified = new HashSet<(string Instance, int Operation, string Resource)>();
+            // By the numbers of the instance and the resource, and the operation: the reads feeding each write; the loads folded into
+            // one, only the load of the instance that feeds the write, since another instance of that body still reads; and the stores
+            // whose compare-and-swap checks the cell against what the value it writes was read from. That, and not the name of the
+            // member called, is what makes the sequence around it as atomic as the call itself (R1).
+            var feeds = new Dictionary<(int Instance, int Operation, int Resource), Feed>();
             // The reference loads folded into a write: the place nothing proves among theirs is the write's to count, as it is for
             // `r += 1` (R1, R3).
             var foldedReferences = new HashSet<(string Instance, int Operation)>();
@@ -2280,9 +2396,10 @@ public static partial class InterproceduralAccesses
                     {
                         CheckCancellation();
                         var identity = resource.Identity;
+                        var identityNumber = shares.Numbers.Of(identity);
                         var structuralIdentity = store.IsCompound ? resource.StructuralIdentity : null;
                         if (observed)
-                            verified.Add((instanceId, store.OperationId, identity));
+                            FeedOf(instance, store.OperationId, identityNumber).Verified = true;
 
                         foreach (var (loadInstanceId, loadOperation) in loads.OrderBy(load => load.Instance, StringComparer.Ordinal).ThenBy(load => load.Operation))
                         {
@@ -2305,16 +2422,15 @@ public static partial class InterproceduralAccesses
                             if (reads.Length == 0)
                                 continue;
 
-                            var key = (instanceId, store.OperationId, identity);
-                            if (!feeding.TryGetValue(key, out var list))
-                                feeding.Add(key, list = []);
+                            var feed = FeedOf(instance, store.OperationId, identityNumber);
+                            var list = feed.Sources ??= [];
                             if (!list.Contains((loadInstanceId, loadOperation)))
                                 list.Add((loadInstanceId, loadOperation));
                             // Only a read of the very resource the change is on is folded into it; a check of another resource
                             // stays an access of its own.
                             if (reads.Any(candidate => candidate.Identity == identity))
                             {
-                                dropped.Add((loadInstance.Id, loadOperation, identity));
+                                FeedOf(loadInstance, loadOperation, identityNumber).Dropped = true;
                                 if (loadReferences.Length != 0)
                                 {
                                     foldedReferences.Add((loadInstance.Id, loadOperation));
@@ -2445,8 +2561,9 @@ public static partial class InterproceduralAccesses
                     foreach (var original in resources)
                     {
                         CheckCancellation();
-                        var identity = isStable ? IdentityOf(original) : original.Identity;
-                        if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, identity)))
+                        var (identity, identityNumber) = isStable ? IdentityOf(original) : Numbered(original.Identity);
+                        var feed = feeds.GetValueOrDefault((NumberOf(instance).Id, access.OperationId, identityNumber));
+                        if (access.Kind == SummaryAccessKind.Load && feed is { Dropped: true })
                             continue;
                         if (access.InterfaceReceiver is { } receiver && original.Storage is { } loaded &&
                             FoldsIntoInterfaceCall(receiver, loaded.Region, loaded.Slot, instance.BodyId))
@@ -2455,13 +2572,12 @@ public static partial class InterproceduralAccesses
                         // The cell a term binds keeps the fields of the struct it holds after it (R1).
                         var resource = selector == access.Selector || original.Selector is null || original.Storage is not { } storage ? original
                             : Resource(original.RegionId!, storage, original.IsWildcard, selector, original.CollectionId);
-                        var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, identity));
+                        var sources = feed?.Sources;
                         var isFresh = Fresh(access, source, isReference, isUnseenWrite) &&
                                       (sources is null || sources.All(load => FreshLoad(load.Instance, load.Operation)));
                         var operation = isReference && access.ReadModifyWriteOf is not null
                             ? AccessOperation.ReadModifyWrite
-                            : Operation(access, sources is { Count: > 0 },
-                                        verified.Contains((instance.Id, access.OperationId, identity)));
+                            : Operation(access, sources is { Count: > 0 }, feed is { Verified: true });
                         var unseenWrite = operation is not (AccessOperation.Read or AccessOperation.AtomicRead) &&
                             (isUnseenWrite ||
                              instance.Summary.StructCopies.Any(copy => copy.IsUnseenOutput && copy.OperationId == access.OperationId))
@@ -2478,8 +2594,9 @@ public static partial class InterproceduralAccesses
                         // of another and more adds nothing, since each pair it may be part of the other may be part of too.
                         guards ??= Conditions(instance, access, node);
                         var (conditions, conditionKeys) = guards;
-                        var termKey = term?.ToString() ?? "";
+                        var termNumber = shares.Numbers.Of(term?.ToString() ?? string.Empty);
                         var regionId = isReference ? resource.CollectionId ?? resource.RegionId! : resource.RegionId!;
+                        var regionFacts = Facts(regionId);
                         // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
                         // an occurrence keeps can be the least protected one (R5).
                         // A write through a reference that reads it first spans that read, which stands in this very body, and every
@@ -2487,27 +2604,27 @@ public static partial class InterproceduralAccesses
                         if (!pathLocks.Known)
                             pathLocks = (true, EnumerationPathLocks(node));
                         // Work without a body runs after its starter goes on: what the starter holds where it starts it holds nothing over it.
-                        var held = _workHosts.Contains(node)
-                            ? []
-                            : HeldOverSpan(instance.Id, access.OperationId, operation, pathLocks.Locks,
-                                           isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
-                        var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
-                                                           .Order(StringComparer.Ordinal));
-                        var region = _heap.Regions[regionId];
-                        var touched = resource.CollectionId ?? _heap.Located(resource.RegionId!, string.Empty)?.Region;
+                        var (held, heldNumber) = _workHosts.Contains(node)
+                            ? NoLocksHeld()
+                            : HeldOverSpan(instance.Id, access.OperationId, operation, pathLocks.Locks,
+                                           isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
+                        var region = regionFacts.Region;
+                        var touched = resource.CollectionId ?? LocatedRegion(resource.RegionId!);
                         var isLibraryInternal = input.Scope.Reachable.Admission?.IsLibraryBody(instance.BodyId) == true &&
                                                 touched is not null && libraryInternal?.IsInternal(touched) == true;
-                        var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
-                        var resourceIdentity = ReferenceEquals(resource, original) ? identity : resource.Identity;
+                        var ownership = regionFacts.Ownership;
+                        var resourceNumber = ReferenceEquals(resource, original) ? identityNumber : shares.Numbers.Of(resource.Identity);
+                        var bodyNumber = NumberOf(instance).Body;
                         // An access may be construction-local on one path and not on another (ADR 0018), and a construction triggered by
                         // several roots gives one access per root, so each root pair is an occurrence (R5).
-                        foreach (var (local, (callPath, pathRoot)) in Localities(instance, access.OperationId, regionId)
+                        foreach (var (local, (callPath, pathRoot)) in Localities(instance, access.OperationId, regionId, regionFacts)
                                                                           .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
                             CheckCancellation();
-                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey, isFresh, isLibraryInternal);
+                            var key = new EmittedKey(bodyNumber, access.OperationId, resourceNumber, operation, local, heldNumber, NumberOf(pathRoot),
+                                                     termNumber, isFresh, isLibraryInternal);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
                             if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
@@ -2595,6 +2712,15 @@ public static partial class InterproceduralAccesses
             }
 
             return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
+
+            // The entry of one access of an instance on one resource, made on its first mention.
+            Feed FeedOf(MethodInstance instance, int operation, int resource)
+            {
+                var key = (NumberOf(instance).Id, operation, resource);
+                if (!feeds.TryGetValue(key, out var feed))
+                    feeds.Add(key, feed = new Feed());
+                return feed;
+            }
 
             bool Fresh(SummaryAccess access, MethodInstance source, bool reference, bool effect) =>
                 access.IsFresh || !reference && !effect && !access.IsOnCollection && !access.IsCompound &&
@@ -3693,15 +3819,59 @@ public static partial class InterproceduralAccesses
             return _enumerationPathLocks[node] = MustHeldLocks.Compute(body, operation => Effect(callee, operation), atCall, cancellationToken).Operations;
         }
 
-        private IReadOnlyList<HeldProtectionInfo> HeldOverSpan(string instanceId, int operationId, AccessOperation operation,
-                                                               IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks,
-                                                               IReadOnlyList<(string Instance, int Operation)>? sources)
+        /// <summary>The locks an access holds over its whole span, with the number of their key: at the operation, and for a
+        /// read-modify-write or compound operation fed by reads, only those held from each read on (R2).</summary>
+        /// <param name="instanceId">The instance making the access.</param>
+        /// <param name="operationId">The access's operation.</param>
+        /// <param name="operation">What the access does.</param>
+        /// <param name="pathLocks">The locks the enumerations along the path hold, if any.</param>
+        /// <param name="sources">The reads that feed it, if any.</param>
+        private HeldLocksAt HeldOverSpan(string instanceId, int operationId, AccessOperation operation,
+                                         IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks,
+                                         IReadOnlyList<(string Instance, int Operation)>? sources)
         {
-            var held = HeldLocks(instanceId, operationId, pathLocks);
+            var held = HeldLocksWithKey(instanceId, operationId, pathLocks);
             if (operation is not (AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation) || sources is not { Count: > 0 })
                 return held;
 
-            return held.Where(protection => sources.All(source => Spans(protection, instanceId, operationId, source, pathLocks))).ToArray();
+            var spanned = held.Held.Where(protection => sources.All(source => Spans(protection, instanceId, operationId, source, pathLocks))).ToArray();
+            return new HeldLocksAt(spanned, HeldKey(spanned));
+        }
+
+        /// <summary>The locks work without a body holds where its starter starts it: none.</summary>
+        private HeldLocksAt NoLocksHeld() => new([], HeldKey([]));
+
+        /// <summary>The number of the key the emission tells protections apart by: which object is held, by which primitive, in which
+        /// mode, and whether it keeps anyone out (R5).</summary>
+        /// <param name="held">The protections.</param>
+        private int HeldKey(IReadOnlyList<HeldProtectionInfo> held) =>
+            shares.Numbers.Of(string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
+                                                   .Order(StringComparer.Ordinal)));
+
+        /// <summary>The locks an operation of an instance holds (<see cref="HeldLocks"/>) with the number of their key, kept for each
+        /// operation where no enumeration along the path adds locks: the locks are solved before the emission, so they depend on the
+        /// instance and the operation alone (issue 464).</summary>
+        /// <param name="instanceId">The instance.</param>
+        /// <param name="operationId">The operation.</param>
+        /// <param name="pathLocks">The locks the enumerations along the path hold, if any.</param>
+        private HeldLocksAt HeldLocksWithKey(string instanceId, int operationId,
+                                             IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks)
+        {
+            if (pathLocks is not null)
+            {
+                var held = HeldLocks(instanceId, operationId, pathLocks);
+                return new HeldLocksAt(held, HeldKey(held));
+            }
+
+            if (!_heldLocks.TryGetValue(instanceId, out var byOperation))
+                _heldLocks.Add(instanceId, byOperation = []);
+            if (!byOperation.TryGetValue(operationId, out var found))
+            {
+                var held = HeldLocks(instanceId, operationId);
+                byOperation.Add(operationId, found = new HeldLocksAt(held, HeldKey(held)));
+            }
+
+            return found;
         }
 
         /// <summary>Whether one holding covers the span from a read to the write that depends on it: the same section at both ends,
@@ -4541,14 +4711,19 @@ public static partial class InterproceduralAccesses
             return resources;
         }
 
-        /// <summary>The identity of a resource <see cref="Resources"/> keeps, which every visit of its access asks for again.</summary>
+        /// <summary>The identity of a resource <see cref="Resources"/> keeps, with its number, which every visit of its access asks for
+        /// again.</summary>
         /// <param name="resource">A resource <see cref="Resources"/> or <see cref="EffectResources"/> returned.</param>
-        private string IdentityOf(AccessResource resource)
+        private NumberedText IdentityOf(AccessResource resource)
         {
             if (!_identities.TryGetValue(resource, out var identity))
-                _identities.Add(resource, identity = resource.Identity);
+                _identities.Add(resource, identity = Numbered(resource.Identity));
             return identity;
         }
+
+        /// <summary>A string with its number (<see cref="TextNumbers"/>).</summary>
+        /// <param name="text">The string.</param>
+        private NumberedText Numbered(string text) => new(text, shares.Numbers.Of(text));
 
         /// <summary>
         /// The resources an access touches: a static field's storage, or the field of each region its base points to, or the wildcard
