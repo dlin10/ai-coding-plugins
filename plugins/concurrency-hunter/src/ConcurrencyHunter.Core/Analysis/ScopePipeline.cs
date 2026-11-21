@@ -223,8 +223,13 @@ public static class ScopePipeline
             {
                 MetadataSupertypes = metadataSupertypes
             };
+            var gcStart = GcCounters.Now();
             var heap = WholeProgram.Solve(scopeProgram, limits, cancellationToken);
-            DiagnosticCheckpoint.Reach($"heap-end:{scopeId}", collect: true);
+            // Taken before the checkpoint's own collections, so they count only what the solve did.
+            var gcEnd = GcCounters.Now();
+            DiagnosticCheckpoint.Reach($"heap-end:{scopeId}", collect: true,
+                                       () => [heap.Profile?.Line(heap.Counters) ?? "solver none", (gcEnd - gcStart).Line("gc-solve"),
+                                              gcEnd.Line("gc-process")]);
             counters[ScopeStep.SummariesAndFixpoint] = new Dictionary<string, int>(heap.Counters, StringComparer.Ordinal);
             var summariesAndFixpoint = Complete();
 

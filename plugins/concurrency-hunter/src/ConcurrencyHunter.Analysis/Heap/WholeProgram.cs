@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
@@ -437,6 +438,9 @@ public sealed class HeapSolution
     /// <summary>Edges bound by resolving a call transfer held by the caller's summary, by caller, operation and callee.</summary>
     public IReadOnlySet<(string Caller, int Operation, string Callee)> TransferEdges { get; init; } = new HashSet<(string, int, string)>();
     public IReadOnlyList<CallEdge> ExecutionEdges { get; init; } = [];
+    /// <summary>What the solve spent its passes on, which a diagnostic checkpoint reports; null for a solution no solve made. It is no
+    /// counter of <see cref="Counters"/>, so the run's metrics do not show it.</summary>
+    internal HeapSolveProfile? Profile { get; set; }
     public IReadOnlyList<IteratorObject> IteratorObjects { get; init; } = [];
     public IReadOnlySet<string> UnknownIterators { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -1001,6 +1005,17 @@ public static partial class WholeProgram
     {
         private static readonly IReadOnlyDictionary<string, string> NO_SUBSTITUTION = new TrackedMap<string, string>();
 
+        // The call transfers of each summary, by reference, for Bind's question whether a call is one its caller's summary holds:
+        // summaries do not change, so neither does the answer.
+        private readonly ConditionalWeakTable<MethodSummary, HashSet<CallTransfer>> _summaryCalls = new();
+
+        // The substitution of a member for a declaring type and type arguments, made once: it depends on the program index alone. The
+        // instances made with it share it, and nothing writes one after it is made.
+        private readonly Dictionary<(string MethodId, string? Containing, string Arguments), IReadOnlyDictionary<string, string>> _substitutions = [];
+
+        // The key text of each substitution _substitutions made (SubstitutionText), by reference.
+        private readonly Dictionary<IReadOnlyDictionary<string, string>, string> _substitutionTexts = new(ReferenceEqualityComparer.Instance);
+
         /// <summary>The synthetic field of a <c>Thread</c> region holding the work its constructor bound.</summary>
         private const string THREAD_WORK_FIELD = "<thread-work>";
 
@@ -1347,6 +1362,7 @@ public static partial class WholeProgram
         /// Both mark sets only grow and are bounded by the scope's struct storage; fallbacks wait for those readers.</summary>
         internal HeapSolution Run()
         {
+            var solving = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 CheckCancellation();
@@ -1370,6 +1386,7 @@ public static partial class WholeProgram
                     VerifyConvergence();
                 Settle();
                 CheckCancellation();
+                result.Profile = Profile(solving);
                 return result;
             }
             catch (OperationCanceledException error)
@@ -1386,7 +1403,7 @@ public static partial class WholeProgram
 
         /// <summary>Ends the solve for the queries of the solved heap: the points-to sets holding the same regions in the same order share
         /// one copy, which they enumerate as before, and what only the solve reads is let go — the reads and writes the worklist decided
-        /// by, and the unions <see cref="Load"/> and the copies <see cref="CopyStruct"/> remembered. A query reads none of these and
+        /// by, for instances and for their calls, and the unions <see cref="Load"/> and the copies <see cref="CopyStruct"/> remembered. A query reads none of these and
         /// writes nothing; a set changed after this makes its own copy first.</summary>
         private void Settle()
         {
@@ -1416,6 +1433,8 @@ public static partial class WholeProgram
             Share(_iteratorMemberReceivers.Values);
             _history.Clear();
             _history.TrimExcess();
+            _callHistories.Clear();
+            _callHistories.TrimExcess();
             _writes.Clear();
             _writes.TrimExcess();
             _loadedUnions.Clear();
@@ -1461,6 +1480,7 @@ public static partial class WholeProgram
                     ProcessOrSkip(_instances[_instanceOrder[index]]);
                 }
 
+                var rest = System.Diagnostics.Stopwatch.GetTimestamp();
                 AssembleContributions();
 
                 EscapeCapturedHolders();
@@ -1475,6 +1495,7 @@ public static partial class WholeProgram
                     CheckCancellation();
                     Add(target, Object(region));
                 }
+                _passRestTicks += System.Diagnostics.Stopwatch.GetTimestamp() - rest;
 
                 if (_changes == before)
                     break;
@@ -2379,7 +2400,7 @@ public static partial class WholeProgram
             var bodyContext = bodyId + site;
             context += site;
             merged = merged || _mergedBodies.Contains(bodyContext) || substitution.Values.Any(_program.IsOpen);
-            var key = $"{bodyId}@{context}{SubstitutionText(substitution)}";
+            var key = $"{bodyId}@{context}{(_substitutionTexts.TryGetValue(substitution, out var text) ? text : SubstitutionText(substitution))}";
             if (!merged && !_instances.ContainsKey(key))
             {
                 var count = _contextCounts.GetValueOrDefault(bodyContext);
@@ -2673,11 +2694,9 @@ public static partial class WholeProgram
                 ActivateTypeInitializer(StaticTypeKey(instance, access.Field), instance, null);
             }
 
-            foreach (var call in summary.Calls)
-            {
-                CheckCancellation();
-                Call(instance, call);
-            }
+            var calling = System.Diagnostics.Stopwatch.GetTimestamp();
+            ProcessCalls(instance);
+            _callTicks += System.Diagnostics.Stopwatch.GetTimestamp() - calling;
             foreach (var call in summary.OpaqueCalls.Where(call => IteratorMemberOf(call.Callee) != IrEnumerationRole.None))
             {
                 CheckCancellation();
@@ -3558,7 +3577,7 @@ public static partial class WholeProgram
                             _receiverlessCalls.TryAdd((caller.Id, call.OperationId), (caller, call));
                             // Fallbacks are bound between rounds; retain their direct-edge contribution when this caller is rebuilt.
                             if (_receiverlessFallbacks.Contains((caller.Id, call.OperationId)) &&
-                                caller.Summary.Calls.Any(transfer => ReferenceEquals(transfer, call)) &&
+                                HoldsCall(caller, call) &&
                                 _edgesByCall.TryGetValue((caller.Id, call.OperationId), out var fallbackEdges))
                             {
                                 foreach (var edge in fallbackEdges)
@@ -5648,11 +5667,19 @@ public static partial class WholeProgram
             return (dispatched, callees);
         }
 
+        /// <summary>Whether a call is one of the caller's summary's own call transfers, the very object, rather than a call the solver
+        /// made up for a delegate, a fate or a holder.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="call">The call.</param>
+        private bool HoldsCall(InstanceState caller, CallTransfer call) =>
+            _summaryCalls.GetValue(caller.Summary, static summary => new HashSet<CallTransfer>(summary.Calls, ReferenceEqualityComparer.Instance))
+                         .Contains(call);
+
         private void Bind(InstanceState caller, CallTransfer call, InstanceState? callee, string reason)
         {
             if (callee is null)
                 return;
-            if (caller.Summary.Calls.Any(transfer => ReferenceEquals(transfer, call)))
+            if (HoldsCall(caller, call))
                 _rebuilding.TransferEdges.Add((caller.Id, call.OperationId, callee.Id));
             foreach (var argument in call.Arguments)
             {
@@ -5777,7 +5804,27 @@ public static partial class WholeProgram
                                  (containing is not null && TypeSafety.NullableValueType(containing) is not null ? containing : null),
                          typeArguments);
 
+        /// <summary>The substitution of a member for the declaring type a call or a receiver gives it and its own type arguments: each
+        /// type parameter bound to an argument other than itself. Made once for each member, type and arguments, and shared.</summary>
+        /// <param name="method">The member.</param>
+        /// <param name="containingTypeKey">The constructed declaring type; null where none is known.</param>
+        /// <param name="typeArguments">The member's own type arguments.</param>
         private IReadOnlyDictionary<string, string> Substitution(ProgramMethod method, string? containingTypeKey, IReadOnlyList<string> typeArguments)
+        {
+            var key = (method.MethodId, containingTypeKey, typeArguments.Count == 0 ? string.Empty : string.Join('\n', typeArguments));
+            if (_substitutions.TryGetValue(key, out var known))
+                return known;
+            var made = MadeSubstitution(method, containingTypeKey, typeArguments);
+            _substitutions.Add(key, made);
+            _substitutionTexts.TryAdd(made, SubstitutionText(made));
+            return made;
+        }
+
+        /// <summary>The work of <see cref="Substitution"/>: a new substitution, or the empty one.</summary>
+        /// <param name="method">The member.</param>
+        /// <param name="containingTypeKey">The constructed declaring type; null where none is known.</param>
+        /// <param name="typeArguments">The member's own type arguments.</param>
+        private IReadOnlyDictionary<string, string> MadeSubstitution(ProgramMethod method, string? containingTypeKey, IReadOnlyList<string> typeArguments)
         {
             var substitution = new TrackedMap<string, string>(StringComparer.Ordinal);
             if (containingTypeKey is not null && _program.Type(method.ContainingTypeKey) is { TypeParameterKeys.Count: > 0 } declaring)

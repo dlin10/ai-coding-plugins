@@ -80,3 +80,27 @@ internal static class DiagnosticCheckpoint
     /// <param name="name">The checkpoint.</param>
     private static string Safe(string name) => string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' ? c : '_'));
 }
+
+/// <summary>The garbage collector's running totals for the process at one moment, or what they grew by between two moments.</summary>
+/// <param name="Pause">The time the collections paused the process.</param>
+/// <param name="Gen0">The collections of generation 0; a collection of an older generation collects this one too and is counted here.</param>
+/// <param name="Gen1">The collections of generation 1, those of generation 2 included.</param>
+/// <param name="Gen2">The collections of generation 2.</param>
+/// <param name="Allocated">The bytes allocated.</param>
+internal readonly record struct GcCounters(TimeSpan Pause, int Gen0, int Gen1, int Gen2, long Allocated)
+{
+    /// <summary>The totals now.</summary>
+    internal static GcCounters Now() =>
+        new(GC.GetTotalPauseDuration(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalAllocatedBytes());
+
+    /// <summary>What the totals grew by from one moment to a later one.</summary>
+    /// <param name="end">The totals at the later moment.</param>
+    /// <param name="start">The totals at the earlier moment.</param>
+    public static GcCounters operator -(GcCounters end, GcCounters start) =>
+        new(end.Pause - start.Pause, end.Gen0 - start.Gen0, end.Gen1 - start.Gen1, end.Gen2 - start.Gen2, end.Allocated - start.Allocated);
+
+    /// <summary>The totals as one report line.</summary>
+    /// <param name="label">What the totals are of.</param>
+    internal string Line(string label) =>
+        $"{label} pauseMs={(long)Pause.TotalMilliseconds} gen0={Gen0} gen1={Gen1} gen2={Gen2} allocated={Allocated}";
+}

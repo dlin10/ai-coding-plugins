@@ -56,6 +56,58 @@ public sealed class WorklistTests
     }
 
     [Fact]
+    public void Solve_profile_counts_the_skips_and_times_the_passes_apart_from_the_counters()
+    {
+        var program = Reach("""
+            public static class Steps { public static object Make() => new object(); }
+            public class WorkController : ControllerBase { public void Post() { GC.KeepAlive(Steps.Make()); } }
+            """ + Startup());
+        var actual = SolveHeap(program, new());
+        var profile = actual.Profile!;
+        var boxed = SolveHeap(Reach("""
+            public sealed class Box { public object? Value; public void Set(object value) => Value = value; }
+            public class WorkController(Box box) : ControllerBase { public void Post() { box.Set(new object()); GC.KeepAlive(box.Value); } }
+            """ + Startup("services.AddSingleton<Box>();")), new()).Profile!;
+
+        Assert.True(profile.Skipped > 0);
+        // Set's store makes Post, which loads the field, dirty: processed again, its call of Set adds nothing new.
+        Assert.InRange(boxed.ChangingCalls, 1, boxed.Calls + boxed.SkippedCalls - 1);
+        Assert.InRange(profile.CallTime, TimeSpan.Zero, profile.Processing);
+        Assert.True(profile.DirtyChecks + profile.Processing + profile.PassRest <= profile.Total);
+        Assert.Equal(SolveHeap(program, new()).Counters, actual.Counters);
+        Assert.StartsWith($"solver passes={actual.Counters[HeapCounters.PROPAGATE_PASSES]} " +
+                          $"processed={actual.Counters[HeapCounters.INSTANCE_PROCESSINGS]} skipped={profile.Skipped} " +
+                          $"calls={profile.Calls} changingCalls={profile.ChangingCalls} skippedCalls={profile.SkippedCalls} dirtyCheckMs=",
+                          profile.Line(actual.Counters));
+        var start = new GcCounters(TimeSpan.FromMilliseconds(5), 3, 2, 1, 100);
+        var end = new GcCounters(TimeSpan.FromMilliseconds(12), 7, 4, 2, 350);
+        Assert.Equal("gc-solve pauseMs=7 gen0=4 gen1=2 gen2=1 allocated=250", (end - start).Line("gc-solve"));
+    }
+
+    [Fact]
+    public void Dirty_instance_skips_its_clean_call_and_processes_the_dirty_one()
+    {
+        // Set's store makes Post dirty, and Post's own copy into Other makes it dirty once more: the third time the call of Set,
+        // whose first processing wrote what it reads (its callee, its edge), reads nothing that changed, while the call of Take does.
+        var program = Reach("""
+            public sealed class Box { public object? Value; public object? Other; public void Set(object value) => Value = value; }
+            public static class Sink { public static void Take(object? value) => GC.KeepAlive(value); }
+            public class WorkController(Box box) : ControllerBase
+            {
+                public void Post() { box.Set(new object()); box.Other = box.Value; Sink.Take(box.Other); }
+            }
+            """ + Startup("services.AddSingleton<Box>();"));
+        var audited = SolveHeap(program, new(Audit: true, VerifyConvergence: true));
+        var plain = SolveHeap(program, new());
+
+        Assert.True(audited.Profile!.SkippedCalls > 0);
+        Assert.Equal(plain.Profile!.SkippedCalls, audited.Profile.SkippedCalls);
+        Assert.Equal(plain.Counters, audited.Counters);
+        var take = Assert.Single(plain.Instances.Values, instance => instance.BodyId.Contains("Sink.Take", StringComparison.Ordinal));
+        Assert.NotEmpty(plain.Resolve(take.Id, new ParameterValue(0)));
+    }
+
+    [Fact]
     public async Task Full_pass_after_convergence_changes_nothing() => await AssertSolution(DemoPath(), verify: true);
 
     [Fact]
@@ -325,6 +377,13 @@ public sealed class WorklistTests
             "_callArguments",
             // An index of the lowered bodies, which do not change: the operations of each by id.
             "_operationsById",
+            // Memos of what the summaries and the program index alone decide: a summary's own call transfers, a member's substitution
+            // for a declaring type and type arguments, and its key text.
+            "_summaryCalls", "_substitutions", "_substitutionTexts",
+            // The solve's profile for a diagnostic checkpoint: times and skips, which no heap fact reads.
+            "_skips", "_dirtyCheckTicks", "_processTicks", "_callTicks", "_passRestTicks", "_calls", "_changingCalls", "_skippedCalls",
+            // The worklist per call, as _history is per instance, and whether the processing under way may skip a call.
+            "_callHistories", "_skippingCalls",
             // Names, not facts: the interned region identities, a region's links read only after the region itself, and whether a query
             // named a region.
             "_interned", "_queryInterned", "_queryIdentities", "_links", "_anyNamed", "_unresolvedDelegate"
