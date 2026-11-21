@@ -3127,6 +3127,8 @@ ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Demo_observation_is_the_
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.EShop_observation_is_the_same_under_permuted_walks	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Group_members_do_not_depend_on_visit_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Reached_from_names_the_ordinally_first_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Reached_only_in_names_a_single_execution_alone	Passed
+ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Reached_only_in_names_the_first_execution_and_counts_the_rest	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Startup_delegate_display_does_not_depend_on_visit_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Store_evidence_names_the_store_first_in_source_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_captured_parameters_cell_starts_holding_what_the_argument_holds(call: "Bump(holder.State.Ref);", bump: "static void Bump(Item x) { Action a = () => x.Coun"···)	Passed

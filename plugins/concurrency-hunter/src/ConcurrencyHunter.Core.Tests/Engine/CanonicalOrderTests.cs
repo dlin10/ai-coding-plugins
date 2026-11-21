@@ -90,6 +90,63 @@ public sealed class CanonicalOrderTests
     }
 
     [Fact]
+    public void Reached_only_in_names_the_first_execution_and_counts_the_rest()
+    {
+        // Two workers each create and use the one allocation on their own: thread-confined, and the evidence names the ordinally first
+        // execution and counts the other, whatever order the walk takes (#459).
+        var heap = Solve(NoteSource(["Worker", "Other"]));
+        var scope = Scope(heap);
+        var note = heap.Region("alloc:Notes.Run()#Note");
+        foreach (var mode in Permutations.Prepend(null))
+        {
+            var analysis = ExecutionModel.Build(scope, heap.Heap, CancellationToken.None, mode);
+            var executions = NoteExecutions(analysis, note.Identity);
+            Assert.Equal(2, executions.Length);
+            var ownership = analysis.Ownership[note.Identity];
+            Assert.Equal(OwnershipKind.ThreadConfined, ownership.Kind);
+            Assert.Equal([$"{note.Display} is reached only in {analysis.Execution(executions[0]).Display} and 1 other execution."], ownership.Evidence);
+        }
+    }
+
+    [Fact]
+    public void Reached_only_in_names_a_single_execution_alone()
+    {
+        // One worker creates and uses the allocation: the evidence names that execution, with no count (#459).
+        var heap = Solve(NoteSource(["Worker"]));
+        var note = heap.Region("alloc:Notes.Run()#Note");
+        var analysis = ExecutionModel.Build(Scope(heap), heap.Heap, CancellationToken.None);
+        var execution = Assert.Single(NoteExecutions(analysis, note.Identity));
+        var ownership = analysis.Ownership[note.Identity];
+        Assert.Equal(OwnershipKind.ThreadConfined, ownership.Kind);
+        Assert.Equal([$"{note.Display} is reached only in {analysis.Execution(execution).Display}."], ownership.Evidence);
+    }
+
+    /// <summary>A program whose hosted services each create and use one <c>Note</c> through the same calls, so that there is one region.</summary>
+    /// <param name="workers">The names of the hosted services.</param>
+    private static string NoteSource(string[] workers) =>
+        """
+        public sealed class Note { public int Value; }
+        public static class Notes { public static void Run() { var note = new Note(); note.Value = 1; } }
+        public static class Entry { public static void Run() => Notes.Run(); }
+
+        """ +
+        string.Concat(workers.Select(worker => $$"""
+            public sealed class {{worker}} : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken token) { Entry.Run(); return Task.CompletedTask; }
+            }
+
+            """)) +
+        Startup(string.Concat(workers.Select(worker => $"services.AddHostedService<{worker}>(); ")));
+
+    /// <summary>The executions accessing a region, in the ordinal order of their ids.</summary>
+    /// <param name="analysis">The execution analysis.</param>
+    /// <param name="region">The region identity.</param>
+    private static string[] NoteExecutions(ExecutionAnalysis analysis, string region) =>
+        analysis.ExecutionAccesses().Where(access => access.RegionId == region).Select(access => access.ExecutionId)
+                .Distinct().Order(StringComparer.Ordinal).ToArray();
+
+    [Fact]
     public void Group_members_do_not_depend_on_visit_order()
     {
         var heap = Solve("""

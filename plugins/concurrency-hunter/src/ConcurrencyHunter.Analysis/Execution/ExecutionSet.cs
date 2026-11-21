@@ -271,6 +271,21 @@ internal static class Bits
         return true;
     }
 
+    /// <summary>The numbers of a set that another does not hold, as a new set.</summary>
+    /// <param name="set">The set.</param>
+    /// <param name="removed">The numbers left out.</param>
+    internal static ulong[] Except(ulong[] set, ulong[] removed)
+    {
+        var rest = new ulong[set.Length];
+        for (var index = 0; index < set.Length; index++)
+        {
+            WorkCancellation.Check();
+            rest[index] = set[index] & ~(index < removed.Length ? removed[index] : 0);
+        }
+
+        return rest;
+    }
+
     /// <summary>Whether two sets hold the same numbers.</summary>
     /// <param name="first">The first set.</param>
     /// <param name="second">The second set.</param>

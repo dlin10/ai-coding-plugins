@@ -1032,6 +1032,9 @@ public static class ExecutionModel
             // Ownership reads which executions reach a region, which publication does not change; publication in turn asks whether
             // the object handed to an unresolved call is shared (R2).
             var ownership = Ownership(Collect(new HashSet<string>(StringComparer.Ordinal)));
+            DiagnosticCheckpoint.Reach($"ownership:{scope.ScopeId}", collect: true,
+                                       () => [$"regions={ownership.Count} byKind={string.Join(",", ownership.Values.GroupBy(item => item.Kind).OrderBy(group => group.Key).Select(group => $"{group.Key}:{group.Count()}"))} " +
+                                              $"evidenceChars={ownership.Values.Sum(item => item.Evidence.Sum(line => (long)line.Length))}"]);
             var published = Published(ownership);
             var accesses = Collect(published);
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
@@ -3269,51 +3272,69 @@ public static class ExecutionModel
             // What the unknown execution of a handed delegate touches it touches as the executions that handed it over, so their own
             // objects stay theirs and only what is shared overlaps everything (R3). An async body hands it over in the segment that runs the
             // handing site, not in every execution of the body: its tail does not hand over what its prefix did (ADR 0020).
-            var handedBy = HandedRegions().ToDictionary(
-                region => UnknownDelegateCallId(region),
-                region => (_handoffs.TryGetValue(region, out var handoff)
-                              ? handoff.Sites.SelectMany(site => ExecutionsRunning(heap.Instances[site.CallerInstance], site.OperationId))
-                              : [])
-                          .Concat((_fateHandings.GetValueOrDefault(region) ?? []).Select(handing => handing.Execution))
-                          .ToHashSet(StringComparer.Ordinal),
-                StringComparer.Ordinal);
-            // A delegate handed over inside the unknown call of another is attributed through it to where the outer one was handed.
-            HashSet<string> Attributed(IEnumerable<string> executions)
+            // Executions are bits here, as everywhere in the model: a region is reached by hundreds of them on a large program (#457).
+            var handedBy = new Dictionary<int, ulong[]>();
+            foreach (var region in HandedRegions())
             {
-                var attributed = new HashSet<string>(StringComparer.Ordinal);
-                var visited = new HashSet<string>(StringComparer.Ordinal);
-                var given = executions.ToHashSet(StringComparer.Ordinal);
-                var pending = new Stack<string>(given);
-                while (pending.TryPop(out var execution))
+                CheckCancellation();
+                var by = Bits.EMPTY;
+                foreach (var site in _handoffs.TryGetValue(region, out var handoff) ? handoff.Sites : [])
                 {
                     CheckCancellation();
-                    if (!visited.Add(execution))
-                        continue;
-                    if (handedBy.TryGetValue(execution, out var by) && by.Count != 0)
+                    Bits.UnionWith(ref by, ExecutionsRunning(heap.Instances[site.CallerInstance], site.OperationId));
+                }
+                foreach (var handing in _fateHandings.GetValueOrDefault(region) ?? [])
+                {
+                    CheckCancellation();
+                    Bits.Add(ref by, _ids.Number(handing.Execution));
+                }
+                if (!Bits.IsEmpty(by) && _ids.TryGetNumber(UnknownDelegateCallId(region), out var call))
+                    handedBy.Add(call, by);
+            }
+            // A delegate handed over inside the unknown call of another is attributed through it to where the outer one was handed.
+            ulong[] Attributed(ulong[] given)
+            {
+                var attributed = Bits.EMPTY;
+                var visited = Bits.EMPTY;
+                for (var pending = given; !Bits.IsEmpty(pending);)
+                {
+                    CheckCancellation();
+                    var fresh = Bits.EMPTY;
+                    Bits.UnionWith(ref visited, pending, ref fresh);
+                    pending = Bits.EMPTY;
+                    foreach (var execution in Bits.Numbers(fresh))
                     {
-                        foreach (var handing in by)
-                        {
-                            CheckCancellation();
-                            pending.Push(handing);
-                        }
-                    }
-                    else
-                    {
-                        attributed.Add(execution);
+                        CheckCancellation();
+                        if (handedBy.TryGetValue(execution, out var by))
+                            Bits.UnionWith(ref pending, by);
+                        else
+                            Bits.Add(ref attributed, execution);
                     }
                 }
 
                 // Delegates that only hand each other over run nowhere else: they stay their own.
-                return attributed.Count != 0 ? attributed : given;
+                return Bits.IsEmpty(attributed) ? given : attributed;
             }
 
             // Work without a body touches what its unknown effect reaches in the execution running it, as a body would (question 145).
-            var accessExecutions = accesses.GroupBy(access => access.RegionId, StringComparer.Ordinal)
-                                           .Select(group => (Region: group.Key, Executions: (IEnumerable<string>)Union(group.Select(access => access.Executions))))
-                                           .Concat(WorkReach().Select(pair => (Region: pair.Key, Executions: (IEnumerable<string>)pair.Value)))
-                                           .GroupBy(item => item.Region, StringComparer.Ordinal)
-                                           .ToDictionary(group => group.Key, group => Attributed(group.SelectMany(item => item.Executions)),
-                                                         StringComparer.Ordinal);
+            var reachedBy = new Dictionary<string, ulong[]>(StringComparer.Ordinal);
+            void Reach(string region, ulong[] executions)
+            {
+                var reached = reachedBy.GetValueOrDefault(region) ?? Bits.EMPTY;
+                Bits.UnionWith(ref reached, executions);
+                reachedBy[region] = reached;
+            }
+            foreach (var access in accesses)
+            {
+                CheckCancellation();
+                Reach(access.RegionId, access.Executions.Words);
+            }
+            foreach (var (region, executions) in WorkReach())
+            {
+                CheckCancellation();
+                Reach(region, Bits.Of(executions.Select(_ids.Number)));
+            }
+            var accessExecutions = reachedBy.ToDictionary(pair => pair.Key, pair => Attributed(pair.Value), StringComparer.Ordinal);
 
             var sharedRoots = SharedRoots().ToArray();
             // Each escaped region keeps the chain of hops from the shared root it is reached through, outermost first.
@@ -3357,24 +3378,68 @@ public static class ExecutionModel
         /// access it, however many they are; <c>TreeConfined</c> when exactly one execution creates it and every other execution accessing
         /// it descends from that creator through parent links (ADR 0020); <c>Escaped</c> otherwise.</summary>
         /// <param name="region">The region.</param>
-        /// <param name="reached">The executions accessing it, a handed delegate's unknown call counted as the executions that handed it.</param>
-        /// <param name="creators">The executions creating it, counted the same way.</param>
-        private RegionOwnership Reached(HeapRegion region, HashSet<string> reached, HashSet<string> creators)
+        /// <param name="reached">The executions accessing it, as bits, a handed delegate's unknown call counted as the executions that
+        /// handed it.</param>
+        /// <param name="creators">The executions creating it, as bits, counted the same way.</param>
+        private RegionOwnership Reached(HeapRegion region, ulong[] reached, ulong[] creators)
         {
-            var others = reached.Except(creators).Order(StringComparer.Ordinal).ToArray();
-            if (others.Length == 0)
+            var others = Bits.Except(reached, creators);
+            if (Bits.IsEmpty(others))
                 return new RegionOwnership(OwnershipKind.ThreadConfined, [$"{region.Display} is reached only in {Describe(reached)}."]);
-            if (creators.Count == 1 && creators.First() is var creator && others.All(other => CreatorRuns.Descends(_executions, other, creator)))
+            if (Ids(creators).Take(2).ToArray() is [var creator] && Ids(others).All(other => CreatorRuns.Descends(_executions, other, creator)))
             {
                 return new RegionOwnership(OwnershipKind.TreeConfined,
-                                           [$"{region.Display} is created in {Describe([creator])} and reached besides only from what one run of it starts: {Describe(others)}."])
+                                           [$"{region.Display} is created in {Display(creator)} and reached besides only from what one run of it starts: {Describe(others)}."])
                 {
                     Creator = creator
                 };
             }
 
-            return new RegionOwnership(OwnershipKind.Escaped, [$"{region.Display} is created in {Describe(creators)} and reached from {Describe([others[0]])}."]);
+            return new RegionOwnership(OwnershipKind.Escaped,
+                                       [$"{region.Display} is created in {Describe(creators)} and reached from {Display(Ids(others).Min(StringComparer.Ordinal)!)}."]);
         }
+
+        /// <summary>How many executions of a set ownership evidence names; the rest it counts (#459).</summary>
+        private const int NAMED_EXECUTIONS = 1;
+
+        /// <summary>The executions of a set as ownership evidence names them: the first <see cref="NAMED_EXECUTIONS"/> in the ordinal
+        /// order of their ids, then how many others there are, read off the bits without listing every name, since a region on a large
+        /// program is reached by hundreds of executions (#459). The set itself stays whole in the model.</summary>
+        /// <param name="executions">The executions, as bits.</param>
+        private string Describe(ulong[] executions)
+        {
+            var named = new List<string>(NAMED_EXECUTIONS + 1);
+            var count = 0;
+            foreach (var id in Ids(executions))
+            {
+                CheckCancellation();
+                count++;
+                var at = named.BinarySearch(id, StringComparer.Ordinal);
+                if (at < 0)
+                    at = ~at;
+                if (at >= NAMED_EXECUTIONS)
+                    continue;
+                named.Insert(at, id);
+                if (named.Count > NAMED_EXECUTIONS)
+                    named.RemoveAt(NAMED_EXECUTIONS);
+            }
+
+            var names = string.Join(", ", named.Select(Display));
+            return (count - named.Count) switch
+            {
+                0 => names,
+                1 => $"{names} and 1 other execution",
+                var rest => $"{names} and {rest} other executions"
+            };
+        }
+
+        /// <summary>The display name of an execution, or its id when it is not an execution of the model.</summary>
+        /// <param name="execution">The execution id.</param>
+        private string Display(string execution) => _executions.TryGetValue(execution, out var known) ? known.Display : execution;
+
+        /// <summary>The ids of the executions a set holds, in the order of their numbers.</summary>
+        /// <param name="executions">The executions, as bits.</param>
+        private IEnumerable<string> Ids(ulong[] executions) => Bits.Numbers(executions).Select(_ids.Id);
 
         /// <summary>One hop of an escape chain, with the source location that made it: the delegate creation of a capture, or the
         /// store that put the target there.</summary>
@@ -3479,19 +3544,6 @@ public static class ExecutionModel
         /// <summary>The store accesses of the list <see cref="StoreSpan"/> was last asked about, by region.</summary>
         private StoreIndex? _storesByRegion;
 
-        /// <summary>The union of execution sets.</summary>
-        /// <param name="sets">The sets.</param>
-        private ExecutionSet Union(IEnumerable<ExecutionSet> sets)
-        {
-            var bits = Bits.EMPTY;
-            foreach (var set in sets)
-            {
-                CheckCancellation();
-                Bits.UnionWith(ref bits, set.Words);
-            }
-            return _ids.Set(bits);
-        }
-
         private static Analysis.SourceSpan? FirstSpan(IEnumerable<Analysis.SourceSpan?> spans) =>
             spans.OfType<Analysis.SourceSpan>().OrderBy(span => span.Path, StringComparer.Ordinal)
                  .ThenBy(span => span.StartLine).ThenBy(span => span.StartColumn).FirstOrDefault();
@@ -3567,10 +3619,6 @@ public static class ExecutionModel
         private static IEnumerable<ReachedNode> Reached(ReachedNode[] nodes, ExecutionIds ids, string execution) =>
             ids.TryGetNumber(execution, out var number) ? nodes.Where(node => Bits.Contains(node.Executions, number)) : [];
 
-        private string Describe(IEnumerable<string> executions) =>
-            string.Join(", ", executions.Order(StringComparer.Ordinal)
-                                        .Select(id => _executions.TryGetValue(id, out var execution) ? execution.Display : id));
-
         /// <summary>The instances that run a region's site in its context: the ones that create it.</summary>
         /// <param name="region">The region.</param>
         private IEnumerable<MethodInstance> CreatorsOf(HeapRegion region) =>
@@ -3586,10 +3634,18 @@ public static class ExecutionModel
         /// operation, so that an async body's prefix and its tail each run only their own (every node where no operation is named).</summary>
         /// <param name="instance">The instance.</param>
         /// <param name="operationId">The operation, <see cref="BODY_ENTRY"/> for the body's entry, or null for any.</param>
-        private IEnumerable<string> ExecutionsRunning(MethodInstance instance, int? operationId) =>
-            (NodesByInstance.GetValueOrDefault(instance.Id) ?? [])
-                .Where(node => operationId is not { } operation || _segments.Runs(instance.BodyId, node.Segment, operation))
-                .SelectMany(node => _ids.Set(node.Executions));
+        /// <returns>The executions, as bits of the caller's own.</returns>
+        private ulong[] ExecutionsRunning(MethodInstance instance, int? operationId)
+        {
+            var executions = Bits.EMPTY;
+            foreach (var node in NodesByInstance.GetValueOrDefault(instance.Id) ?? [])
+            {
+                CheckCancellation();
+                if (operationId is not { } operation || _segments.Runs(instance.BodyId, node.Segment, operation))
+                    Bits.UnionWith(ref executions, node.Executions);
+            }
+            return executions;
+        }
 
         /// <summary>The executions that create a region. An allocation or a delegate is created by the executions that run its site: an
         /// async body's first prefix runs in its caller's execution and its tail, after the first await, in the tail's. For a
@@ -3597,17 +3653,33 @@ public static class ExecutionModel
         /// creations belong there too; a non-async target keeps every run in the caller. A closure is created once per run at entry, by the
         /// executions that run its first segment: an async tail of the same run does not create it again (R4, ADR 0020).</summary>
         /// <param name="region">The region.</param>
-        private HashSet<string> CreationExecutions(HeapRegion region) => region.Kind switch
+        /// <returns>The executions, as bits of the caller's own.</returns>
+        private ulong[] CreationExecutions(HeapRegion region)
         {
-            HeapRegionKind.Allocation or HeapRegionKind.Delegate or HeapRegionKind.Closure =>
-                CreatorsOf(region)
-                    .SelectMany(instance => ExecutionsRunning(instance, region.Kind == HeapRegionKind.Closure ? BODY_ENTRY : region.SiteOperationId))
-                    .ToHashSet(StringComparer.Ordinal),
-            HeapRegionKind.Receiver => [region.Context],
-            _ => RegionExecutions(region.Identity)
-                 .Concat((heap.LocatorCreators.GetValueOrDefault(region.Identity) ?? new HashSet<string>()).SelectMany(ExecutionsOf))
-                 .ToHashSet(StringComparer.Ordinal)
-        };
+            var executions = Bits.EMPTY;
+            switch (region.Kind)
+            {
+                case HeapRegionKind.Allocation or HeapRegionKind.Delegate or HeapRegionKind.Closure:
+                    foreach (var instance in CreatorsOf(region))
+                    {
+                        CheckCancellation();
+                        Bits.UnionWith(ref executions, ExecutionsRunning(instance, region.Kind == HeapRegionKind.Closure ? BODY_ENTRY : region.SiteOperationId));
+                    }
+                    break;
+                case HeapRegionKind.Receiver:
+                    Bits.Add(ref executions, _ids.Number(region.Context));
+                    break;
+                default:
+                    Bits.UnionWith(ref executions, _regionExecutions.GetValueOrDefault(region.Identity) ?? Bits.EMPTY);
+                    foreach (var creator in heap.LocatorCreators.GetValueOrDefault(region.Identity) ?? new HashSet<string>())
+                    {
+                        CheckCancellation();
+                        Bits.UnionWith(ref executions, _instanceExecutions.GetValueOrDefault(creator) ?? Bits.EMPTY);
+                    }
+                    break;
+            }
+            return executions;
+        }
 
         /// <summary>Lock identities that are one object per process: static readonly fields' objects, singleton and root-scope container
         /// objects while no registration is unresolved, and allocations outside any cycle in a body that runs once.</summary>
