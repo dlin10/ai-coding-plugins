@@ -128,9 +128,14 @@ internal abstract class TrackedContainer : ITrackedState
 /// <summary>A set whose membership test reads the key of its item and whose add reads nothing: while the solve runs a set only grows, so
 /// an add run again adds nothing and decides nothing another way. A removal from an attached set may undo an add no reader recorded, so it
 /// writes the wildcard.</summary>
+/// <remarks>Once a solve is done its sets with the same items in the same order share one copy (<see cref="Share"/>); a set that
+/// changes after that first makes the items its own, so no other set sees the change.</remarks>
 internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
 {
-    private readonly HashSet<T> _items;
+    private HashSet<T> _items;
+
+    // Whether another set may hold _items too: a change then copies them first (Own).
+    private bool _shared;
     private StateKey? _emptiness;
 
     // Whether a membership test has read the key of an item: only then does an add write the key of the item it adds.
@@ -144,6 +149,23 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         if (items is not TrackedSet<T> tracked) return items;
         tracked.Read(tracked.Key?.All);
         return tracked._items;
+    }
+
+    /// <summary>Makes the items this set's own before it changes them, when another set may hold them.</summary>
+    private void Own()
+    {
+        if (!_shared)
+            return;
+        _items = new HashSet<T>(_items, _items.Comparer);
+        _shared = false;
+    }
+
+    /// <summary>Lets the set hold the one copy of its items, in their order, that every set given the same contents holds.</summary>
+    /// <param name="contents">The shared contents.</param>
+    internal void Share(SharedContents<T> contents)
+    {
+        _items = contents.Intern(_items);
+        _shared = true;
     }
     public int Count { get { Read(Key?.All); return _items.Count; } }
 
@@ -166,6 +188,11 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     public bool Add(T item)
     {
         WorkCancellation.Check();
+        if (_shared)
+        {
+            if (_items.Contains(item)) return false;
+            Own();
+        }
         if (!_items.Add(item)) return false;
         if (Key is not null)
         {
@@ -193,7 +220,9 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     {
         WorkCancellation.Check();
         ReadItem(item);
-        if (!_items.Remove(item)) return false;
+        if (!_items.Contains(item)) return false;
+        Own();
+        _items.Remove(item);
         Shrank();
         return true;
     }
@@ -202,6 +231,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         WorkCancellation.Check();
         Read(Key?.All);
         if (_items.Count == 0) return;
+        Own();
         _items.Clear();
         Shrank();
     }
@@ -209,6 +239,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     {
         WorkCancellation.Check();
         Read(Key?.All);
+        Own();
         var removed = _items.RemoveWhere(match);
         if (removed != 0) Shrank();
         return removed;
@@ -218,7 +249,11 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         WorkCancellation.Check();
         var source = Source(other);
         var before = _items.Count;
-        if (Key is null || !_itemsRead || ReferenceEquals(source, _items))
+        // A set shared with this one holds the same items: the union adds nothing.
+        if (ReferenceEquals(source, _items))
+            return;
+        Own();
+        if (Key is null || !_itemsRead)
             _items.UnionWith(source);
         else
             foreach (var item in source)
@@ -234,7 +269,9 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         WorkCancellation.Check();
         Read(Key?.All);
         var before = _items.Count;
-        _items.ExceptWith(Source(other));
+        var source = Source(other);
+        Own();
+        _items.ExceptWith(source);
         if (_items.Count != before) Shrank();
     }
     public void IntersectWith(IEnumerable<T> other)
@@ -242,7 +279,9 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         WorkCancellation.Check();
         Read(Key?.All);
         var before = _items.Count;
-        _items.IntersectWith(Source(other));
+        var source = Source(other);
+        Own();
+        _items.IntersectWith(source);
         if (_items.Count != before) Shrank();
     }
     public void SymmetricExceptWith(IEnumerable<T> other)
@@ -250,7 +289,9 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         WorkCancellation.Check();
         Read(Key?.All);
         var before = new HashSet<T>(_items, _items.Comparer);
-        _items.SymmetricExceptWith(Source(other));
+        var source = Source(other);
+        Own();
+        _items.SymmetricExceptWith(source);
         if (!before.SetEquals(_items)) Shrank();
     }
     public bool IsSubsetOf(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.IsSubsetOf(other); }
@@ -265,6 +306,37 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     {
         WorkCancellation.Check();
         return GetEnumerator();
+    }
+}
+
+/// <summary>One copy of each sequence of items sets hold (<see cref="TrackedSet{T}.Share"/>): sets with the same items in the same order
+/// and the same comparer keep the first of them, so they enumerate as they did.</summary>
+internal sealed class SharedContents<T>
+{
+    private readonly Dictionary<ulong, List<HashSet<T>>> _byHash = [];
+
+    /// <summary>The copy of the items every set holding them in this order keeps: the first such items given.</summary>
+    /// <param name="items">The items.</param>
+    internal HashSet<T> Intern(HashSet<T> items)
+    {
+        var comparer = items.Comparer;
+        var hash = (ulong)items.Count;
+        foreach (var item in items)
+        {
+            WorkCancellation.Check();
+            hash = (hash ^ (uint)(item is null ? 0 : comparer.GetHashCode(item))) * 0x9E3779B97F4A7C15UL;
+            hash ^= hash >> 29;
+        }
+        if (!_byHash.TryGetValue(hash, out var candidates))
+            _byHash.Add(hash, candidates = []);
+        foreach (var candidate in candidates)
+        {
+            WorkCancellation.Check();
+            if (candidate.Count == items.Count && ReferenceEquals(candidate.Comparer, comparer) && candidate.SequenceEqual(items, comparer))
+                return candidate;
+        }
+        candidates.Add(items);
+        return items;
     }
 }
 

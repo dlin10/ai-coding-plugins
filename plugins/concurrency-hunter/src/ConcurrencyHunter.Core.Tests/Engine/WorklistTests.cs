@@ -280,7 +280,6 @@ public sealed class WorklistTests
         var solver = NewSolver(Reach(Recursive()), new(), new(MaxSccIterations: 1));
         var heap = (HeapSolution)Invoke(solver, "Run")!;
         Assert.True(heap.Counters[HeapCounters.SCC_BUDGET_EXCEEDED] > 0);
-        Assert.Contains(Writes(solver).Keys, key => key.State == "_mergedBodies");
         Invoke(solver, "Propagate");
         var histories = (IDictionary)Field(solver, "_history").GetValue(solver)!;
         var cyclic = heap.Instances.Values.First(instance => instance.IsMerged && instance.BodyId.Contains("Ping.", StringComparison.Ordinal));
@@ -299,6 +298,7 @@ public sealed class WorklistTests
         Assert.False((bool)Invoke(solver, "Dirty", cleanHistory)!);
         var states = (IDictionary)Field(solver, "_instances").GetValue(solver)!;
         Invoke(solver, "CountRound", states[cyclic.Id]!);
+        Assert.Contains(Writes(solver).Keys, key => key.State == "_mergedBodies");
         Assert.Contains(cyclic.BodyId, (IReadOnlySet<string>)merged);
         Assert.Equal(before, (int)Field(solver, "_changes").GetValue(solver)!);
         Assert.True((bool)Invoke(solver, "Dirty", cleanHistory)!);
@@ -431,6 +431,56 @@ public sealed class WorklistTests
         Invoke(solver, "CopyStruct", instance, Copy("copy-other"));
         Assert.Equal(["x", "y"], Identities(Slot(solver, "copy-other")).Order());
     }
+
+    [Fact]
+    public void Sets_with_the_same_items_in_the_same_order_share_one_copy()
+    {
+        var contents = new SharedContents<string>();
+        TrackedSet<string> Shared(params string[] items)
+        {
+            var set = new TrackedSet<string>(items, StringComparer.Ordinal);
+            set.Share(contents);
+            return set;
+        }
+
+        var first = Shared("a", "b");
+        var second = Shared("a", "b");
+        var reversed = Shared("b", "a");
+        Assert.Same(Items(first), Items(second));
+        // A set in another order keeps its own, so every set enumerates as it did.
+        Assert.NotSame(Items(first), Items(reversed));
+        Assert.Equal(["b", "a"], reversed);
+        // A change of one makes its items its own, and the others keep theirs.
+        Assert.True(second.Add("c"));
+        Assert.True(reversed.Remove("a"));
+        Assert.Equal(["a", "b"], first);
+        Assert.Equal(["a", "b", "c"], second);
+        Assert.Same(Items(first), Items(Shared("a", "b")));
+    }
+
+    [Fact]
+    public void A_solved_heap_shares_equal_points_to_sets_and_lets_go_of_what_only_the_solve_reads()
+    {
+        var solver = NewSolver("""
+            public sealed class Box { }
+            public static class Use { public static void Both(object first, object second) { GC.KeepAlive(first); GC.KeepAlive(second); } }
+            public class WorkController : ControllerBase { public void Post() { var box = new Box(); Use.Both(box, box); } }
+            """ + Startup());
+        var heap = (HeapSolution)Invoke(solver, "Run")!;
+        var instances = (IDictionary)Field(solver, "_instances").GetValue(solver)!;
+        var both = instances[heap.Instances.Values.Single(instance => instance.BodyId.Contains("Use.Both", StringComparison.Ordinal)).Id]!;
+        var parameters = (IDictionary)both.GetType().GetProperty("Parameters", MEMBERS)!.GetValue(both)!;
+
+        Assert.Single(Identities(parameters[0]!));
+        Assert.Same(Items(parameters[0]!), Items(parameters[1]!));
+        Assert.Empty((IDictionary)Field(solver, "_history").GetValue(solver)!);
+        // Only the end of the solve itself writes after it lets go of the writes.
+        Assert.All(Writes(solver).Keys, key => Assert.Equal("_solvingState", key.State));
+    }
+
+    /// <summary>The items a set holds, as it keeps them.</summary>
+    /// <param name="set">The set.</param>
+    private static object Items(object set) => set.GetType().GetField("_items", MEMBERS)!.GetValue(set)!;
 
     /// <summary>Adds a region of a group to a solved solver, as the solve adds one.</summary>
     /// <param name="solver">The solver.</param>

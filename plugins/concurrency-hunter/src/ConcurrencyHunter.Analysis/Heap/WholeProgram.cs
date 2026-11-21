@@ -1,6 +1,6 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
@@ -1368,6 +1368,7 @@ public static partial class WholeProgram
                 }
                 if (_worklistOptions.VerifyConvergence)
                     VerifyConvergence();
+                Settle();
                 CheckCancellation();
                 return result;
             }
@@ -1381,6 +1382,46 @@ public static partial class WholeProgram
                 // Queries retained by HeapSolution belong to their later stage, not to this solve.
                 Solving = false;
             }
+        }
+
+        /// <summary>Ends the solve for the queries of the solved heap: the points-to sets holding the same regions in the same order share
+        /// one copy, which they enumerate as before, and what only the solve reads is let go — the reads and writes the worklist decided
+        /// by, and the unions <see cref="Load"/> and the copies <see cref="CopyStruct"/> remembered. A query reads none of these and
+        /// writes nothing; a set changed after this makes its own copy first.</summary>
+        private void Settle()
+        {
+            var contents = new SharedContents<RegionRef>();
+            void Share(IEnumerable<TrackedSet<RegionRef>> sets)
+            {
+                CheckCancellation();
+                foreach (var set in sets)
+                {
+                    CheckCancellation();
+                    set.Share(contents);
+                }
+            }
+
+            foreach (var instance in _instances.Values)
+            {
+                CheckCancellation();
+                Share([instance.Receivers, instance.Returns, instance.Yields]);
+                Share(instance.Parameters.Values);
+                Share(instance.CallResults.Values);
+                Share(instance.RefResults.Values);
+                Share(instance.RefParameters.Values);
+            }
+            Share(_fields.Values);
+            Share(_libraryKeeping.Values);
+            Share(_libraryStored.Values);
+            Share(_iteratorMemberReceivers.Values);
+            _history.Clear();
+            _history.TrimExcess();
+            _writes.Clear();
+            _writes.TrimExcess();
+            _loadedUnions.Clear();
+            _loadedUnions.TrimExcess();
+            _copiedSlots.Clear();
+            _copiedSlots.TrimExcess();
         }
 
         private bool CreateKeeperFallbacks()
@@ -2412,22 +2453,59 @@ public static partial class WholeProgram
         }
 
         /// <summary>The part of an instance key a substitution gives: its bindings in the ordinal order of their type parameters. Every
-        /// binding a call makes asks for it, so it sorts one array and builds one string rather than chaining enumerators.</summary>
+        /// binding a call makes asks for it, so it sorts the bindings in a pooled array and writes the one string it returns.</summary>
         /// <param name="substitution">The instance's substitution.</param>
         private static string SubstitutionText(IReadOnlyDictionary<string, string> substitution)
         {
-            if (substitution.Count == 0)
+            var count = substitution.Count;
+            if (count == 0)
                 return string.Empty;
-            var bindings = substitution.ToArray();
-            Array.Sort(bindings, static (left, right) => string.CompareOrdinal(left.Key, right.Key));
-            var text = new StringBuilder();
-            foreach (var (parameter, argument) in bindings)
+            var bindings = ArrayPool<KeyValuePair<string, string>>.Shared.Rent(count);
+            try
             {
-                WorkCancellation.Check();
-                text.Append(text.Length == 0 ? '|' : ';').Append(parameter).Append('=').Append(argument);
+                if (substitution is System.Collections.ICollection collection)
+                    collection.CopyTo(bindings, 0);
+                else
+                {
+                    var index = 0;
+                    foreach (var binding in substitution)
+                    {
+                        WorkCancellation.Check();
+                        bindings[index++] = binding;
+                    }
+                }
+                Array.Sort(bindings, 0, count, BINDING_ORDER);
+                var length = 0;
+                for (var index = 0; index < count; index++)
+                {
+                    WorkCancellation.Check();
+                    length += 2 + bindings[index].Key.Length + bindings[index].Value.Length;
+                }
+                return string.Create(length, (bindings, count), static (text, state) =>
+                {
+                    var at = 0;
+                    for (var index = 0; index < state.count; index++)
+                    {
+                        WorkCancellation.Check();
+                        var (parameter, argument) = state.bindings[index];
+                        text[at++] = index == 0 ? '|' : ';';
+                        parameter.CopyTo(text[at..]);
+                        at += parameter.Length;
+                        text[at++] = '=';
+                        argument.CopyTo(text[at..]);
+                        at += argument.Length;
+                    }
+                });
             }
-            return text.ToString();
+            finally
+            {
+                ArrayPool<KeyValuePair<string, string>>.Shared.Return(bindings, clearArray: true);
+            }
         }
+
+        /// <summary>Bindings in the ordinal order of their type parameters, as <see cref="SubstitutionText"/> writes them.</summary>
+        private static readonly IComparer<KeyValuePair<string, string>> BINDING_ORDER =
+            Comparer<KeyValuePair<string, string>>.Create(static (left, right) => string.CompareOrdinal(left.Key, right.Key));
 
         /// <summary>Propagates one instance's transfers and records unseen-write starts without walking the heap. Model writes and
         /// unseen outputs mark only their own targets here; <see cref="Run"/> applies transitive walks after propagation converges.</summary>
