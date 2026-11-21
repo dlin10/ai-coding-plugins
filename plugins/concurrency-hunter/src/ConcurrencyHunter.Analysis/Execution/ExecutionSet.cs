@@ -298,12 +298,14 @@ internal static class Bits
     }
 }
 
-/// <summary>A list per execution, worked out the first time an execution is asked for: what one execution's visits or steps are,
-/// read out of a walk graph the executions share.</summary>
+/// <summary>A list per execution, worked out when an execution is asked for: what one execution's visits, steps or entries are, read
+/// out of a walk graph or entries the executions share.</summary>
 /// <typeparam name="T">The item type.</typeparam>
 /// <param name="keys">The executions that have a list, in ordinal order.</param>
 /// <param name="list">Works out the list of one execution.</param>
-internal sealed class ExecutionLists<T>(IReadOnlyList<string> keys, Func<string, IReadOnlyList<T>> list) : IReadOnlyDictionary<string, IReadOnlyList<T>>
+/// <param name="keep">Whether a list is kept once worked out, or worked out again each time it is asked for.</param>
+internal sealed class ExecutionLists<T>(IReadOnlyList<string> keys, Func<string, IReadOnlyList<T>> list, bool keep = true)
+    : IReadOnlyDictionary<string, IReadOnlyList<T>>
 {
     private readonly HashSet<string> _keys = keys.ToHashSet(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<T>> _lists = new(StringComparer.Ordinal);
@@ -325,6 +327,12 @@ internal sealed class ExecutionLists<T>(IReadOnlyList<string> keys, Func<string,
         {
             value = [];
             return false;
+        }
+
+        if (!keep)
+        {
+            value = list(key);
+            return true;
         }
 
         lock (_lists)

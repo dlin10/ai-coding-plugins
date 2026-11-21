@@ -728,6 +728,47 @@ public static class ExecutionModel
     internal sealed record AdmittedCall(string Instance, int Operation, RunRelation Relation, string? Execution, string? Task,
                                         IReadOnlyList<string> Continuations, AdmissionThreshold Threshold);
 
+    /// <summary>A construction entry, made once for every execution of its region (ADR 0039).</summary>
+    /// <param name="Entry">The entry: a constructor instance, starting inside the region it constructs.</param>
+    /// <param name="Executions">The executions of the region, as bits over the execution numbering: the region's own set, never
+    /// changed.</param>
+    internal sealed record ConstructionEntry(ExecutionEntry Entry, ulong[] Executions);
+
+    /// <summary>Each execution's entries, worked out each time an execution is asked for and never kept, since kept lists would hold
+    /// every construction entry once per execution of its region again (ADR 0039): the execution's own entries, with the construction
+    /// entries whose executions hold it in their place, in the canonical order the builder gives an execution's entries (by kind, then
+    /// object, instance and segment). Static, so the lists keep the entries and the numbering, and nothing else the builder holds.</summary>
+    /// <param name="own">Each execution's own entries, in canonical order; no construction entry among them.</param>
+    /// <param name="constructions">The construction entries, in canonical order.</param>
+    /// <param name="ids">The numbering of the execution ids.</param>
+    internal static ExecutionLists<ExecutionEntry> EntryLists(Dictionary<string, List<ExecutionEntry>> own, ConstructionEntry[] constructions,
+                                                              ExecutionIds ids)
+    {
+        var constructed = Bits.EMPTY;
+        foreach (var construction in constructions)
+        {
+            WorkCancellation.Check();
+            Bits.UnionWith(ref constructed, construction.Executions);
+        }
+        var keys = own.Keys.Union(ids.Set(constructed), StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return new ExecutionLists<ExecutionEntry>(keys, execution =>
+        {
+            var mine = own.GetValueOrDefault(execution) ?? [];
+            if (!ids.TryGetNumber(execution, out var number))
+                return mine;
+            var list = new List<ExecutionEntry>(mine.Count);
+            list.AddRange(mine.TakeWhile(entry => entry.Kind < ExecutionEntryKind.Construction));
+            foreach (var construction in constructions)
+            {
+                WorkCancellation.Check();
+                if (Bits.Contains(construction.Executions, number))
+                    list.Add(construction.Entry);
+            }
+            list.AddRange(mine.SkipWhile(entry => entry.Kind < ExecutionEntryKind.Construction));
+            return list;
+        }, keep: false);
+    }
+
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
         internal int WalkVisits { get; private set; }
@@ -777,6 +818,14 @@ public static class ExecutionModel
         private readonly HashSet<(string Execution, ExecutionEntry Entry)> _entered = [];
         private readonly Queue<(string Execution, ExecutionEntry Entry, string? Tail)> _pendingEntries = new();
         private readonly HashSet<(string Execution, ExecutionEntry Entry, string? Tail)> _entryWalks = [];
+
+        /// <summary>Every construction entry once, by constructor instance and region, with the executions of its region (ADR 0039);
+        /// <see cref="_entries"/> holds every other entry.</summary>
+        private readonly List<ConstructionEntry> _constructionEntries = [];
+        private readonly HashSet<ExecutionEntry> _constructionEntered = [];
+
+        /// <summary>Each execution's entries, its own and the construction entries of its regions, once the walk is canonical.</summary>
+        private ExecutionLists<ExecutionEntry> _entryLists = new([], _ => []);
         private readonly Random? _walkRandom = walkOrder?.Seed is { } seed ? new Random(seed) : null;
         private readonly AsyncSegments _segments = new(scope, heap);
         private readonly Dictionary<string, SpawnSite[]> _spawns = heap.Spawns.GroupBy(site => site.CallerInstance, StringComparer.Ordinal)
@@ -889,18 +938,20 @@ public static class ExecutionModel
                 }
             }
 
+            // A construction entry is made once, with the executions of its region, not once for each of them (ADR 0039).
             foreach (var construction in heap.Constructions.OrderBy(construction => heap.Regions[construction.RegionId].Kind != HeapRegionKind.Receiver)
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))
             {
                 CheckCancellation();
-                foreach (var execution in RegionExecutions(construction.RegionId))
+                var regionExecutions = _regionExecutions.GetValueOrDefault(construction.RegionId) ?? Bits.EMPTY;
+                if (Bits.IsEmpty(regionExecutions))
+                    continue;
+                foreach (var instance in construction.ConstructorInstances)
                 {
                     CheckCancellation();
-                    foreach (var instance in construction.ConstructorInstances)
-                    {
-                        CheckCancellation();
-                        Entry(execution, new ExecutionEntry(instance, ExecutionEntryKind.Construction, construction.RegionId));
-                    }
+                    var entry = new ExecutionEntry(instance, ExecutionEntryKind.Construction, construction.RegionId);
+                    if (_constructionEntered.Add(entry))
+                        _constructionEntries.Add(new ConstructionEntry(entry, regionExecutions));
                 }
             }
 
@@ -916,16 +967,27 @@ public static class ExecutionModel
             }
             DiagnosticCheckpoint.Reach($"entries:{scope.ScopeId}", collect: true, EntryCounts);
 
+            var constructionsTaken = false;
             do
             {
                 CheckCancellation();
                 // Every pending entry is taken before the walk passes executions on, so executions that reach a node together arrive
-                // there in one visit; the entries the walk makes are taken in the next round.
-                while (_pendingEntries.Count != 0)
+                // there in one visit; the entries the walk makes are taken in the next round. The walk makes no construction entry, so
+                // the first round takes all of them, each for every execution of its region at once.
+                while (!constructionsTaken || _pendingEntries.Count != 0)
                 {
                     CheckCancellation();
                     var taken = Permute(_pendingEntries).ToArray();
                     _pendingEntries.Clear();
+                    if (!constructionsTaken)
+                    {
+                        constructionsTaken = true;
+                        foreach (var construction in Permute(_constructionEntries))
+                        {
+                            CheckCancellation();
+                            Seed(construction.Executions, construction.Entry);
+                        }
+                    }
                     foreach (var (execution, entry, tail) in taken)
                     {
                         CheckCancellation();
@@ -946,10 +1008,14 @@ public static class ExecutionModel
             while (_pendingEntries.Count != 0);
 
             Constructions();
+            DiagnosticCheckpoint.Reach($"constructions:{scope.ScopeId}", collect: true,
+                                       () => [$"walkNodes={_walkNodes.Count} seeds={_seeds.Count} constructionEntries={_constructionEntries.Count}"]);
             _constructionIndex = new ConstructionIndex(_nodeList, _objectIds, _ids, _segments, heap, _objectEdges, _objectSeeds, _outsideStarts, _seedsAt);
-            if (_entries.ContainsKey(STARTUP))
+            if (_entries.ContainsKey(STARTUP) ||
+                _ids.TryGetNumber(STARTUP, out var startupNumber) && _constructionEntries.Exists(construction => Bits.Contains(construction.Executions, startupNumber)))
                 Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
             CanonicalizeWalk();
+            _entryLists = EntryLists(_entries, _constructionEntries.ToArray(), _ids);
             ReadExecutionLists();
 
             FinishSpawnedExecutions();
@@ -969,7 +1035,7 @@ public static class ExecutionModel
             var published = Published(ownership);
             var accesses = Collect(published);
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
-            var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
+            var entries = _entryLists;
             var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
                                           _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), admittedCalls, cancellationToken);
             var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
@@ -1030,18 +1096,19 @@ public static class ExecutionModel
         }
 
         /// <summary>What a diagnostic run reports once the entries before the walk are made (#457), a line as each is known: how many
-        /// entries there are, how many stay apart without their execution and without their instance too, and the elements and the
-        /// estimated bytes of the four structures that hold them (64-bit layout: a set slot is its value with a hash and a next
-        /// index, plus a bucket).</summary>
+        /// entries there are, an execution's own and the construction entries with the pairs of entry and execution they stand for
+        /// (ADR 0039), how many stay apart without their execution and without their instance too, and the elements and the
+        /// estimated bytes of the structures that hold them (64-bit layout: a set slot is its value with a hash and a next index,
+        /// plus a bucket; the construction entries' execution sets are their regions' own, counted with the region executions).</summary>
         private IEnumerable<string> EntryCounts()
         {
             CheckCancellation();
-            long total = 0, listCapacity = 0;
+            long own = 0, listCapacity = 0, constructionPairs = 0;
             var byKind = new SortedDictionary<ExecutionEntryKind, long>();
             foreach (var list in _entries.Values)
             {
                 CheckCancellation();
-                total += list.Count;
+                own += list.Count;
                 listCapacity += list.Capacity;
                 foreach (var entry in list)
                 {
@@ -1049,19 +1116,33 @@ public static class ExecutionModel
                     byKind[entry.Kind] = byKind.GetValueOrDefault(entry.Kind) + 1;
                 }
             }
-            yield return $"entries={total} executionsWithEntries={_entries.Count} regionExecutionPairs={RegionExecutionPairs} " +
-                         $"byKind={string.Join(",", byKind.Select(pair => $"{pair.Key}:{pair.Value}"))}";
+            foreach (var construction in _constructionEntries)
+            {
+                CheckCancellation();
+                constructionPairs += construction.Executions.Sum(word => (long)BitOperations.PopCount(word));
+            }
+            if (constructionPairs != 0)
+                byKind[ExecutionEntryKind.Construction] = constructionPairs;
+            yield return $"entries={own + constructionPairs} ownEntries={own} executionsWithOwnEntries={_entries.Count} " +
+                         $"constructionEntries={_constructionEntries.Count} constructionPairs={constructionPairs} " +
+                         $"regionExecutionPairs={RegionExecutionPairs} byKind={string.Join(",", byKind.Select(pair => $"{pair.Key}:{pair.Value}"))}";
 
             long entriesCapacity = _entries.EnsureCapacity(0), enteredCapacity = _entered.EnsureCapacity(0),
-                 walksCapacity = _entryWalks.EnsureCapacity(0), pendingCapacity = _pendingEntries.EnsureCapacity(0);
-            yield return $"_entries count={_entries.Count} capacity={entriesCapacity} listElements={total} listCapacity={listCapacity} " +
+                 walksCapacity = _entryWalks.EnsureCapacity(0), pendingCapacity = _pendingEntries.EnsureCapacity(0),
+                 constructionCapacity = _constructionEntries.Capacity, constructionEnteredCapacity = _constructionEntered.EnsureCapacity(0);
+            yield return $"_entries count={_entries.Count} capacity={entriesCapacity} listElements={own} listCapacity={listCapacity} " +
                          $"bytes={entriesCapacity * 28 + _entries.Count * 56L + listCapacity * 8}";
             yield return $"_entered count={_entered.Count} capacity={enteredCapacity} bytes={enteredCapacity * 28}";
             yield return $"_entryWalks count={_entryWalks.Count} capacity={walksCapacity} bytes={walksCapacity * 36}";
             yield return $"_pendingEntries count={_pendingEntries.Count} capacity={pendingCapacity} bytes={pendingCapacity * 24}";
             yield return $"ExecutionEntry objects<={_entryWalks.Count} bytes<={_entryWalks.Count * 40L}";
+            // A construction entry is its record (32 bytes) and its ExecutionEntry (40), plus a list slot and a set slot.
+            yield return $"_constructionEntries count={_constructionEntries.Count} capacity={constructionCapacity} " +
+                         $"bytes={constructionCapacity * 8 + _constructionEntries.Count * 72L}";
+            yield return $"_constructionEntered count={_constructionEntered.Count} capacity={constructionEnteredCapacity} " +
+                         $"bytes={constructionEnteredCapacity * 20}";
 
-            var withoutExecution = new HashSet<ExecutionEntry>();
+            var withoutExecution = new HashSet<ExecutionEntry>(_constructionEntered);
             foreach (var list in _entries.Values)
             {
                 CheckCancellation();
@@ -1097,6 +1178,9 @@ public static class ExecutionModel
                 OrderList(entries, entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.IntervalObject, StringComparer.Ordinal)
                                           .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal).ThenBy(entry => entry.Segment));
             }
+            // In the same order as an execution's own entries: every construction entry has one kind and the whole body.
+            OrderList(_constructionEntries, _constructionEntries.OrderBy(construction => construction.Entry.IntervalObject, StringComparer.Ordinal)
+                                                                .ThenBy(construction => construction.Entry.InstanceId, StringComparer.Ordinal));
             OrderDictionary(_regionExecutions);
             foreach (var handings in _fateHandings.Values)
             {
@@ -1538,8 +1622,7 @@ public static class ExecutionModel
         /// which execution a handle names reads no admission.</summary>
         private HappensBefore HandleOrder() =>
             _handleOrder ??= new HappensBefore(scope, heap, _segments, new Dictionary<string, ExecutionInstance>(_executions, StringComparer.Ordinal),
-                                               _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal),
-                                               _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), [], cancellationToken);
+                                               _entryLists, _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), [], cancellationToken);
 
         /// <summary>Whether only delegate creations define a value in this body, through assignments and phi inputs. A field,
         /// parameter, call result or combination is no creation even where its points-to set contains the same delegate regions.</summary>
@@ -1772,7 +1855,7 @@ public static class ExecutionModel
             if (_flows.TryGetValue(execution, out var flow))
                 return flow;
             var visits = _visitsByExecution.GetValueOrDefault(execution) ?? [];
-            flow = new HappensBefore.Flow(scope, heap, _segments, _entries.GetValueOrDefault(execution) ?? [], visits,
+            flow = new HappensBefore.Flow(scope, heap, _segments, _entryLists.GetValueOrDefault(execution) ?? [], visits,
                                           _steps.GetValueOrDefault(execution)?.ToArray() ?? [],
                                           new Dictionary<(string, int), IReadOnlyCollection<HappensBefore.PointKey>>(), CheckCancellation);
             _flows.Add(execution, flow);
@@ -1829,7 +1912,7 @@ public static class ExecutionModel
         // bounded: forwards once to the path proof of another type.
         private bool OnePath(string execution, string bodyId, int operationId, bool afterCall = false, IReadOnlySet<string>? roots = null)
         {
-            var entries = roots ?? (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
+            var entries = roots ?? (_entryLists.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
             return TaskForwarders.OnePath(heap, _steps.GetValueOrDefault(execution) ?? [], bodyId, operationId, afterCall, entries, InCycle);
         }
 
@@ -1847,7 +1930,7 @@ public static class ExecutionModel
                                                                                   StringComparer.Ordinal);
             var parents = new Dictionary<string, string?>(StringComparer.Ordinal);
             var pending = new Queue<string>();
-            foreach (var entry in _entries.GetValueOrDefault(execution) ?? [])
+            foreach (var entry in _entryLists.GetValueOrDefault(execution) ?? [])
             {
                 CheckCancellation();
                 if (parents.TryAdd(entry.InstanceId, null))
@@ -2153,11 +2236,11 @@ public static class ExecutionModel
         /// <param name="AsyncOperation">The call operation of an async spawn edge, or null for an awaited callee in a prefix.</param>
         private sealed record TailEntry(string Callee, int? AsyncOperation);
 
-        /// <summary>An entry the walk took.</summary>
-        /// <param name="Execution">The execution's number.</param>
+        /// <summary>An entry the walk took: for one execution, or for every execution of a construction entry's region at once.</summary>
+        /// <param name="Executions">The executions taking it, as bits over the execution numbering; never changed.</param>
         /// <param name="Node">The node entered.</param>
         /// <param name="Interval">The number of the object the entry starts inside, or -1.</param>
-        private sealed record TakenEntry(int Execution, WalkNode Node, int Interval);
+        private sealed record TakenEntry(ulong[] Executions, WalkNode Node, int Interval);
 
         /// <summary>An edge that starts an object's construction.</summary>
         /// <param name="From">The node the edge leaves.</param>
@@ -2237,12 +2320,27 @@ public static class ExecutionModel
                 return;
             Discover(node);
             var number = _ids.Number(execution);
-            _seeds.Add(new TakenEntry(number, node, entry.IntervalObject is { } interval ? ObjectId(interval) : -1));
+            _seeds.Add(new TakenEntry(Bits.Of([number]), node, entry.IntervalObject is { } interval ? ObjectId(interval) : -1));
             if (Bits.Add(ref node.Executions, number))
             {
                 Bits.Add(ref node.Arrived, number);
                 Enqueue(node);
             }
+        }
+
+        /// <summary>Takes a construction entry for every execution of its region at once (ADR 0039): its node and what that reaches are
+        /// discovered, and the executions that had not reached the node yet arrive there.</summary>
+        /// <param name="executions">The executions of the entry's region, as bits; read, never changed.</param>
+        /// <param name="entry">The construction entry.</param>
+        private void Seed(ulong[] executions, ExecutionEntry entry)
+        {
+            CheckCancellation();
+            if (Node(entry.InstanceId, entry.Segment, null) is not { } node)
+                return;
+            Discover(node);
+            _seeds.Add(new TakenEntry(executions, node, ObjectId(entry.IntervalObject!)));
+            if (Bits.UnionWith(ref node.Executions, executions, ref node.Arrived))
+                Enqueue(node);
         }
 
         private void Enqueue(WalkNode node)
@@ -2438,15 +2536,15 @@ public static class ExecutionModel
             foreach (var seed in _seeds)
             {
                 CheckCancellation();
-                var (execution, node, interval) = seed;
+                var (executions, node, interval) = seed;
                 if (!_seedsAt.TryGetValue(node, out var seeds))
                     _seedsAt.Add(node, seeds = []);
                 seeds.Add(seed);
                 if (interval < 0)
                     continue;
-                if (!_objectSeeds.TryGetValue(interval, out var executions))
-                    _objectSeeds.Add(interval, executions = []);
-                executions.Add(execution);
+                if (!_objectSeeds.TryGetValue(interval, out var inside))
+                    _objectSeeds.Add(interval, inside = []);
+                inside.Add(executions);
                 Arrive(node, Bits.Of([interval]));
             }
 
@@ -2495,14 +2593,16 @@ public static class ExecutionModel
                     }
                 }
 
-                foreach (var (execution, _, interval) in _seedsAt.GetValueOrDefault(node) ?? [])
+                // Another entry taken at the node enters each object the node is reached inside, but the one it starts inside. Per
+                // node, not per entry (ADR 0039): an object no entry here starts inside gets every entry's executions, and one that
+                // some entry starts inside gets those of the entries that start elsewhere.
+                if (_seedsAt.GetValueOrDefault(node) is not { } taken)
+                    continue;
+                var (all, butOwn) = EnteredBesides(taken);
+                foreach (var number in Bits.Numbers(node.Objects))
                 {
                     CheckCancellation();
-                    foreach (var number in Bits.Numbers(node.Objects).Where(number => number != interval))
-                    {
-                        CheckCancellation();
-                        EnterOutside(number, Bits.Of([execution]));
-                    }
+                    EnterOutside(number, butOwn.GetValueOrDefault(number) ?? all);
                 }
             }
 
@@ -2518,10 +2618,10 @@ public static class ExecutionModel
                 }
             }
 
-            foreach (var (execution, node, _) in _seeds)
+            foreach (var (executions, node, _) in _seeds)
             {
                 CheckCancellation();
-                ArriveClean(node, Bits.Of([execution]));
+                ArriveClean(node, executions);
             }
             while (clean.TryPop(out var node))
             {
@@ -2545,14 +2645,57 @@ public static class ExecutionModel
             }
         }
 
+        /// <summary>The executions of the entries taken at one node, for the objects they enter besides the one they start inside: those
+        /// of every entry, and for each object some entry starts inside, those of the entries that start elsewhere (ADR 0039). Unions
+        /// before and after each group in turn, so the cost is the groups, not the groups squared.</summary>
+        /// <param name="taken">The entries taken at the node.</param>
+        private static (ulong[] All, Dictionary<int, ulong[]> ButOwn) EnteredBesides(List<TakenEntry> taken)
+        {
+            var groups = new Dictionary<int, ulong[]>();
+            foreach (var (executions, _, interval) in taken)
+            {
+                WorkCancellation.Check();
+                var set = groups.GetValueOrDefault(interval) ?? Bits.EMPTY;
+                Bits.UnionWith(ref set, executions);
+                groups[interval] = set;
+            }
+
+            var ordered = groups.ToArray();
+            var after = new ulong[ordered.Length + 1][];
+            after[ordered.Length] = Bits.EMPTY;
+            for (var index = ordered.Length - 1; index >= 0; index--)
+            {
+                WorkCancellation.Check();
+                var set = (ulong[])after[index + 1].Clone();
+                Bits.UnionWith(ref set, ordered[index].Value);
+                after[index] = set;
+            }
+
+            var butOwn = new Dictionary<int, ulong[]>();
+            var before = Bits.EMPTY;
+            for (var index = 0; index < ordered.Length; index++)
+            {
+                WorkCancellation.Check();
+                var (interval, set) = ordered[index];
+                if (interval >= 0)
+                {
+                    var others = (ulong[])before.Clone();
+                    Bits.UnionWith(ref others, after[index + 1]);
+                    butOwn.Add(interval, others);
+                }
+                Bits.UnionWith(ref before, set);
+            }
+            return (after[0], butOwn);
+        }
+
         /// <summary>For each object, by number, the executions that may enter the nodes its construction reaches without starting it.</summary>
         private readonly Dictionary<int, ulong[]> _outsideStarts = [];
 
         /// <summary>The edges that start each object's construction, by object number.</summary>
         private readonly Dictionary<int, List<ConstructionEdge>> _objectEdges = [];
 
-        /// <summary>The executions of the entries that start inside each object, by object number.</summary>
-        private readonly Dictionary<int, List<int>> _objectSeeds = [];
+        /// <summary>The executions of the entries that start inside each object, a set per taken entry, by object number.</summary>
+        private readonly Dictionary<int, List<ulong[]>> _objectSeeds = [];
 
         /// <summary>The entries taken at each node.</summary>
         private readonly Dictionary<WalkNode, List<TakenEntry>> _seedsAt = new(ReferenceEqualityComparer.Instance);
@@ -2575,14 +2718,15 @@ public static class ExecutionModel
         /// <param name="segments">The segments of async bodies, which say whether a node runs an operation.</param>
         /// <param name="heap">The solved heap, which gives each instance's body.</param>
         /// <param name="objectEdges">The edges that start each object's construction, by object number.</param>
-        /// <param name="objectSeeds">The executions of the entries that start inside each object, by object number.</param>
+        /// <param name="objectSeeds">The executions of the entries that start inside each object, a set per taken entry, by object
+        /// number.</param>
         /// <param name="outsideStarts">For each object, the executions that may enter the nodes its construction reaches without
         /// starting it.</param>
         /// <param name="seedsAt">The entries taken at each node.</param>
         private sealed class ConstructionIndex(IReadOnlyList<WalkNode> nodes, IReadOnlyDictionary<string, int> objectIds, ExecutionIds ids,
                                                AsyncSegments segments, HeapSolution heap,
                                                IReadOnlyDictionary<int, List<ConstructionEdge>> objectEdges,
-                                               IReadOnlyDictionary<int, List<int>> objectSeeds, IReadOnlyDictionary<int, ulong[]> outsideStarts,
+                                               IReadOnlyDictionary<int, List<ulong[]>> objectSeeds, IReadOnlyDictionary<int, ulong[]> outsideStarts,
                                                IReadOnlyDictionary<WalkNode, List<TakenEntry>> seedsAt) : IConstructionStatuses
         {
             private readonly Dictionary<string, WalkNode[]> _byInstance = nodes.GroupBy(node => node.Instance, StringComparer.Ordinal)
@@ -2632,12 +2776,16 @@ public static class ExecutionModel
                     return known;
                 if (!_searches.TryGetValue(@object, out var search))
                 {
-                    var starts = (objectEdges.GetValueOrDefault(@object) ?? []).Select(edge => edge.From.Executions)
-                                                                                .Concat((objectSeeds.GetValueOrDefault(@object) ?? []).Select(execution => Bits.Of([execution])))
-                                                                                .ToArray();
+                    var inside = objectSeeds.GetValueOrDefault(@object) ?? [];
+                    var starts = (objectEdges.GetValueOrDefault(@object) ?? []).Select(edge => edge.From.Executions).Concat(inside).ToArray();
+                    var enteredInside = Bits.EMPTY;
+                    foreach (var executions in inside)
+                    {
+                        WorkCancellation.Check();
+                        Bits.UnionWith(ref enteredInside, executions);
+                    }
                     _searches.Add(@object, search = new ObjectSearch(starts.Length != 0 && starts.All(set => Bits.SameAs(set, starts[0])) ? starts[0] : null,
-                                                                     outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY,
-                                                                     Bits.Of(objectSeeds.GetValueOrDefault(@object) ?? [])));
+                                                                     outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY, enteredInside));
                 }
 
                 var may = search.Shared ?? Back(node, node.Executions, inside: true, @object, search, cancellationToken);
@@ -2707,11 +2855,11 @@ public static class ExecutionModel
                     }
 
                     passed.Add(current);
-                    foreach (var (execution, _, interval) in seedsAt.GetValueOrDefault(current) ?? [])
+                    foreach (var (executions, _, interval) in seedsAt.GetValueOrDefault(current) ?? [])
                     {
                         WorkCancellation.Check();
-                        if ((interval == @object) == inside && Bits.Contains(wanted, execution))
-                            Bits.Add(ref found, execution);
+                        if ((interval == @object) == inside)
+                            Bits.UnionWith(ref found, executions, wanted);
                     }
 
                     foreach (var (predecessor, added) in current.Predecessors)
