@@ -381,6 +381,18 @@ public sealed class SpawnExecutionTests
         Assert.Single(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.Spawn);
     }
 
+    /// <summary>A recursive spawn enters its execution again from inside it; the execution still lists that entry once.</summary>
+    [Fact]
+    public void Entry_a_recursive_spawn_makes_again_is_listed_once()
+    {
+        var run = Analyze(Worker("Loop();", "private void Loop() => Task.Run(() => { Value = 1; Loop(); });"));
+
+        var spawn = Assert.Single(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.Spawn);
+        var entries = run.Execution.Analysis.Entries[spawn.Id];
+        Assert.NotEmpty(entries);
+        Assert.Equal(entries.Distinct().Count(), entries.Count);
+    }
+
     [Fact]
     public void Unrecognized_spawn_form_runs_its_delegates_in_an_execution_that_overlaps_itself()
     {

@@ -773,6 +773,8 @@ public static class ExecutionModel
         private readonly List<string> _objects = [];
         private IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> _visitsByExecution = new Dictionary<string, IReadOnlyList<ExecutionVisit>>();
         private readonly Dictionary<string, List<ExecutionEntry>> _entries = new(StringComparer.Ordinal);
+        /// <summary>The entries <see cref="_entries"/> lists, by execution, so that a repeated entry is found without a scan of the list.</summary>
+        private readonly HashSet<(string Execution, ExecutionEntry Entry)> _entered = [];
         private readonly Queue<(string Execution, ExecutionEntry Entry, string? Tail)> _pendingEntries = new();
         private readonly HashSet<(string Execution, ExecutionEntry Entry, string? Tail)> _entryWalks = [];
         private readonly Random? _walkRandom = walkOrder?.Seed is { } seed ? new Random(seed) : null;
@@ -1018,7 +1020,7 @@ public static class ExecutionModel
         {
             if (!_entries.TryGetValue(execution, out var entries))
                 _entries.Add(execution, entries = []);
-            if (!entries.Contains(entry))
+            if (_entered.Add((execution, entry)))
                 entries.Add(entry);
             if (_entryWalks.Add((execution, entry, tail)))
                 _pendingEntries.Enqueue((execution, entry, tail));
