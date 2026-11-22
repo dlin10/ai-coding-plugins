@@ -64,46 +64,66 @@ A temporary counter measured this on the demo and eShop (one `metrics` run each,
 predicted 2,774 of the hits (79 % and 96 %), and no access was emitted where it would have skipped. The large corpora
 were not measured: no run counted visits or hits.
 
+The counters then measured OrchardCore (run E-scale): an hour of its collection makes 11.8 million visits of 360
+thousand states, 32.8 visits a state, and 98.2 % of the key checks hit a key the execution has recorded. Each of those
+visits listed its effects and bound the guards of its whole path before any of its accesses was looked at.
+
 ## Decision
 
-Option A below. The collector remembers, for each access of an instance, the sets of guards it has emitted the access
-under in this execution. A visit whose guards include one of those sets skips the access before it reads the access's
-resources.
+Option A below. The collector remembers the guards its execution has emitted accesses under. A visit whose guards
+include them skips those accesses before it lists them or reads their resources.
 
-- **Which accesses.** An access of a visit is *path-free* when the emission reads the visit's path for its guards alone:
-  - it is the summary's own access or one of an unknown effect's kept list, so it is one object on every visit;
+- **Path-free accesses.** An access of a visit is *path-free* when the emission reads the visit's path for its guards
+  alone:
   - it has no selector term;
-  - no enumeration on the visit's path adds locks;
-  - the visit hosts neither a sequence enumeration nor work without a body.
+  - it is an access of the summary, or one of a list made without reading the path: a known call's effects or an
+    unresolved call's unknown effect;
+  - the visit hosts neither a sequence enumeration nor work without a body;
+  - no enumeration on the visit's path adds locks.
 
-  Every other access is emitted as it is today: a reference access, an access with a term, an effect of a known call
-  made anew for the visit, and any access of a visit with enumeration locks or of a host.
-- **The rule.** Let *P* be the key bits of the guards a path-free access runs under on a visit: its own guards, bound
-  along the path, and the path's.
-  - If the collector has applied the access of this instance under some *P₀* ⊆ *P*, the access is skipped whole on
-    this visit: no resource, locality or call path of it is read.
-  - Otherwise the access is emitted by today's code, and *P* is recorded as applied. An access none of whose resources
-    gets as far as its guards looks up no key, and nothing is recorded for it.
-  - The rule is asked only of an access recorded before. Today's code asks for the guards of such an access and for the
-    locks of the visit's path on this visit too, so the rule asks nothing new: it asks them earlier.
-- **Why it returns the same accesses.** When *P₀* was applied, every key of the access got an access under *P₀* or
-  already had one under a subset of it. A kept access leaves its key's list only when one under a subset of its guards
-  takes its place (lines 2837–2844). So at a later visit under *P* ⊇ *P₀* every key still holds an access whose guards
-  *P* includes, and line 2835 would drop each of them. The keys are the same on both visits, because nothing else they
-  are made of reads the path. What the skipped code writes besides accesses, the unresolved-base counter, does not read
-  the path either and was written by the first visit.
-- **Granularity.** The accesses of a visit that share one list of own guards, as all accesses of one unresolved call
-  do, are decided together: they have one *P*. A first implementation may decide per access.
-- **The same rule, earlier.** A visit's known-call effects and unknown effects are listed before its accesses are
-  read, and the list is made again on every visit. Where a call is handed no collection ready, its list does not read
-  the path, and the rule can be asked before the list is made. This is taken when the counters show the listing on top
-  after the first step; on eShop it is 41 % of `Emit`.
+  Every other access is emitted as it was before the rule: a reference access, an access with a term, an access of a
+  list made by reading the path, and any access of a host or of a visit with enumeration locks.
+- **Which lists read the path.** The listing of a known call's effects and of an unknown effect reads the path in one
+  place: a collection the call is handed ready is resolved along it (`HeldCollections`), unless a cell of the
+  instance's own frame names it. The collector counts those reads. A list made while the count stands still was made
+  from the instance and the heap alone, and so was the choice not to read the path. So it is the same list on every
+  visit of the instance, and the collector sees which lists those are on the first visit that makes them.
+- **The rule for a visit.** A state is an instance with a segment of its body. Its path-free accesses are the same on
+  every visit of it. Their guards differ by one thing: the list of own guards, which the summary keeps once for a block
+  of the body and the emission binds along the path, before the path's own guards. Let *P(L)* be the key bits of the
+  guards the accesses with the list *L* run under on a visit.
+  - A visit that emits its path-free accesses records *P(L)* for every list *L* whose accesses look up a key.
+  - A later visit of the state skips all its path-free accesses at once when, for every recorded *L*, its *P(L)*
+    includes the recorded one. None of their lists is made and none of their resources is read. Where the state has
+    no other access, the visit does nothing more.
+  - Otherwise the visit emits them and its sets are recorded. They take the place of the recorded sets that include
+    them list for list.
+- **The rule for one access.** An access that is one object on every visit, the summary's own or one of an unknown
+  effect's kept list, and has no term is also decided on its own, on a visit that does not skip its path-free accesses
+  together. The collector records the sets of guards it emitted that access under, and a visit whose guards for it
+  include one of them skips it before it reads its resources. This reaches the kept list of an unknown effect that
+  reads the path: the list may differ from visit to visit, but an access object in it is the same access wherever it
+  stands.
+- **Why it returns the same accesses.** When the sets of a visit were recorded, every key of every path-free access got
+  an access under the guards of its list or already had one under a subset of them. A kept access leaves its key's list
+  only when one under a subset of its guards takes its place. So at a later visit whose guards include the recorded
+  ones, every key still holds an access whose guards the visit's include, and the lookup would drop each of them. The
+  keys are the same on both visits, because nothing else they are made of reads the path. What the skipped code writes
+  besides accesses does not read the path either and was written by the first visit: the unresolved-base and
+  unproven-reference counters and the storage an unseen write may fill.
+- **Nothing new is asked.** A recorded list is one whose accesses got as far as their guards, which the path does not
+  decide. So the code before the rule asked for the guards of that list and for the locks of the visit's path on this
+  visit too, and the rule asks them earlier. One order moves: the order in which the collector numbers the keys of
+  guards, where an access outside the path-free ones stood between two of them. The numbers are the collector's own and
+  are read as bits of the inclusion test alone, which does not depend on which number a key has.
 - **Where the memory lives.** In the collector, like `seen`, and it goes with it. No collector reads another's.
 - **Counters.** With `CH_DIAG_DIR` set, the `execution:<scope>` checkpoint also reports the execution's entries, visits,
   distinct states, resources gone through, key checks, hits, emitted and replaced accesses, the accesses the rule
-  skipped with the key checks they would have made, and the milliseconds of the walk, the locks, the dependencies and
-  the emission. The `gaps:<scope>` checkpoint reports the sum of the execution sets of `ExecutionAnalysis.Accesses`,
-  which bounds `accessExecutions` from below before collection starts.
+  skipped with the key checks they would have made, the visits whose path-free accesses it skipped together and those
+  of them with nothing else to emit, and the milliseconds of the walk, the locks, the dependencies and the emission.
+  The key checks made and the key checks skipped add up to the checks the emission made before the rule. The
+  `gaps:<scope>` checkpoint reports the sum of the execution sets of `ExecutionAnalysis.Accesses`, which bounds
+  `accessExecutions` from below before collection starts.
 
 ### Options considered
 
@@ -166,20 +186,23 @@ sort in `CodeFlow`).
 
 ## Consequences
 
-- **`Emit` keeps one more structure per collector.** A new place that reads the path for an access must also take that
-  access out of the path-free ones. The differential test below fails if it does not.
+- **`Emit` keeps the rule's memory per collector.** A new place that reads the path for an access must also take that
+  access out of the path-free ones, and a new place where the listing of a call's effects reads the path must count the
+  read. The differential test below fails if it does not, where the demo or a case reaches that place.
 - **Tests.**
   - The demo's scopes collected with the rule and without it give the same accesses per execution: order, every field,
     and which pooled list is which object.
-  - One case for each way the path reaches the emission: a term bound to two values on two paths, a reference that
-    resolves to two places on two paths, a lock of an enumeration on the path, a host of work without a body, and a
-    path under fewer guards after one under more.
+  - One case for each way the path reaches the emission: a term bound to two values on two paths, a term in a block
+    whose other accesses are skipped, own guards bound to two values on two paths, a reference that resolves to two
+    places on two paths, a collection handed over ready from two fields, a lock of an enumeration on an earlier path
+    and on a later one, a host of work without a body, and a path under fewer guards after one under more.
   - `build/check-test-baseline.ps1` with the eShop snapshot at one worker and at four, and
     `build/record-demo-models.ps1 -Check`. No finding, site pair, occurrence, fingerprint, gap or counter moves,
     `accesses` and `accessExecutions` included; a shift is a defect of the rule.
-- **The walk still enumerates every path.** `_visits` is as long as it was, and a visit that is skipped still costs its
-  guards. If the walk itself becomes the cost, the bound of TD-090, 16 paths per state in each entry, is the question,
-  and changing it changes the guards of accesses.
+- **The walk still enumerates every path.** `_visits` is as long as it was, and a visit that is skipped still costs the
+  guards of its path and one comparison for each recorded list. If the walk itself becomes the cost,
+  the bound of TD-090, 16 paths per state in each entry, is the question, and changing it changes the guards of
+  accesses.
 - **Every execution still emits every access it runs once.** OrchardCore's 25 copies per access are made as before, each
   with its code flow, and the fold drops them. The counters say what that costs once the visits are not repeated.
 - **Copies may not fit on `Nop.Web`.** Of its first 42 executions, 8 made about 0.6 million accesses each. If that

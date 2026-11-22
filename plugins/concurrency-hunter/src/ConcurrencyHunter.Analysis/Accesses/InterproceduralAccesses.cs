@@ -175,13 +175,20 @@ internal sealed class CollectionCounters
     /// <summary>The accesses made that one under fewer guards replaced later.</summary>
     internal long Replaced { get; set; }
 
-    /// <summary>The accesses of visits the rule of ADR 0041 skipped: the execution had emitted each under guards the visit's
-    /// include, and the emission reads the visit's path for its guards alone.</summary>
+    /// <summary>The accesses of visits the rule of ADR 0041 skipped, one by one or all the path-free accesses of a visit at once:
+    /// the execution had emitted each under guards the visit's include, and the emission reads the visit's path for its guards
+    /// alone. An access that looks up no key is not counted.</summary>
     internal long Skipped { get; set; }
 
     /// <summary>The keys the skipped accesses would have looked up, every one a hit: with <see cref="Keys"/>, the lookups the
     /// emission made before the rule.</summary>
     internal long SkippedKeys { get; set; }
+
+    /// <summary>The visits whose path-free accesses the rule skipped all at once, before any list of them was made.</summary>
+    internal long SkippedVisits { get; set; }
+
+    /// <summary>Those of <see cref="SkippedVisits"/> that had nothing else to emit: no access the emission reads the path for.</summary>
+    internal long SkippedWhole { get; set; }
 
     /// <summary>The milliseconds of the walk from the entries, the hosts included.</summary>
     internal long WalkMs { get; set; }
@@ -198,7 +205,8 @@ internal sealed class CollectionCounters
     /// <summary>The counters as the tail of the <c>execution:</c> report line.</summary>
     internal string Line() =>
         $"entries={Entries} visits={Visits} states={States} rows={Rows} keys={Keys} hits={Hits} emitted={Emitted} replaced={Replaced} " +
-        $"skipped={Skipped} skippedKeys={SkippedKeys} walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
+        $"skipped={Skipped} skippedKeys={SkippedKeys} skippedVisits={SkippedVisits} skippedWhole={SkippedWhole} " +
+        $"walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
 }
 
 /// <summary>
@@ -1253,6 +1261,12 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The guards of the visit <see cref="Conditions"/> was last asked about.</summary>
         private VisitGuards? _visitGuards;
+
+        /// <summary>How many times the listing of a visit's accesses has read the visit's path: once for each collection handed over
+        /// ready that <see cref="HeldCollections"/> resolved along it. A list made while this stands still is made from the instance
+        /// and the heap alone, so it is the same on every visit of the instance (ADR 0041). A new place where the listing of a known
+        /// call's effects or of an unknown effect reads the path must count here too.</summary>
+        private long _pathReads;
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LiftedLocks> _lifted = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Instance, int Enumeration), EnumerationLocks?> _enumerationStates = [];
@@ -2604,8 +2618,11 @@ public static partial class InterproceduralAccesses
         /// <param name="IsStable">Whether the access is the same object on every visit, the summary's own or one this collector keeps,
         /// so that its resources are worked out once; one made anew for the visit is worked out again.</param>
         /// <param name="IsUnseenWrite">Whether the visit comes from an unknown effect or a model effect, whose write kind is kept before ownership downgrades.</param>
+        /// <param name="IsPathFree">Whether the access is one of the visit's path-free accesses, which the emission reads the visit's
+        /// path for the guards of and nothing else, and which are decided together (ADR 0041): an access of the summary with no
+        /// selector term, or one of a list made without reading the path.</param>
         private readonly record struct VisitAccess(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference,
-                                                   bool IsStable, bool IsUnseenWrite = false);
+                                                   bool IsStable, bool IsUnseenWrite = false, bool IsPathFree = false);
 
         /// <summary>What the emission tells accesses apart by, besides their guards. The strings are their numbers
         /// (<see cref="TextNumbers"/>): equal numbers are equal strings, so the key tells apart what the strings do, and a lookup
@@ -2662,6 +2679,67 @@ public static partial class InterproceduralAccesses
 
             /// <summary>How many keys the emission looks up for the access on such a visit: the same on each of them.</summary>
             internal int Keys { get; set; }
+        }
+
+        /// <summary>What this execution has emitted for one instance (ADR 0041): the guards of each access that is one object on
+        /// every visit, and what the visits of each segment of its body emitted together.</summary>
+        private sealed class EmittedInstance
+        {
+            /// <summary>The guards each access was emitted under, by the access object.</summary>
+            internal Dictionary<SummaryAccess, EmittedGuards> Accesses { get; } = new(ReferenceEqualityComparer.Instance);
+
+            /// <summary>What the visits of each segment emitted together; an instance runs few segments.</summary>
+            internal List<EmittedState> States { get; } = [];
+
+            /// <summary>What the visits of a segment emitted together, null before the first of them.</summary>
+            /// <param name="segment">The segment.</param>
+            internal EmittedState? StateOf(BodySegment segment)
+            {
+                // bounded: the segments of one body.
+                foreach (var state in States)
+                {
+                    if (state.Segment == segment)
+                        return state;
+                }
+
+                return null;
+            }
+        }
+
+        /// <summary>The guards of one list of own guards on a visit.</summary>
+        /// <param name="Own">The list of own guards as the summary keeps it, which every access of one block shares.</param>
+        /// <param name="Keys">The numbers of the keys of those guards bound along the visit's path and of the path's guards.</param>
+        private readonly record struct OwnGuards(IReadOnlyList<SummaryPredicate> Own, ulong[] Keys);
+
+        /// <summary>What the visits of one state, an instance with a segment of its body, emitted together in this execution
+        /// (ADR 0041). A visit's path-free accesses are the summary's accesses without a selector term and the accesses of every
+        /// list made without reading the path. Which lists those are is seen on the first visit and is the same on every other,
+        /// since a list made without the path is made from the instance and the heap alone.</summary>
+        /// <param name="segment">The segment of the instance's body.</param>
+        /// <param name="pathFreeEffects">The operations of the known calls whose effects were listed without reading the path.</param>
+        /// <param name="pathFreeCalls">The unresolved calls whose unknown effect was listed without reading the path.</param>
+        /// <param name="readsPathForEffects">Whether the effects of some known call were listed by reading the path.</param>
+        private sealed class EmittedState(BodySegment segment, HashSet<int> pathFreeEffects, HashSet<UnknownCall> pathFreeCalls,
+                                          bool readsPathForEffects)
+        {
+            internal BodySegment Segment { get; } = segment;
+
+            internal HashSet<int> PathFreeEffects { get; } = pathFreeEffects;
+
+            internal HashSet<UnknownCall> PathFreeCalls { get; } = pathFreeCalls;
+
+            internal bool ReadsPathForEffects { get; } = readsPathForEffects;
+
+            /// <summary>For each visit that emitted its path-free accesses, unless a later one under fewer guards took its place:
+            /// the guards of each list of own guards that an access of them got as far as. A visit whose guards include all of one
+            /// finds every key of every path-free access taken.</summary>
+            internal List<OwnGuards[]> Guards { get; } = [];
+
+            /// <summary>How many of the path-free accesses look up a key on a visit: the same on every visit.</summary>
+            internal int Accesses { get; set; }
+
+            /// <summary>How many keys they look up.</summary>
+            internal long Keys { get; set; }
         }
 
         private IReadOnlyList<Access> Emit()
@@ -2759,23 +2837,62 @@ public static partial class InterproceduralAccesses
             // finding and removing each one as it is replaced would cost the whole list every time.
             var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
             var seen = new Dictionary<EmittedKey, List<KeptAccess>>();
-            // The guards each access of an instance was emitted under on the visits whose path the emission read for its guards
-            // alone: a later such visit whose guards include one of those sets finds every key of the access taken, and skips it
-            // before it reads its resources (ADR 0041). A new place that reads the path for an access must take that access out of
-            // the path-free ones below.
+            // The guards the accesses of an instance were emitted under on the visits whose path the emission read for those guards
+            // alone: a later such visit whose guards include them finds every key of those accesses taken, and skips them before it
+            // lists them or reads their resources (ADR 0041). A new place that reads the path for an access must take that access
+            // out of the path-free ones below.
             var emittedUnder = input.EmitsUnderRepeatedGuards
                 ? null
-                : new Dictionary<MethodInstance, Dictionary<SummaryAccess, EmittedGuards>>(ReferenceEqualityComparer.Instance);
+                : new Dictionary<MethodInstance, EmittedInstance>(ReferenceEqualityComparer.Instance);
             foreach (var (entry, node) in _visits)
             {
                 CheckCancellation();
                 var instance = _heap.Instances[node.State.Instance];
                 var hosted = _hosts.TryGetValue(node, out var enumerates);
                 // A host runs nothing of its body and holds what no other visit of its instance does, so the rule leaves it alone.
-                Dictionary<SummaryAccess, EmittedGuards>? emittedHere = null;
+                EmittedInstance? emittedHere = null;
                 var isRuled = emittedUnder is not null && !hosted;
                 if (isRuled)
                     emittedUnder!.TryGetValue(instance, out emittedHere);
+                // What the enumerations along the path hold is the same for every access the visit makes.
+                (bool Known, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? Locks) pathLocks = default;
+                // The visit's path-free accesses are decided together, before any list of them is made. An earlier visit of this
+                // state emitted them, each under the guards of its list of own guards; where this visit's guards include those of
+                // every such list, each key of each of them holds an access under guards this visit's include. The lists are the
+                // ones whose accesses got as far as their guards then, and get as far now, so their guards and the path's locks are
+                // asked here only earlier than they would be.
+                var emittedState = emittedHere?.StateOf(node.State.Segment);
+                var skipsPathFree = false;
+                if (emittedState is not null)
+                {
+                    foreach (var emitted in emittedState.Guards)
+                    {
+                        CheckCancellation();
+                        if (!Includes(instance, node, emitted))
+                            continue;
+                        // Accesses that look up no key emit nothing whatever the path holds.
+                        if (emitted.Length != 0)
+                            pathLocks = (true, EnumerationPathLocks(node));
+                        skipsPathFree = pathLocks.Locks is null;
+                        break;
+                    }
+                }
+
+                if (skipsPathFree)
+                {
+                    Counters.Skipped += emittedState!.Accesses;
+                    Counters.SkippedKeys += emittedState.Keys;
+                    Counters.SkippedVisits++;
+                }
+
+                // What this visit learns of its state where it emits its path-free accesses itself.
+                HashSet<int>? pathFreeEffects = null;
+                HashSet<UnknownCall>? pathFreeCalls = null;
+                var readsPathForEffects = false;
+                List<OwnGuards>? visitGuards = null;
+                var pathFreeAccesses = 0;
+                var pathFreeKeys = 0L;
+                var emittedAny = false;
                 // Outputs with no visible body write their target whole, independently of argument and unknown effects (R9).
                 foreach (var copy in instance.Summary.StructCopies.Where(copy => copy.IsUnseenOutput && !hosted &&
                              input.Executions.Runs(instance.BodyId, node.State.Segment, copy.OperationId)))
@@ -2794,8 +2911,10 @@ public static partial class InterproceduralAccesses
                     }
                 }
                 var direct = instance.Summary.Accesses
-                    .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
-                    .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true));
+                    .Where(access => !hosted && !(skipsPathFree && access.SelectorTerm is null) &&
+                                     input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
+                    .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true,
+                                                      IsPathFree: isRuled && access.SelectorTerm is null));
                 var references = new List<VisitAccess>();
                 foreach (var access in instance.Summary.ReferenceAccesses
                              .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId) &&
@@ -2820,8 +2939,11 @@ public static partial class InterproceduralAccesses
                 }
                 // A known call's effects are reads and writes of the fields they reach, made where the call stands (R3); the unknown
                 // enumeration of an escaped library sequence makes what enumerating it makes, where the call that created it stands (R5).
+                // Where every known call's effects are path-free and skipped, none is listed; what the listing writes besides
+                // accesses it wrote on the visit that emitted them.
                 var effects = hosted
                     ? enumerates ? [SequenceEnumeration(instance)] : []
+                    : skipsPathFree && !emittedState!.ReadsPathForEffects ? []
                     : instance.Summary.ArgumentEffects
                               .Concat(instance.Summary.OpaqueCalls.SelectMany(call => CollectionObjects.LibraryCalls(call,
                                   value => _heap.Resolve(instance.Id, value), region => ObjectKind(region)))
@@ -2841,46 +2963,82 @@ public static partial class InterproceduralAccesses
                         UnresolvedBases.Add((instance.BodyId, effect.OperationId));
                 }
 
-                var deepReads = effects
-                                        .SelectMany(effect => Expanded(effect, instance, new HashSet<string>(StringComparer.Ordinal)))
-                                        .GroupBy(effect => effect.OperationId)
-                                        .SelectMany(call => WithoutReadsOfWrittenFields(
-                                            call.SelectMany(effect => effect.Kind switch
-                                                {
-                                                    IrLibraryEffectKind.DeepRead => DeepReadAccesses(effect, instance, node),
-                                                    IrLibraryEffectKind.Enumerate when effect.Member is not null => StandingMemberAccesses(effect, instance),
-                                                    IrLibraryEffectKind.Enumerate => EnumerationAccesses(effect, instance, node),
-                                                    IrLibraryEffectKind.WriteArgument => ArgumentWriteAccesses(effect, instance),
-                                                    IrLibraryEffectKind.WriteCells => CellWriteAccesses(effect, instance, node),
-                                                    _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
-                                                })
-                                                .ToArray()))
-                                        .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: false, IsUnseenWrite: true))
-                                        .ToArray();
-                // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
-                var unknownEffects = (unknownCalls.GetValueOrDefault(instance.Id) ?? [])
-                                     .Where(call => hosted
-                                                        ? Hosts(call)
-                                                        : call.EnumeratedSequence is null && call.Work is null &&
-                                                          input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
-                                     .SelectMany(call => UnknownEffectAccesses(call, instance, node))
-                                     .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true, IsUnseenWrite: true))
-                                     .ToArray();
-                // What the enumerations along the path hold is the same for every access the visit makes.
-                (bool Known, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? Locks) pathLocks = default;
-                foreach (var (access, source, sourceNode, isReference, isStable, isUnseenWrite) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
+                // The effects of one known call are listed together. A list is path-free when making it read nothing of the path
+                // and none of its accesses has a term to bind along it.
+                var deepReads = new List<VisitAccess>();
+                foreach (var call in effects.SelectMany(effect => Expanded(effect, instance, new HashSet<string>(StringComparer.Ordinal)))
+                                            .GroupBy(effect => effect.OperationId))
                 {
                     CheckCancellation();
+                    if (skipsPathFree && emittedState!.PathFreeEffects.Contains(call.Key))
+                        continue;
+                    var pathReads = _pathReads;
+                    var listed = WithoutReadsOfWrittenFields(
+                        call.SelectMany(effect => effect.Kind switch
+                            {
+                                IrLibraryEffectKind.DeepRead => DeepReadAccesses(effect, instance, node),
+                                IrLibraryEffectKind.Enumerate when effect.Member is not null => StandingMemberAccesses(effect, instance),
+                                IrLibraryEffectKind.Enumerate => EnumerationAccesses(effect, instance, node),
+                                IrLibraryEffectKind.WriteArgument => ArgumentWriteAccesses(effect, instance),
+                                IrLibraryEffectKind.WriteCells => CellWriteAccesses(effect, instance, node),
+                                _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
+                            })
+                            .ToArray()).ToArray();
+                    var isPathFree = isRuled && pathReads == _pathReads && Array.TrueForAll(listed, access => access.SelectorTerm is null);
+                    if (isPathFree)
+                        (pathFreeEffects ??= []).Add(call.Key);
+                    else
+                        readsPathForEffects = true;
+                    foreach (var access in listed)
+                    {
+                        CheckCancellation();
+                        deepReads.Add(new VisitAccess(access, instance, node, IsReference: false, IsStable: false, IsUnseenWrite: true, isPathFree));
+                    }
+                }
+
+                // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
+                var unknownEffects = new List<VisitAccess>();
+                foreach (var call in unknownCalls.GetValueOrDefault(instance.Id) ?? [])
+                {
+                    CheckCancellation();
+                    if (!(hosted
+                              ? Hosts(call)
+                              : call.EnumeratedSequence is null && call.Work is null &&
+                                input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId)))
+                    {
+                        continue;
+                    }
+
+                    if (skipsPathFree && emittedState!.PathFreeCalls.Contains(call))
+                        continue;
+                    var pathReads = _pathReads;
+                    var listed = UnknownEffectAccesses(call, instance, node);
+                    var isPathFree = isRuled && pathReads == _pathReads && listed.All(access => access.SelectorTerm is null);
+                    if (isPathFree)
+                        (pathFreeCalls ??= new HashSet<UnknownCall>(ReferenceEqualityComparer.Instance)).Add(call);
+                    foreach (var access in listed)
+                    {
+                        CheckCancellation();
+                        unknownEffects.Add(new VisitAccess(access, instance, node, IsReference: false, IsStable: true, IsUnseenWrite: true, isPathFree));
+                    }
+                }
+
+                foreach (var (access, source, sourceNode, isReference, isStable, isUnseenWrite, inPathFree) in
+                         direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
+                {
+                    CheckCancellation();
+                    emittedAny = true;
                     var term = access.SelectorTerm is { } selectorTerm ? isReference ? selectorTerm : Bind(selectorTerm, source, sourceNode) : null;
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
                     Guards? guards = null;
-                    // The emission reads the visit's path for the guards of this access alone when the access is one object on every
-                    // visit and has no term to bind, the visit is no host, and no enumeration on its path adds locks (ADR 0041). An
-                    // access emitted before had a resource that got as far as its guards, and has one on this visit too, so its guards
-                    // and the path's locks are asked here only earlier than they would be.
-                    var isPathFree = isRuled && isStable && access.SelectorTerm is null;
-                    if (isPathFree && emittedHere is not null && emittedHere.TryGetValue(access, out var emittedBefore))
+                    // An access that is one object on every visit and has no term to bind is also decided on its own, where the
+                    // visit's path-free accesses were not skipped together: the emission reads the visit's path for the guards of
+                    // such an access alone, the visit being no host and no enumeration on its path adding locks (ADR 0041). An access
+                    // emitted before had a resource that got as far as its guards, and has one on this visit too, so its guards and
+                    // the path's locks are asked here only earlier than they would be.
+                    var isOneObject = isRuled && isStable && access.SelectorTerm is null;
+                    if (isOneObject && emittedHere is not null && emittedHere.Accesses.TryGetValue(access, out var emittedBefore))
                     {
                         guards = Conditions(instance, access, node);
                         if (!pathLocks.Known)
@@ -2890,6 +3048,13 @@ public static partial class InterproceduralAccesses
                         {
                             Counters.Skipped++;
                             Counters.SkippedKeys += emittedBefore.Keys;
+                            if (inPathFree)
+                            {
+                                pathFreeAccesses++;
+                                pathFreeKeys += emittedBefore.Keys;
+                                Note(ref visitGuards, access.Conditions, visitKeys);
+                            }
+
                             continue;
                         }
                     }
@@ -3063,16 +3228,47 @@ public static partial class InterproceduralAccesses
 
                     // Every key of the access now holds an access under these guards or under fewer, and keeps one: an access leaves
                     // its key only for one under fewer guards. A set that includes these guards says nothing they do not.
-                    if (isPathFree && guards is not null && pathLocks.Locks is null)
+                    if (isOneObject && guards is not null && pathLocks.Locks is null)
                     {
                         if (emittedHere is null)
-                            emittedUnder!.Add(instance, emittedHere = new Dictionary<SummaryAccess, EmittedGuards>(ReferenceEqualityComparer.Instance));
-                        if (!emittedHere.TryGetValue(access, out var emittedNow))
-                            emittedHere.Add(access, emittedNow = new EmittedGuards());
+                            emittedUnder!.Add(instance, emittedHere = new EmittedInstance());
+                        if (!emittedHere.Accesses.TryGetValue(access, out var emittedNow))
+                            emittedHere.Accesses.Add(access, emittedNow = new EmittedGuards());
                         var visitKeys = guards.Keys;
                         emittedNow.Sets.RemoveAll(other => Bits.Covers(other, visitKeys));
                         emittedNow.Sets.Add(visitKeys);
                         emittedNow.Keys = accessKeys;
+                    }
+
+                    if (inPathFree && guards is not null)
+                    {
+                        pathFreeAccesses++;
+                        pathFreeKeys += accessKeys;
+                        Note(ref visitGuards, access.Conditions, guards.Keys);
+                    }
+                }
+
+                if (skipsPathFree && !emittedAny)
+                    Counters.SkippedWhole++;
+                // The visit emitted its path-free accesses itself: what it saw of its state holds on every visit of the state, and
+                // its guards say which later visits add nothing, unless an enumeration on its path added locks.
+                if (isRuled && !skipsPathFree)
+                {
+                    if (emittedHere is null)
+                        emittedUnder!.Add(instance, emittedHere = new EmittedInstance());
+                    if (emittedState is null)
+                    {
+                        emittedHere.States.Add(emittedState = new EmittedState(node.State.Segment, pathFreeEffects ?? [],
+                            pathFreeCalls ?? new HashSet<UnknownCall>(ReferenceEqualityComparer.Instance), readsPathForEffects));
+                    }
+
+                    if (pathLocks.Locks is null)
+                    {
+                        var emitted = visitGuards?.ToArray() ?? [];
+                        emittedState.Guards.RemoveAll(other => IncludesAll(other, emitted));
+                        emittedState.Guards.Add(emitted);
+                        emittedState.Accesses = pathFreeAccesses;
+                        emittedState.Keys = pathFreeKeys;
                     }
                 }
             }
@@ -3143,6 +3339,59 @@ public static partial class InterproceduralAccesses
                 referenceResources.Add((instance.Id, access.OperationId), resources);
                 return resources;
             }
+        }
+
+        /// <summary>Whether a visit's guards include the guards an earlier visit of its state emitted its path-free accesses under:
+        /// those of every list of own guards, each list bound along this visit's path (ADR 0041).</summary>
+        /// <param name="instance">The instance visited.</param>
+        /// <param name="node">The visit.</param>
+        /// <param name="emitted">The guards of each list of own guards on the earlier visit.</param>
+        private bool Includes(MethodInstance instance, PathNode node, OwnGuards[] emitted)
+        {
+            foreach (var (own, keys) in emitted)
+            {
+                CheckCancellation();
+                if (!Bits.Covers(GuardsOf(instance, own, node).Keys, keys))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Whether the guards one visit emitted under include those another did, list of own guards for list: the first
+        /// then says nothing the second does not. The visits of one state get as far as the guards of the same lists in the same
+        /// order.</summary>
+        /// <param name="guards">The guards of the first visit.</param>
+        /// <param name="included">The guards of the second.</param>
+        private static bool IncludesAll(OwnGuards[] guards, OwnGuards[] included)
+        {
+            if (guards.Length != included.Length)
+                return false;
+            for (var index = 0; index < guards.Length; index++)
+            {
+                WorkCancellation.Check();
+                if (!ReferenceEquals(guards[index].Own, included[index].Own) || !Bits.Covers(guards[index].Keys, included[index].Keys))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Notes the guards a visit's path-free accesses with one list of own guards run under, once for the list.</summary>
+        /// <param name="noted">The lists noted on the visit so far, made on the first.</param>
+        /// <param name="own">The list of own guards.</param>
+        /// <param name="keys">The numbers of the keys of the guards its accesses run under on the visit.</param>
+        private static void Note(ref List<OwnGuards>? noted, IReadOnlyList<SummaryPredicate> own, ulong[] keys)
+        {
+            noted ??= [];
+            // bounded: the lists of own guards of one body, one for each of its blocks at the most.
+            foreach (var other in noted)
+            {
+                if (ReferenceEquals(other.Own, own))
+                    return;
+            }
+
+            noted.Add(new OwnGuards(own, keys));
         }
 
         /// <summary>A reference access at one place it resolves to, as an access of that cell. A reference's term is bound where the
@@ -3824,6 +4073,9 @@ public static partial class InterproceduralAccesses
             var target = argument.Collection is ReferenceParameterElement incoming
                 ? incoming with { Selector = incoming.Selector.InSlice(argument.Shift, argument.Length) }
                 : argument.Collection;
+            // A cell is resolved in the frame that names it; anything else is followed along the visit's path.
+            if (target is not ReferenceCell)
+                _pathReads++;
             foreach (var resolved in ResolveReferences([target], instance, node))
             {
                 CheckCancellation();
@@ -4299,13 +4551,19 @@ public static partial class InterproceduralAccesses
         /// <param name="instance">The instance that makes the access.</param>
         /// <param name="access">The access whose own guards come first.</param>
         /// <param name="node">The visit whose path carries the guards of the calls it came through.</param>
-        private Guards Conditions(MethodInstance instance, SummaryAccess access, PathNode node)
+        private Guards Conditions(MethodInstance instance, SummaryAccess access, PathNode node) => GuardsOf(instance, access.Conditions, node);
+
+        /// <summary>The predicates that hold where the accesses with one list of own guards run on a visit (<see cref="Conditions"/>).</summary>
+        /// <param name="instance">The instance that makes the accesses.</param>
+        /// <param name="ownGuards">Their own guards, as the summary states them.</param>
+        /// <param name="node">The visit whose path carries the guards of the calls it came through.</param>
+        private Guards GuardsOf(MethodInstance instance, IReadOnlyList<SummaryPredicate> ownGuards, PathNode node)
         {
             // Accesses of one visit with the same guards of their own, as every access of one unresolved call has, share all of them.
-            if (_visitGuards is { } current && ReferenceEquals(current.Node, node) && current.ByOwn.TryGetValue(access.Conditions, out var known))
+            if (_visitGuards is { } current && ReferenceEquals(current.Node, node) && current.ByOwn.TryGetValue(ownGuards, out var known))
                 return known;
 
-            var own = Predicates(instance, access.Conditions, node);
+            var own = Predicates(instance, ownGuards, node);
             // The guards of the path are the same for every access the visit makes, so they are bound once for its node; an access
             // with no guards of its own runs under exactly those.
             if (_visitGuards is not { } visit || !ReferenceEquals(visit.Node, node))
@@ -4329,7 +4587,7 @@ public static partial class InterproceduralAccesses
                 guards = new Guards(conditions, keys);
             }
 
-            visit.ByOwn.Add(access.Conditions, guards);
+            visit.ByOwn.Add(ownGuards, guards);
             return guards;
         }
 

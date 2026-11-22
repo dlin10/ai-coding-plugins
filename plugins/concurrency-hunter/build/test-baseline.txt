@@ -11158,14 +11158,22 @@ ConcurrencyHunter.Core.Tests.Engine.RefVariableVersionTests.Write_through_a_refe
 ConcurrencyHunter.Core.Tests.Engine.RefVariableVersionTests.Write_through_a_reference_is_no_version_and_writes_the_storage_it_names(parameter: True, type: "int", field: "Cell", write: "State.Set(out r);", other: "_state.Cell = 2;", resource: "State.Cell:Field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefVariableVersionTests.Write_through_a_reference_is_no_version_and_writes_the_storage_it_names(parameter: True, type: "Pair", field: "Point", write: "r.X = 1;", other: "_state.Point.X = 2;", resource: "State.Point:Field/Pair.X:Field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefVariableVersionTests.Write_through_a_reference_is_no_version_and_writes_the_storage_it_names(parameter: True, type: "string", field: "Text", write: "r ??= \"a\";", other: "_state.Text = \"b\";", resource: "State.Text:Field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_collection_handed_over_ready_keeps_the_storage_each_path_names	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_host_of_work_without_a_body_emits_its_unknown_effect_holding_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_known_call_on_a_collection_its_own_field_holds_is_listed_on_the_first_visit_alone	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_lock_of_an_enumeration_on_one_path_and_none_on_another_keep_both_accesses(enumerations: "foreach (var value in sequence) { } var e = sequen"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_lock_of_an_enumeration_on_one_path_and_none_on_another_keep_both_accesses(enumerations: "var e = sequence.GetEnumerator(); lock (_state.Gat"···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_lock_of_an_enumeration_on_one_path_keeps_the_access_of_the_other	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_path_under_fewer_guards_after_one_under_more_is_not_skipped_and_takes_its_place	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_path_under_more_guards_is_skipped	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_path_under_other_guards_is_not_skipped	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_reference_resolved_to_two_places_on_two_paths_keeps_both_places	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_second_visit_under_the_same_guards_is_skipped_whole	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.A_term_bound_to_two_values_on_two_paths_keeps_both_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.An_access_with_a_term_is_emitted_where_the_rest_of_its_block_is_skipped	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.An_instance_entered_whole_and_hosted_by_one_execution_makes_the_accesses_of_both_visits	Passed
 ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.Demo_accesses_are_the_same_with_the_rule_and_without_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.RepeatedGuardsTests.Own_guards_bound_to_two_values_on_two_paths_are_two_sets_of_guards	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReplaySharingTests.A_replay_takes_the_flows_whose_inputs_are_the_graphs_and_builds_the_others	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReplaySharingTests.The_facts_a_graph_shares_with_its_replays_read_no_withheld_set	Passed
 ConcurrencyHunter.Core.Tests.Engine.ResultJoinMatrixTests.Every_catch_all_cell_is_ordered_only_where_its_consumption_throws_after_completion	Passed

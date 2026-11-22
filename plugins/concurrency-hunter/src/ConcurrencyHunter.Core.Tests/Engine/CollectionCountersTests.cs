@@ -13,11 +13,11 @@ public sealed class CollectionCountersTests
         var counters = new CollectionCounters
         {
             Entries = 1, Visits = 2, States = 3, Rows = 4, Keys = 5, Hits = 6, Emitted = 7, Replaced = 8, Skipped = 9, SkippedKeys = 10,
-            WalkMs = 11, LocksMs = 12, DependenciesMs = 13, EmitMs = 14
+            SkippedVisits = 11, SkippedWhole = 12, WalkMs = 13, LocksMs = 14, DependenciesMs = 15, EmitMs = 16
         };
 
         Assert.Equal("entries=1 visits=2 states=3 rows=4 keys=5 hits=6 emitted=7 replaced=8 skipped=9 skippedKeys=10 " +
-                     "walkMs=11 locksMs=12 dependenciesMs=13 emitMs=14", counters.Line());
+                     "skippedVisits=11 skippedWhole=12 walkMs=13 locksMs=14 dependenciesMs=15 emitMs=16", counters.Line());
     }
 
     [Fact]
@@ -57,6 +57,8 @@ public sealed class CollectionCountersTests
 
         Assert.True(worker.Visits > worker.States);
         Assert.Equal(1, worker.Skipped);
+        Assert.Equal(1, worker.SkippedVisits);
+        Assert.Equal(1, worker.SkippedWhole);
         Assert.Equal(0, worker.Hits);
         Assert.Equal(0, repeating.Skipped);
         Assert.True(repeating.Hits >= 1);
