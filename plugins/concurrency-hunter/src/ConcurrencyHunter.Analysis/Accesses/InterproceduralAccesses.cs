@@ -5089,7 +5089,17 @@ public static class InterproceduralPairing
     /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
     /// <param name="executions">The scope's executions, which decide the timing.</param>
     /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
-    public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
+    public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap) =>
+        Pair(accesses, executions, heap, StringComparer.Ordinal);
+
+    /// <summary>The candidate pairs of a scope's accesses, with the candidate index enumerating its buckets in the order a comparer gives
+    /// their keys (<see cref="CandidateIndex.Build(IReadOnlyList{Access}, HeapSolution, IComparer{string})"/>): a test's way to show that
+    /// nothing <see cref="Pair(IReadOnlyList{Access}, ExecutionAnalysis, HeapSolution)"/> gives reads that order.</summary>
+    /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
+    /// <param name="executions">The scope's executions, which decide the timing.</param>
+    /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
+    /// <param name="bucketOrder">The order of the index's bucket keys.</param>
+    internal static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap, IComparer<string> bucketOrder)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
         var found = new List<(AccessPair Pair, long Order)>();
@@ -5215,7 +5225,7 @@ public static class InterproceduralPairing
                                                  : access.Resource.RegionId!, out var ownership) &&
             ownership.Kind == OwnershipKind.ThreadConfined;
 
-        var index = CandidateIndex.Build(candidates, heap);
+        var index = CandidateIndex.Build(candidates, heap, bucketOrder);
         foreach (var candidate in index.Pairs())
             Consider(candidate);
 
@@ -5462,21 +5472,27 @@ internal sealed class CandidateIndex
         internal List<Access> Wildcard { get; } = [];
     }
 
-    private readonly SortedDictionary<string, List<Access>> _resources = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, List<Access>> _resources;
 
     /// <summary>The cell buckets of one collection, by that collection's identity: a cell meets the cells it may be, and no more
     /// (TD-075).</summary>
-    private readonly SortedDictionary<string, List<List<Access>>> _cells = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, List<List<Access>>> _cells;
 
     /// <summary>The field buckets of one region, by scope and region: storage that continues another's through a struct's fields meets
     /// it (R3).</summary>
-    private readonly SortedDictionary<string, List<List<Access>>> _fields = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, List<List<Access>>> _fields;
     private readonly Dictionary<(string Scope, string RegionId), RegionBuckets> _regions = [];
     private readonly List<RegionBuckets> _regionOrder = [];
     private readonly Dictionary<Access, int> _positions = new(ReferenceEqualityComparer.Instance);
     private readonly HeapSolution _heap;
 
-    private CandidateIndex(HeapSolution heap) => _heap = heap;
+    private CandidateIndex(HeapSolution heap, IComparer<string> bucketOrder)
+    {
+        _heap = heap;
+        _resources = new SortedDictionary<string, List<Access>>(bucketOrder);
+        _cells = new SortedDictionary<string, List<List<Access>>>(bucketOrder);
+        _fields = new SortedDictionary<string, List<List<Access>>>(bucketOrder);
+    }
 
     public int Buckets => _resources.Count + _regionOrder.Count(region => region.Wildcard.Count != 0);
 
@@ -5485,9 +5501,17 @@ internal sealed class CandidateIndex
                                           .DefaultIfEmpty(0)
                                           .Max();
 
-    public static CandidateIndex Build(IReadOnlyList<Access> accesses, HeapSolution heap)
+    public static CandidateIndex Build(IReadOnlyList<Access> accesses, HeapSolution heap) => Build(accesses, heap, StringComparer.Ordinal);
+
+    /// <summary>The index of a scope's accesses, its buckets enumerated in the order a comparer gives their keys: the ordinal order of
+    /// <see cref="Build(IReadOnlyList{Access}, HeapSolution)"/>, or another one, with which a test shows that no outcome of pairing reads
+    /// that order.</summary>
+    /// <param name="accesses">The scope's non-construction-local accesses.</param>
+    /// <param name="heap">The scope's heap, whose regions say which are open and which group they are of.</param>
+    /// <param name="bucketOrder">The order of the buckets' keys: resource identities, collection keys, scope and region.</param>
+    internal static CandidateIndex Build(IReadOnlyList<Access> accesses, HeapSolution heap, IComparer<string> bucketOrder)
     {
-        var index = new CandidateIndex(heap);
+        var index = new CandidateIndex(heap, bucketOrder);
         foreach (var access in accesses)
         {
             index._positions.TryAdd(access, index._positions.Count);
@@ -5498,9 +5522,10 @@ internal sealed class CandidateIndex
                 continue;
             }
 
-            if (!index._resources.TryGetValue(access.Resource.Identity, out var bucket))
+            var identity = access.Resource.Identity;
+            if (!index._resources.TryGetValue(identity, out var bucket))
             {
-                index._resources.Add(access.Resource.Identity, bucket = []);
+                index._resources.Add(identity, bucket = []);
                 region.Resources.Add(bucket);
                 var (family, key) = access.Resource.Selector is not null ? (index._cells, CollectionKey(access.Resource))
                     : IsField(access.Resource) ? (index._fields, $"{access.Resource.Scope}|{access.Resource.RegionId}")
@@ -5604,11 +5629,13 @@ internal sealed class CandidateIndex
             }
         }
 
-        foreach (var open in _regionOrder.Where(region => _heap.Regions[region.RegionId].IsOpen))
+        // Each region is looked up once, and the closed regions of each scope and group are listed once, in region order, so that an open
+        // region meets them without a pass over every region.
+        var regions = _regionOrder.Select(region => (Buckets: region, Heap: _heap.Regions[region.RegionId])).ToArray();
+        var closedOf = regions.Where(region => !region.Heap.IsOpen).ToLookup(region => (region.Buckets.Scope, region.Heap.Group), region => region.Buckets);
+        foreach (var (open, heapRegion) in regions.Where(region => region.Heap.IsOpen))
         {
-            var group = _heap.Regions[open.RegionId].Group;
-            foreach (var closed in _regionOrder.Where(region => region.Scope == open.Scope && _heap.Regions[region.RegionId] is { IsOpen: false } heapRegion &&
-                                                                heapRegion.Group == group))
+            foreach (var closed in closedOf[(open.Scope, heapRegion.Group)])
             {
                 foreach (var pair in OpenAndClosed(open, closed))
                     yield return pair;

@@ -140,6 +140,26 @@ public sealed class DemoExpectationTests
         Assert.True(indexed.Pairs.Comparisons <= reference.Pairs.Comparisons);
     }
 
+    /// <summary>The candidate index enumerates its buckets in the order of their keys, and no outcome of pairing reads that order (issue
+    /// 465): with every bucket enumerated in reverse the demo gives the same findings, the same pair counters and the same skips of every
+    /// scope.</summary>
+    [Fact]
+    public async Task Demo_outcome_is_the_same_whatever_order_the_candidate_index_enumerates_its_buckets_in()
+    {
+        var reverse = Comparer<string>.Create((first, second) => string.CompareOrdinal(second, first));
+        var ordinalTask = AnalyzeDemoAsync();
+        var reversedTask = AnalyzeDemoAsync((accesses, executions, heap) => InterproceduralPairing.Pair(accesses, executions, heap, reverse));
+        await Task.WhenAll(ordinalTask, reversedTask);
+        var ordinal = await ordinalTask;
+        var reversed = await reversedTask;
+
+        Assert.NotEmpty(ordinal.Findings);
+        Assert.Equal(JsonSerializer.Serialize(ordinal.Findings, JsonOptions), JsonSerializer.Serialize(reversed.Findings, JsonOptions));
+        Assert.Equal(JsonSerializer.Serialize(ordinal.Pairs, JsonOptions), JsonSerializer.Serialize(reversed.Pairs, JsonOptions));
+        Assert.Equal(JsonSerializer.Serialize(ordinal.Coverage.Select(scope => scope.Skips), JsonOptions),
+                     JsonSerializer.Serialize(reversed.Coverage.Select(scope => scope.Skips), JsonOptions));
+    }
+
     /// <summary>The runs serialized differently: writes each one's findings to its own file in a new folder under the root, so
     /// the evidence of a divergence outlives the failing test. Equal runs write nothing.</summary>
     /// <param name="serializedRuns">The serialized findings of each run.</param>

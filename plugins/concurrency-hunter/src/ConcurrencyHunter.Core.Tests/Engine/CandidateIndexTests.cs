@@ -37,6 +37,27 @@ public sealed class CandidateIndexTests
         Assert.Equal([(0, 0), (1, 1)], Keys(Enumerate(Heap(Static("a")), accesses), accesses));
     }
 
+    /// <summary>A resource keeps its identities once worked out: a copy that changes what they read gives its own, one that changes
+    /// nothing they read gives the same, and a resource whose identities were worked out equals one whose were not.</summary>
+    [Fact]
+    public void A_resource_keeps_its_identities_and_a_copy_works_out_its_own()
+    {
+        var resource = Write("a", "X").Resource;
+        var identity = resource.Identity;
+
+        Assert.Same(identity, resource.Identity);
+        Assert.Same(resource.StructuralIdentity, resource.StructuralIdentity);
+        Assert.Equal($"{resource.StructuralIdentity}|[3]", (resource with { Selector = ElementSelector.Exact(3) }).Identity);
+        Assert.Equal(identity.Replace(SCOPE, "scope:Other", StringComparison.Ordinal), (resource with { Scope = "scope:Other" }).Identity);
+        Assert.Equal(identity + "/Fixture:Inner.Y:Field",
+                     (resource with { StructPath = [new MemberKey("Fixture:Inner", "Y", IrFieldKind.Field)] }).Identity);
+        Assert.Equal(identity, (resource with { AccessPath = ["Z"] }).Identity);
+        // Built from the very values, the lists included, which the record compares by reference.
+        var untouched = new AccessResource(resource.Assembly, resource.Scope, resource.Region, resource.AccessPath, resource.Member, resource.RegionId);
+        Assert.Equal(untouched, resource);
+        Assert.Equal(untouched.GetHashCode(), resource.GetHashCode());
+    }
+
     [Fact]
     public void A_struct_whole_meets_each_field_below_it_and_is_named_by_the_longer_path()
     {

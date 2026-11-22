@@ -84,11 +84,63 @@ public sealed record AccessResource(string Assembly, string Scope, string Region
 
     /// <summary>The collection itself, without the cell: what the candidate index groups by, so that a cell nothing proves apart
     /// still meets every cell it may be (TD-075).</summary>
-    public string StructuralIdentity =>
-        (CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}") +
-        string.Concat(StructPath.Select(member => $"/{member.Identity}"));
+    public string StructuralIdentity => Identities().Structural;
 
-    public string Identity => Selector is null ? StructuralIdentity : $"{StructuralIdentity}|{Selector.Text}";
+    public string Identity => Identities().Identity;
+
+    /// <summary>The identities last worked out, with what they were worked out from. A copy <c>with</c> makes shares the cell, and works
+    /// them out again where it differs in any of those; every cell is equal to every other, so the record's equality never reads it.</summary>
+    private readonly IdentityCell _identities = new();
+
+    /// <summary>Both identities, worked out once for the values they read and kept with them.</summary>
+    private ResourceIdentities Identities()
+    {
+        var known = _identities.Known;
+        if (known is not null && known.Reads(this))
+            return known;
+        var structural =
+            (CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}") +
+            string.Concat(StructPath.Select(member => $"/{member.Identity}"));
+        known = new ResourceIdentities(CollectionId, Scope, Assembly, RegionId, Region, Member, StructPath, Selector, structural,
+                                       Selector is null ? structural : $"{structural}|{Selector.Text}");
+        _identities.Known = known;
+        return known;
+    }
+
+    /// <summary>Where a resource keeps its identities; equal to every other cell, so that it is no part of the resource's value.</summary>
+    private sealed class IdentityCell
+    {
+        /// <summary>The identities last worked out, replaced whole, so that a reader on another thread sees one set or the other.</summary>
+        internal volatile ResourceIdentities? Known;
+
+        public override bool Equals(object? obj) => obj is IdentityCell;
+
+        public override int GetHashCode() => 0;
+    }
+
+    /// <summary>The identities of a resource, with the values of it they were worked out from.</summary>
+    /// <param name="CollectionId">The resource's collection.</param>
+    /// <param name="Scope">Its scope.</param>
+    /// <param name="Assembly">Its assembly.</param>
+    /// <param name="RegionId">Its region's identity.</param>
+    /// <param name="Region">Its region's display.</param>
+    /// <param name="Member">Its member.</param>
+    /// <param name="StructPath">The struct fields below its member.</param>
+    /// <param name="Selector">Its cell.</param>
+    /// <param name="Structural">The structural identity those give.</param>
+    /// <param name="Identity">The identity those give.</param>
+    private sealed record ResourceIdentities(string? CollectionId, string Scope, string Assembly, string? RegionId, string Region, MemberKey Member,
+                                             IReadOnlyList<MemberKey> StructPath, ElementSelector? Selector, string Structural, string Identity)
+    {
+        /// <summary>Whether a resource holds the very values these were worked out from; a member key is a record whose identity is
+        /// worked out from its own values, so it is compared by value.</summary>
+        /// <param name="resource">The resource.</param>
+        internal bool Reads(AccessResource resource) =>
+            ReferenceEquals(CollectionId, resource.CollectionId) && ReferenceEquals(Scope, resource.Scope) &&
+            ReferenceEquals(Assembly, resource.Assembly) && ReferenceEquals(RegionId, resource.RegionId) &&
+            ReferenceEquals(Region, resource.Region) && Member == resource.Member && ReferenceEquals(StructPath, resource.StructPath) &&
+            ReferenceEquals(Selector, resource.Selector);
+    }
 
     /// <summary>The region's context-free identity (R6), which fingerprints hash; the region identity when none was given.</summary>
     public string RegionKey { get => field ?? RegionId ?? Region; init; }
