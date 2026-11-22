@@ -293,6 +293,25 @@ public sealed class ProgramIndexTests
     }
 
     [Fact]
+    public void Supertypes_are_walked_once_per_type_in_breadth_first_order()
+    {
+        var index = Index("""
+            public interface IFirst { }
+            public interface ISecond { }
+            public class Order { }
+            public class Base<T> : ISecond { }
+            public class Derived : Base<Order>, IFirst { }
+            """);
+
+        var first = index.Supertypes("Fixture:Derived");
+        Assert.Equal(["Fixture:Derived", "Fixture:Base<Fixture:Order>", "Fixture:IFirst", "Fixture:ISecond"],
+                     first.Where(key => key.StartsWith("Fixture:", StringComparison.Ordinal)));
+        Assert.Same(first, index.Supertypes("Fixture:Derived"));
+        Assert.Equal("Fixture:Base<Fixture:Order>", index.ConstructedBase("Fixture:Derived", "Fixture:Base<Fixture:T>"));
+        Assert.Equal("Fixture:Base<Fixture:Order>", index.ConstructedBase("Fixture:Derived", "Fixture:Base<Fixture:T>"));
+    }
+
+    [Fact]
     public void Implicit_type_initializer_exists_only_for_static_initializers()
     {
         var index = Index("""

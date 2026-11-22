@@ -1016,6 +1016,38 @@ public static partial class WholeProgram
         // The key text of each substitution _substitutions made (SubstitutionText), by reference.
         private readonly Dictionary<IReadOnlyDictionary<string, string>, string> _substitutionTexts = new(ReferenceEqualityComparer.Instance);
 
+        // How many of a request set's first items AddRequests already gave a target set, by the two sets.
+        private readonly Dictionary<(TrackedSet<string> Source, TrackedSet<string> Target), int> _givenRequests = new(SetPairComparer.INSTANCE);
+
+        // The instances of each body in the order _instances got them; read only through InstancesOf, which reads _instances whole.
+        private readonly Dictionary<string, List<InstanceState>> _instancesByBody = new(StringComparer.Ordinal);
+
+        // The edges Bind already added, by the instances themselves rather than their ids.
+        private readonly HashSet<(InstanceState Caller, int Operation, InstanceState Callee, string Reason)> _boundEdges = [];
+
+        /// <summary>Compares two pairs of sets by reference, as the sets are the very containers, not their contents.</summary>
+        private sealed class SetPairComparer : IEqualityComparer<(TrackedSet<string> Source, TrackedSet<string> Target)>
+        {
+            internal static readonly SetPairComparer INSTANCE = new();
+
+            /// <summary>Whether both pairs hold the same two sets.</summary>
+            /// <param name="first">The first pair.</param>
+            /// <param name="second">The second pair.</param>
+            public bool Equals((TrackedSet<string> Source, TrackedSet<string> Target) first, (TrackedSet<string> Source, TrackedSet<string> Target) second)
+            {
+                WorkCancellation.Check();
+                return ReferenceEquals(first.Source, second.Source) && ReferenceEquals(first.Target, second.Target);
+            }
+
+            /// <summary>The hash of the two sets' identities.</summary>
+            /// <param name="pair">The pair.</param>
+            public int GetHashCode((TrackedSet<string> Source, TrackedSet<string> Target) pair)
+            {
+                WorkCancellation.Check();
+                return HashCode.Combine(RuntimeHelpers.GetHashCode(pair.Source), RuntimeHelpers.GetHashCode(pair.Target));
+            }
+        }
+
         /// <summary>The synthetic field of a <c>Thread</c> region holding the work its constructor bound.</summary>
         private const string THREAD_WORK_FIELD = "<thread-work>";
 
@@ -1435,6 +1467,10 @@ public static partial class WholeProgram
             _history.TrimExcess();
             _callHistories.Clear();
             _callHistories.TrimExcess();
+            _givenRequests.Clear();
+            _givenRequests.TrimExcess();
+            _boundEdges.Clear();
+            _boundEdges.TrimExcess();
             _writes.Clear();
             _writes.TrimExcess();
             _loadedUnions.Clear();
@@ -2154,7 +2190,7 @@ public static partial class WholeProgram
             }
             else if (Site(state.Registration) is { } site && LastArgument(site.Call) is { } argument)
             {
-                foreach (var holder in _instances.Values.Where(instance => instance.BodyId == site.BodyId).ToArray())
+                foreach (var holder in InstancesOf(site.BodyId))
                 {
                     CheckCancellation();
                     objects.UnionWith(Eval(holder, argument.Values));
@@ -2164,6 +2200,15 @@ public static partial class WholeProgram
             if (state.Defaulted)
                 objects.Add(region);
             return objects;
+        }
+
+        /// <summary>The instances of a body, in the order the solve made them, as a walk of every instance would list them. It reads what
+        /// that walk read, the whole instance map, so its reader is dirty whenever any instance is made.</summary>
+        /// <param name="bodyId">The body.</param>
+        private InstanceState[] InstancesOf(string bodyId)
+        {
+            _ = _instances.Count;
+            return _instancesByBody.TryGetValue(bodyId, out var instances) ? [.. instances] : [];
         }
 
         private static CallArgument? LastArgument(SummaryOpaqueCall call) => call.Arguments.OrderBy(argument => argument.ParameterOrdinal).LastOrDefault();
@@ -2203,7 +2248,7 @@ public static partial class WholeProgram
             if (state.Registration.Form != DiRegistrationForm.Factory || Site(state.Registration) is not { } site || LastArgument(site.Call) is not { } argument)
                 return;
 
-            var delegates = _instances.Values.Where(instance => instance.BodyId == site.BodyId).ToArray()
+            var delegates = InstancesOf(site.BodyId)
                                       .SelectMany(holder => Eval(holder, argument.Values))
                                       .Where(_delegates.ContainsKey)
                                       .Distinct()
@@ -2427,6 +2472,9 @@ public static partial class WholeProgram
                                              !merged && receiverless, summary);
                 _instances.Add(key, instance);
                 _instanceOrder.Add(key);
+                if (!_instancesByBody.TryGetValue(bodyId, out var ofBody))
+                    _instancesByBody.Add(bodyId, ofBody = []);
+                ofBody.Add(instance);
                 _changes++;
                 if (merged)
                     _counters[HeapCounters.MERGED_CONTEXT] = _counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT) + 1;
@@ -2988,7 +3036,7 @@ public static partial class WholeProgram
 
                     if (localValues is not null && role != SpawnRole.LocalInit)
                         BindParameter(callee, role == SpawnRole.Work ? ParameterCount(callee) - 1 : 0, localValues);
-                    Add(callee.Requests, caller.Requests);
+                    AddRequests(callee.Requests, caller.Requests);
                     if (site.Callees.Add((callee.Id, role)))
                         _changes++;
                 }
@@ -3089,7 +3137,7 @@ public static partial class WholeProgram
                     CheckCancellation();
                     if (timer.Action == IrTimerAction.Create)
                         BindParameter(callee, 0, state);
-                    Add(callee.Requests, caller.Requests);
+                    AddRequests(callee.Requests, caller.Requests);
                     if (site.Callees.Add((callee.Id, SpawnRole.Work)))
                         _changes++;
                 }
@@ -3722,7 +3770,7 @@ public static partial class WholeProgram
                 foreach (var callee in callees)
                 {
                     CheckCancellation();
-                    Add(callee.Requests, caller.Requests);
+                    AddRequests(callee.Requests, caller.Requests);
                     handoff.Callees.Add(callee.Id);
                 }
                 // A method group without a body runs, in the delegate's unknown execution, a member the analysis cannot read (question 145).
@@ -4071,7 +4119,7 @@ public static partial class WholeProgram
                             Add(Parameter(callee, input.ParameterOrdinal), Eval(caller, input.Values));
                         }
                         _rebuilding.FateRuns.Add((new DelegateSite(caller.Id, call.OperationId, fate.ParameterOrdinal), callee.Id));
-                        Add(callee.Requests, caller.Requests);
+                        AddRequests(callee.Requests, caller.Requests);
                         switch (fate.Kind)
                         {
                             case IrFateKind.InvokeNow:
@@ -4273,7 +4321,7 @@ public static partial class WholeProgram
                     foreach (var callee in sequence.Callees)
                     {
                         CheckCancellation();
-                        Add(_instances[callee].Requests, consumer.Requests);
+                        AddRequests(_instances[callee].Requests, consumer.Requests);
                         AddEdge((consumer.Id, operationId, callee, "delegate"));
                         _rebuilding.RepeatedRuns.Add((consumer.Id, operationId, callee));
                     }
@@ -4394,7 +4442,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 Add(Parameter(callee, input.ParameterOrdinal), Eval(caller, input.Values));
             }
-            Add(callee.Requests, caller.Requests);
+            AddRequests(callee.Requests, caller.Requests);
             AddEdge((caller.Id, operationId, callee.Id, "points-to"));
         }
 
@@ -5286,7 +5334,7 @@ public static partial class WholeProgram
                         CheckCancellation();
                         Add(Parameter(instance, input.ParameterOrdinal), Eval(caller, input.Values));
                     }
-                    Add(instance.Requests, caller.Requests);
+                    AddRequests(instance.Requests, caller.Requests);
                     RunNow(caller, invocation, instance);
                 }
             }
@@ -5314,7 +5362,7 @@ public static partial class WholeProgram
                     CheckCancellation();
                     Add(Parameter(instance, ordinal), regions[ordinal]);
                 }
-                Add(instance.Requests, caller.Requests);
+                AddRequests(instance.Requests, caller.Requests);
                 handoff.Callees.Add(instance.Id);
             }
 
@@ -5725,8 +5773,13 @@ public static partial class WholeProgram
                 CheckCancellation();
                 Add(RefResult(caller, call.OperationId, ordinal), values);
             }
-            Add(callee.Requests, caller.Requests);
-            AddEdge((caller.Id, call.OperationId, callee.Id, reason));
+            AddRequests(callee.Requests, caller.Requests);
+            // An edge this binding made before is in _edges, which never loses one, so adding it again would only hash its ids.
+            if (!_boundEdges.Contains((caller, call.OperationId, callee, reason)))
+            {
+                AddEdge((caller.Id, call.OperationId, callee.Id, reason));
+                _boundEdges.Add((caller, call.OperationId, callee, reason));
+            }
         }
 
         /// <summary>An edge into an async body (not an async iterator) whose result the caller does not await at once starts that body
@@ -7043,6 +7096,25 @@ public static partial class WholeProgram
                 if (target.Add(location))
                     _changes++;
             }
+        }
+
+        /// <summary>Adds the requests of one instance to another's, as <see cref="Add{T}"/> would, without hashing again the ones a
+        /// previous call already gave the same target. Request sets only grow, and a set enumerates in the order it got its items, so
+        /// what an earlier call added is the source's first items, and the target, which only grows too, still holds them; only the
+        /// rest are added, in their order. The source's contents are read as enumerating it reads them, so the worklist sees the same
+        /// reads.</summary>
+        /// <param name="target">The requests that are added to.</param>
+        /// <param name="source">The requests that are added.</param>
+        private void AddRequests(TrackedSet<string> target, TrackedSet<string> source)
+        {
+            CheckCancellation();
+            var count = source.Count;
+            var pair = (source, target);
+            var given = _givenRequests.GetValueOrDefault(pair);
+            if (given == count)
+                return;
+            Add(target, source.Skip(given));
+            _givenRequests[pair] = count;
         }
 
         private void Add<T>(TrackedSet<T> target, IEnumerable<T> values)

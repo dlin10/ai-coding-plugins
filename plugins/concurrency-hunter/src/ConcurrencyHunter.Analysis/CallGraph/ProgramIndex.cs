@@ -76,6 +76,8 @@ public sealed class ProgramIndex
     private readonly Dictionary<string, ProgramMethod> _membersOfNestedBodies;
     private readonly ConcurrentDictionary<string, IReadOnlyList<IrFieldRef>?> _instanceFields = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string RuntimeTypeKey, string MethodId, string? InterfaceTypeKey), ProgramMethod?> _implementations = new();
+    private readonly ConcurrentDictionary<string, string[]> _supertypes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string TypeKey, string Definition), string?> _constructedBases = new();
 
     public ProgramIndex(string scopeId, IReadOnlyList<ProgramType> types, IReadOnlyList<ProgramMethod> methods,
                         IReadOnlyList<ProgramField> fields, IReadOnlyList<ClosedGenericType> closedGenericTypes,
@@ -298,14 +300,26 @@ public sealed class ProgramIndex
     /// <summary>The form <paramref name="typeKey"/> gives the base type or interface whose original definition is
     /// <paramref name="originalDefinitionKey"/>, found through the whole base and interface graph with each level's type
     /// arguments substituted (for <c>Derived : Base&lt;Order&gt;</c>, <c>Base&lt;T&gt;</c> is <c>Base&lt;Order&gt;</c>), or null.</summary>
+    /// <remarks>The index does not change once made, so each answer is worked out once.</remarks>
+    /// <param name="typeKey">The type whose base or interface is looked for.</param>
+    /// <param name="originalDefinitionKey">The original definition of the base or interface.</param>
     public string? ConstructedBase(string typeKey, string originalDefinitionKey) =>
-        Supertypes(typeKey).FirstOrDefault(key => Decompose(key).DefinitionKey == originalDefinitionKey);
+        _constructedBases.GetOrAdd((typeKey, originalDefinitionKey),
+                                   static (key, index) => index.Supertypes(key.TypeKey)
+                                                               .FirstOrDefault(type => index.Decompose(type).DefinitionKey == key.Definition),
+                                   this);
 
     /// <summary><paramref name="typeKey"/> and every base type and interface it has, breadth-first through the whole base and
     /// interface graph, each in the form the type gives it (for <c>Derived : Base&lt;Order&gt;</c>, <c>Base&lt;Order&gt;</c>). The
-    /// walk goes through every type the index holds, a definition from metadata among them.</summary>
+    /// walk goes through every type the index holds, a definition from metadata among them. The index does not change once made, so
+    /// each type's walk is made once and kept, in its order.</summary>
     /// <param name="typeKey">The type whose base types and interfaces are enumerated.</param>
-    public IEnumerable<string> Supertypes(string typeKey)
+    public IEnumerable<string> Supertypes(string typeKey) =>
+        _supertypes.GetOrAdd(typeKey, static (key, index) => index.WalkSupertypes(key).ToArray(), this);
+
+    /// <summary>The work of <see cref="Supertypes"/>: the breadth-first walk of the base and interface graph.</summary>
+    /// <param name="typeKey">The type whose base types and interfaces are enumerated.</param>
+    private IEnumerable<string> WalkSupertypes(string typeKey)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Queue<string>([typeKey]);

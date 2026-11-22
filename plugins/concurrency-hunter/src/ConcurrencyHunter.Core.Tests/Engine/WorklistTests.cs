@@ -108,6 +108,41 @@ public sealed class WorklistTests
     }
 
     [Fact]
+    public void Requests_given_before_are_not_added_again_and_later_ones_follow_in_order()
+    {
+        var solver = NewSolver(SIMPLE + Startup());
+        TrackedSet<string> Set(params string[] items) => new(items, StringComparer.Ordinal);
+        var first = Set("a", "b");
+        var second = Set("b", "x");
+        var given = Set("z");
+        var plain = Set("z");
+        // Each step gives a source to the target both ways: the remembered one and a plain add of the whole source.
+        void Give(TrackedSet<string> source)
+        {
+            Invoke(solver, "AddRequests", given, source);
+            Invoke(solver, "Add", plain, source);
+            Assert.Equal(plain, given);
+        }
+
+        Give(first);
+        Give(second);
+        first.Add("c");
+        Give(first);
+        second.Add("a");
+        second.Add("y");
+        Give(second);
+        Give(first);
+        given.Add("w");
+        plain.Add("w");
+        first.Add("d");
+        Give(first);
+        Assert.Equal(["z", "a", "b", "x", "c", "y", "w", "d"], given);
+        var other = Set();
+        Invoke(solver, "AddRequests", other, first);
+        Assert.Equal(["a", "b", "c", "d"], other);
+    }
+
+    [Fact]
     public async Task Full_pass_after_convergence_changes_nothing() => await AssertSolution(DemoPath(), verify: true);
 
     [Fact]
@@ -380,6 +415,11 @@ public sealed class WorklistTests
             // Memos of what the summaries and the program index alone decide: a summary's own call transfers, a member's substitution
             // for a declaring type and type arguments, and its key text.
             "_summaryCalls", "_substitutions", "_substitutionTexts",
+            // How far a request set went into another, and the edges a binding made: both sets only grow, so neither decides a fact a
+            // read of the sets themselves would not.
+            "_givenRequests", "_boundEdges",
+            // The instances by body, an index of _instances read only through InstancesOf, which reads the whole map.
+            "_instancesByBody",
             // The solve's profile for a diagnostic checkpoint: times and skips, which no heap fact reads.
             "_skips", "_dirtyCheckTicks", "_processTicks", "_callTicks", "_passRestTicks", "_calls", "_changingCalls", "_skippedCalls",
             // The worklist per call, as _history is per instance, and whether the processing under way may skip a call.
