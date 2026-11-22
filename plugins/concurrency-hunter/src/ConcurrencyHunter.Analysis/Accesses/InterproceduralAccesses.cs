@@ -1330,12 +1330,17 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The visits that host what the unknown enumeration of an escaped library sequence does besides running bodies: each
         /// the creator of the sequence or of one it enumerates, true for the escaped sequence's own, whose visit makes the enumeration's
-        /// effects (R5); every one makes the unresolved dispatches of its delegates there (R3). A host runs nothing of its body.</summary>
-        private readonly Dictionary<PathNode, bool> _hosts = [];
+        /// effects (R5); every one makes the unresolved dispatches of its delegates there (R3). A host runs nothing of its body.
+        /// A host is the node object its host step made, looked up by reference: paths compare by value, and the host of an instance is
+        /// the path an ordinary visit of it without a parent is, which an entry into the instance makes and so does the visit that
+        /// forgets where it came from. Looked up by value, that visit would be taken for the host and make nothing of the body it runs
+        /// (issue #472).</summary>
+        private readonly Dictionary<PathNode, bool> _hosts = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The visits among <see cref="_hosts"/> that host work without a body this execution runs: the instance that started it,
-        /// whose locks at the starting operation do not hold over the work (question 145).</summary>
-        private readonly HashSet<PathNode> _workHosts = [];
+        /// whose locks at the starting operation do not hold over the work (question 145). Looked up by reference, as <see cref="_hosts"/>
+        /// is.</summary>
+        private readonly HashSet<PathNode> _workHosts = new(ReferenceEqualityComparer.Instance);
 
         private void CheckCancellation()
         {
