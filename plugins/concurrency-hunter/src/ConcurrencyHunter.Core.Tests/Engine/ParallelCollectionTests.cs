@@ -69,7 +69,7 @@ public sealed class ParallelCollectionTests
     /// <summary>Runs a check over the input of each demo scope, after the pipeline has collected it once, while its solution is
     /// loaded.</summary>
     /// <param name="check">The check of one scope's input.</param>
-    private static async Task ForEachDemoScope(Action<InterproceduralInput> check)
+    internal static async Task ForEachDemoScope(Action<InterproceduralInput> check)
     {
         await DemoWorkspace.EnsureRestoredAsync();
         var path = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");

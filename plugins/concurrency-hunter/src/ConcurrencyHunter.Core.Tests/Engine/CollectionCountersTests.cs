@@ -12,11 +12,11 @@ public sealed class CollectionCountersTests
     {
         var counters = new CollectionCounters
         {
-            Entries = 1, Visits = 2, States = 3, Rows = 4, Keys = 5, Hits = 6, Emitted = 7, Replaced = 8, WouldSkip = 9, WouldSkipEmitted = 10,
+            Entries = 1, Visits = 2, States = 3, Rows = 4, Keys = 5, Hits = 6, Emitted = 7, Replaced = 8, Skipped = 9, SkippedKeys = 10,
             WalkMs = 11, LocksMs = 12, DependenciesMs = 13, EmitMs = 14
         };
 
-        Assert.Equal("entries=1 visits=2 states=3 rows=4 keys=5 hits=6 emitted=7 replaced=8 wouldSkip=9 wouldSkipEmitted=10 " +
+        Assert.Equal("entries=1 visits=2 states=3 rows=4 keys=5 hits=6 emitted=7 replaced=8 skipped=9 skippedKeys=10 " +
                      "walkMs=11 locksMs=12 dependenciesMs=13 emitMs=14", counters.Line());
     }
 
@@ -33,7 +33,6 @@ public sealed class CollectionCountersTests
             Assert.Equal(collection.Accesses.Count(access => access.ExecutionId == execution), counters.Emitted - counters.Replaced);
             Assert.InRange(counters.States, 0, counters.Visits);
             Assert.InRange(counters.Keys, 0, long.MaxValue);
-            Assert.Equal(0, counters.WouldSkipEmitted);
         });
         var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
         Assert.True(worker.Entries >= 1);
@@ -42,25 +41,32 @@ public sealed class CollectionCountersTests
         Assert.Equal(worker.Visits, worker.States);
         Assert.True(worker.Rows >= 1);
         Assert.Equal(0, worker.Hits);
-        Assert.Equal(0, worker.WouldSkip);
+        Assert.Equal(0, worker.Skipped);
     }
 
-    /// <summary>A second path to the helper under the first one's guards and one more finds every key of its access taken: the lookups
-    /// the rule of ADR 0041 leaves out, none of which makes an access.</summary>
+    /// <summary>A second path to the helper under the first one's guards and one more finds every key of its access taken. The rule of
+    /// ADR 0041 skips the access there, and counts the lookups it left out: the hits of a collection without the rule.</summary>
     [Fact]
-    public void A_path_under_more_guards_counts_its_lookups_as_hits_the_rule_would_skip()
+    public void A_path_under_more_guards_counts_as_skipped_the_lookups_that_were_hits_without_the_rule()
     {
-        var (_, counted) = Collect("_state.Touch(); if (_state.Shared < 4) _state.Touch();");
+        const string twice = "_state.Touch(); if (_state.Shared < 4) _state.Touch();";
+        var worker = Assert.Single(Collect(twice).Counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) &&
+                                                                   item.Counters.Emitted != 0).Counters;
+        var repeating = Assert.Single(Collect(twice, repeats: true).Counted,
+                                      item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
 
-        var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
         Assert.True(worker.Visits > worker.States);
-        Assert.True(worker.Hits >= 1);
-        Assert.Equal(worker.Hits, worker.WouldSkip);
-        Assert.Equal(0, worker.WouldSkipEmitted);
+        Assert.Equal(1, worker.Skipped);
+        Assert.Equal(0, worker.Hits);
+        Assert.Equal(0, repeating.Skipped);
+        Assert.True(repeating.Hits >= 1);
+        Assert.Equal(repeating.Hits, worker.SkippedKeys);
+        Assert.Equal(repeating.Keys, worker.Keys + worker.SkippedKeys);
+        Assert.Equal(repeating.Emitted, worker.Emitted);
         Assert.Equal(0, worker.Replaced);
     }
 
-    /// <summary>A later path under fewer guards makes the access again and replaces the first, and the rule would not skip it.</summary>
+    /// <summary>A later path under fewer guards makes the access again and replaces the first, and the rule does not skip it.</summary>
     [Fact]
     public void A_path_under_fewer_guards_counts_a_replaced_access()
     {
@@ -68,15 +74,17 @@ public sealed class CollectionCountersTests
 
         var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
         Assert.Equal(1, worker.Replaced);
-        Assert.Equal(0, worker.WouldSkip);
+        Assert.Equal(0, worker.Skipped);
     }
 
     /// <summary>Collects the case's scope, with the counters of each walked execution in the fold's order.</summary>
     /// <param name="first">The statements of the first worker.</param>
-    private static (InterproceduralCollection Collection, List<(string Execution, CollectionCounters Counters)> Counted) Collect(string first)
+    /// <param name="repeats">Whether the collection goes without the rule of ADR 0041.</param>
+    private static (InterproceduralCollection Collection, List<(string Execution, CollectionCounters Counters)> Counted) Collect(string first,
+                                                                                                                              bool repeats = false)
     {
         var counted = new List<(string Execution, CollectionCounters Counters)>();
-        var input = Input(Execute(Source(first))) with { Counted = (id, counters) => counted.Add((id, counters)) };
+        var input = Input(Execute(Source(first))) with { Counted = (id, counters) => counted.Add((id, counters)), EmitsUnderRepeatedGuards = repeats };
         return (InterproceduralAccesses.Collect(input, CancellationToken.None), counted);
     }
 

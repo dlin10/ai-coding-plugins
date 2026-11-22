@@ -141,6 +141,10 @@ public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap,
     /// <summary>Told, as the fold takes each walked execution, its id and what its collection counted (ADR 0041): a test reads the
     /// counters a diagnostic run reports. Null for no one.</summary>
     internal Action<string, CollectionCounters>? Counted { get; init; }
+
+    /// <summary>Whether a visit goes through an access the execution has emitted under guards the visit's include, as every visit did
+    /// before the rule of ADR 0041, rather than skipping it: a test compares the two.</summary>
+    internal bool EmitsUnderRepeatedGuards { get; init; }
 }
 
 /// <summary>What the collection of one execution did, as the <c>execution:</c> checkpoint of a diagnostic run reports it (ADR 0041):
@@ -171,12 +175,13 @@ internal sealed class CollectionCounters
     /// <summary>The accesses made that one under fewer guards replaced later.</summary>
     internal long Replaced { get; set; }
 
-    /// <summary>The lookups of accesses the execution had emitted under guards the visit's include, where the emission reads the
-    /// visit's path for its guards alone: the lookups the rule of ADR 0041 leaves out. Counted only where the counters are read.</summary>
-    internal long WouldSkip { get; set; }
+    /// <summary>The accesses of visits the rule of ADR 0041 skipped: the execution had emitted each under guards the visit's
+    /// include, and the emission reads the visit's path for its guards alone.</summary>
+    internal long Skipped { get; set; }
 
-    /// <summary>Those of <see cref="WouldSkip"/> that made an access after all: none, if the rule is right.</summary>
-    internal long WouldSkipEmitted { get; set; }
+    /// <summary>The keys the skipped accesses would have looked up, every one a hit: with <see cref="Keys"/>, the lookups the
+    /// emission made before the rule.</summary>
+    internal long SkippedKeys { get; set; }
 
     /// <summary>The milliseconds of the walk from the entries, the hosts included.</summary>
     internal long WalkMs { get; set; }
@@ -193,7 +198,7 @@ internal sealed class CollectionCounters
     /// <summary>The counters as the tail of the <c>execution:</c> report line.</summary>
     internal string Line() =>
         $"entries={Entries} visits={Visits} states={States} rows={Rows} keys={Keys} hits={Hits} emitted={Emitted} replaced={Replaced} " +
-        $"wouldSkip={WouldSkip} wouldSkipEmitted={WouldSkipEmitted} walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
+        $"skipped={Skipped} skippedKeys={SkippedKeys} walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
 }
 
 /// <summary>
@@ -2639,6 +2644,17 @@ public static partial class InterproceduralAccesses
         /// <param name="Access">The access.</param>
         private sealed record KeptAccess(ulong[] Conditions, Access Access);
 
+        /// <summary>The guards one access of an instance was emitted under in this execution, on the visits whose path the emission
+        /// read for its guards alone (ADR 0041).</summary>
+        private sealed class EmittedGuards
+        {
+            /// <summary>The sets of guards, each as the numbers of its guards' keys; none includes another.</summary>
+            internal List<ulong[]> Sets { get; } = [];
+
+            /// <summary>How many keys the emission looks up for the access on such a visit: the same on each of them.</summary>
+            internal int Keys { get; set; }
+        }
+
         private IReadOnlyList<Access> Emit()
         {
             // By the numbers of the instance and the resource, and the operation: the reads feeding each write; the loads folded into
@@ -2735,15 +2751,22 @@ public static partial class InterproceduralAccesses
             var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
             var seen = new Dictionary<EmittedKey, List<KeptAccess>>();
             // The guards each access of an instance was emitted under on the visits whose path the emission read for its guards
-            // alone, kept where the counters are read: what the rule of ADR 0041 would go by.
-            var emittedUnder = _countsAll
-                ? new Dictionary<MethodInstance, Dictionary<SummaryAccess, List<ulong[]>>>(ReferenceEqualityComparer.Instance)
-                : null;
+            // alone: a later such visit whose guards include one of those sets finds every key of the access taken, and skips it
+            // before it reads its resources (ADR 0041). A new place that reads the path for an access must take that access out of
+            // the path-free ones below.
+            var emittedUnder = input.EmitsUnderRepeatedGuards
+                ? null
+                : new Dictionary<MethodInstance, Dictionary<SummaryAccess, EmittedGuards>>(ReferenceEqualityComparer.Instance);
             foreach (var (entry, node) in _visits)
             {
                 CheckCancellation();
                 var instance = _heap.Instances[node.State.Instance];
                 var hosted = _hosts.TryGetValue(node, out var enumerates);
+                // A host runs nothing of its body and holds what no other visit of its instance does, so the rule leaves it alone.
+                Dictionary<SummaryAccess, EmittedGuards>? emittedHere = null;
+                var isRuled = emittedUnder is not null && !hosted;
+                if (isRuled)
+                    emittedUnder!.TryGetValue(instance, out emittedHere);
                 // Outputs with no visible body write their target whole, independently of argument and unknown effects (R9).
                 foreach (var copy in instance.Summary.StructCopies.Where(copy => copy.IsUnseenOutput && !hosted &&
                              input.Executions.Runs(instance.BodyId, node.State.Segment, copy.OperationId)))
@@ -2843,10 +2866,26 @@ public static partial class InterproceduralAccesses
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
                     Guards? guards = null;
-                    // Whether the emission reads the visit's path for this access's guards alone, known at its first resource that
-                    // gets as far as its guards, and whether the execution has emitted the access under guards the visit's include.
-                    bool? isPathFree = null;
-                    var wouldSkip = false;
+                    // The emission reads the visit's path for the guards of this access alone when the access is one object on every
+                    // visit and has no term to bind, the visit is no host, and no enumeration on its path adds locks (ADR 0041). An
+                    // access emitted before had a resource that got as far as its guards, and has one on this visit too, so its guards
+                    // and the path's locks are asked here only earlier than they would be.
+                    var isPathFree = isRuled && isStable && access.SelectorTerm is null;
+                    if (isPathFree && emittedHere is not null && emittedHere.TryGetValue(access, out var emittedBefore))
+                    {
+                        guards = Conditions(instance, access, node);
+                        if (!pathLocks.Known)
+                            pathLocks = (true, EnumerationPathLocks(node));
+                        var visitKeys = guards.Keys;
+                        if (pathLocks.Locks is null && emittedBefore.Sets.Exists(other => Bits.Covers(visitKeys, other)))
+                        {
+                            Counters.Skipped++;
+                            Counters.SkippedKeys += emittedBefore.Keys;
+                            continue;
+                        }
+                    }
+
+                    var accessKeys = 0;
                     // A stable unseen write is an unknown effect's access, kept for this execution alone (issue 454).
                     var resources = !isStable ? ResourcesOf(source, access)
                                     : isUnseenWrite ? EffectResources(source, access)
@@ -2900,14 +2939,6 @@ public static partial class InterproceduralAccesses
                         // other read that feeds it; only a section held over all of them protects it (R2).
                         if (!pathLocks.Known)
                             pathLocks = (true, EnumerationPathLocks(node));
-                        if (emittedUnder is not null && isPathFree is null)
-                        {
-                            isPathFree = isStable && access.SelectorTerm is null && !hosted && pathLocks.Locks is null;
-                            wouldSkip = isPathFree.Value && emittedUnder.TryGetValue(instance, out var emittedAccesses) &&
-                                        emittedAccesses.TryGetValue(access, out var emittedGuards) &&
-                                        emittedGuards.Exists(other => Bits.Covers(conditionKeys, other));
-                        }
-
                         // Work without a body runs after its starter goes on: what the starter holds where it starts it holds nothing over it.
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
@@ -2933,8 +2964,7 @@ public static partial class InterproceduralAccesses
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
                             Counters.Keys++;
-                            if (wouldSkip)
-                                Counters.WouldSkip++;
+                            accessKeys++;
                             if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
                             {
                                 Counters.Hits++;
@@ -2942,8 +2972,6 @@ public static partial class InterproceduralAccesses
                             }
 
                             Counters.Emitted++;
-                            if (wouldSkip)
-                                Counters.WouldSkipEmitted++;
                             for (var index = kept.Count - 1; index >= 0; index--)
                             {
                                 CheckCancellation();
@@ -3024,13 +3052,18 @@ public static partial class InterproceduralAccesses
                         }
                     }
 
-                    if (emittedUnder is not null && isPathFree == true && !wouldSkip)
+                    // Every key of the access now holds an access under these guards or under fewer, and keeps one: an access leaves
+                    // its key only for one under fewer guards. A set that includes these guards says nothing they do not.
+                    if (isPathFree && guards is not null && pathLocks.Locks is null)
                     {
-                        if (!emittedUnder.TryGetValue(instance, out var emittedAccesses))
-                            emittedUnder.Add(instance, emittedAccesses = new Dictionary<SummaryAccess, List<ulong[]>>(ReferenceEqualityComparer.Instance));
-                        if (!emittedAccesses.TryGetValue(access, out var emittedGuards))
-                            emittedAccesses.Add(access, emittedGuards = []);
-                        emittedGuards.Add(guards!.Keys);
+                        if (emittedHere is null)
+                            emittedUnder!.Add(instance, emittedHere = new Dictionary<SummaryAccess, EmittedGuards>(ReferenceEqualityComparer.Instance));
+                        if (!emittedHere.TryGetValue(access, out var emittedNow))
+                            emittedHere.Add(access, emittedNow = new EmittedGuards());
+                        var visitKeys = guards.Keys;
+                        emittedNow.Sets.RemoveAll(other => Bits.Covers(other, visitKeys));
+                        emittedNow.Sets.Add(visitKeys);
+                        emittedNow.Keys = accessKeys;
                     }
                 }
             }
