@@ -2635,3 +2635,139 @@ XML-доке `_hosts`. Правило ADR 0041 не действует на хо
 Снапшоты demo и eShop при одном и при четырёх воркерах совпали с закоммиченными и не переписывались: находки, пары
 мест, вхождения, отпечатки, gaps и счётчики. В demo и eShop нет исполнения, которое и входит в экземпляр целиком, и
 хостит его, или такое совпадение там ничего не меняет; какое из двух, гейты не различают.
+
+## #471 — replay R5 делит с графом то, от чего удержанные допущения не зависят
+
+Правило R5 (`HappensBefore.Assumed`) спрашивает `OrderedBy` на графах `Withholding`. Каждый такой replay был новым
+`HappensBefore` с пустыми кешами. Теперь replay берёт у графа, который он повторяет, всё, на что удержанные наборы не
+влияют. Семантика R5 не тронута: вопросы `OrderedBy` в `Assumed`, их порядок и удерживаемые наборы те же.
+
+### Что от чего зависит
+
+`_withheld` читает одно место — `ThrowsAfterCompletion` для ожидания с его хендлами. Его вызывают три читателя:
+- `EnsureJoins`: признак throwsAfter у соединений;
+- `EarlyTaskWaits`: ранние ожидания, которые `NewFlow` передаёт в конструктор **каждого** графа `Flow`, в том числе
+  простого (`PlainFlow`, readByForm);
+- `PassCompletionProof`.
+
+В replay ожидание с удержанным допущением становится ранним, и это меняет рёбра графа: исключительные выходы ожидания
+(`WaitParts` → `_escapes`/`_producing`, `_waitExits`). Поэтому `PlainFlow`, вопреки заметке к #465, от удержанных наборов
+зависит. Через `FieldStoreDominates` → `PlainFlow` от них зависят и доказательства источника хендла.
+
+| Кеш или факт | Читает `_withheld` | Через что | Делится |
+|---|---|---|---|
+| графы `Flow` (`PlainFlow`, `FlowOf`, `PassFlow`) | да | `NewFlow` → `EarlyTaskWaits`; у `FlowOf` ещё `Joins` | по входам (ниже) |
+| `Joins`, `JoinedBy`, `UnprovenJoins` | да | `EnsureJoins` → `ThrowsAfterCompletion`; `Prove` → … → `PlainFlow` | нет |
+| `ExecutionReach` | да | `EndEdges` → `EnsureJoins` | нет |
+| `Composite`, `Continuations` (и вызов в конструкторе) | да | `IsComposite` → `ProveHandle` → `ProveHandleSource` → `FieldStoreDominates` → `PlainFlow` | нет |
+| `ProveHandleSource`, `FieldStoreDominates`, `BindingExcused`, `SourcesExcused` | да | `PlainFlow`; своего кеша нет | нет |
+| `TaskForwarders._returned` | да | `ProveHandleSource` | нет |
+| `PassCompletionProof` (`_proofs`, `_flows`, `_completions`) | да | `ThrowsAfterCompletion`, `PassFlow` | нет |
+| `IsEnumerated` | нет | шаги, куча, тела | да |
+| `SpawnsOfHandle`, факты контекста потока | нет | куча, scope | да |
+| `IsQuietEvent` | нет | куча, тела | да |
+| дети по родителю, входы tail | нет | исполнения, входы | да |
+| якоря, starts, хендлы, `SpawnSites` (конструктор) | нет | якоря, куча | да |
+| стражи рекурсии `_proving*`, `_assumptions` | — | состояние графа | нет |
+
+### Изменение
+
+- **Общий объект.** `HappensBefore.Shared` создаёт граф анализа. `Withholding` передаёт его каждому своему replay. В нём:
+  - якоря по родителю, starts, хендлы и `SpawnSites`: replay не строит их заново;
+  - `IsEnumerated`, `IsQuietEvent`, `SpawnsOfHandle`, факты контекста потока, дети по родителю, входы tail;
+  - графы `Flow` по входам.
+- **Граф `Flow` — чистая функция входов своего конструктора.** У всех графов, делящих `Shared`, одни и те же scope,
+  куча, сегменты, входы, визиты и шаги исполнения, а также sequential runs: replay получает входы графа, который он
+  повторяет. Различаться могут:
+  - throwsAfter — ожидания, чьё исключение приходит после их задач, с множеством точек каждого (граф читает его как
+    множество);
+  - ранние ожидания;
+  - readByForm.
+
+  Ключ кеша — исполнение и эти три входа, каждая часть с длиной или числом впереди, так что разные входы не дают одного
+  ключа. Граф с тем же ключом берётся готовым. Слияния графов с разными входами нет. Ранние ожидания каждый граф
+  считает сам: `ThrowsAfterCompletion` записывает в них прочитанные допущения (`_assumptions`), и `Assumed` графа
+  анализа видит их как прежде. Кеш общий и для контекстов одного графа, и для `PassFlow`.
+- **Отмена.** Граф `Flow` проверяет отмену того графа, который его построил. Как только граф готов, это проверка
+  окружающей работы — та же, что у любого другого графа.
+- **Чего не делится.** Ответы, зависящие от `PlainFlow`, не делятся даже там, где граф `Flow` общий. У
+  `ProveHandleSource`, `FieldStoreDominates`, `BindingExcused` и `SourcesExcused` своего кеша нет. `IsComposite`
+  (предварительное `false` от цикла) и `TaskForwarders._returned` (страж `_proving`) отвечают в зависимости от того, что
+  идёт выше по стеку. Общий кеш таких ответов зависел бы от порядка, в котором графы его заполняют. Помнить, на каких
+  исполнениях стоит каждый ответ, — это вариант 2 из issue, не этот.
+- **Счётчик.** `TimingCounters.SharedFlows` — графы `Flow`, взятые готовыми. Строка `pairing-end` получила поле
+  `flowsShared`. `flows` и `flowNodes` теперь считают только построенные графы.
+
+### Тесты
+
+`ReplaySharingTests` на хостед-сервисе, который ждёт работу через `t.Wait()` в `try`:
+- `A_replay_takes_the_flows_whose_inputs_are_the_graphs_and_builds_the_others`. У каждого replay, которого построило
+  спаривание, и у каждого исполнения `PlainFlow` и `FlowOf` по узлам и рёбрам равны графу, который строит отдельный граф
+  с теми же удержанными наборами и своим `Shared`. Простой граф — тот же объект, что у графа анализа, когда ранние
+  ожидания совпадают, и другой, когда не совпадают. У ждущего исполнения они различаются хотя бы в одном replay.
+- `The_facts_a_graph_shares_with_its_replays_read_no_withheld_set`. Для каждого из семи непустых сочетаний наборов
+  отдельный граф отвечает на каждый общий факт так же, как граф анализа: якоря, starts, хендлы, `SpawnSites`, входы tail,
+  дети, `SpawnsOfHandle`, факты контекста, `IsEnumerated` каждого визита, `IsQuietEvent` каждого региона.
+
+Проверка мутациями:
+- с кешем `Flow`, который никогда не находит, краснеет первый тест;
+- с ключом без ранних ожиданий тоже краснеет первый: граф replay отличается от отдельного исключительным выходом ожидания;
+- когда `IsEnumerated` и `IsQuietEvent` отвечают иначе при удержанных наборах, краснеет второй.
+
+Ответы `assumed` на фикстурах с исключительным ожиданием пиннит `AssumptionAttributionMatrixTests`; он проходит.
+
+### Замер
+
+Временный зонд (удалён) прогонял каждый scope demo и eShop через `ScopePipeline.Run`. Затем трижды строил модель
+исполнений заново и вызывал холодный `InterproceduralPairing.Pair` на `Collection.Folded`, как это делает анализатор. Ещё
+два временных счётчика, тоже удалённые:
+- ключ каждого построенного графа `Flow` и то, построил ли его replay;
+- вызовы `HeapSolution.Resolve` за спаривание.
+
+Release, Idle, под corpus-lock, на `1a249266`, до переноса изменения на `d386db36`. Сборка «до» уже считала ключ в
+`NewFlow`.
+
+Сколько графов `Flow` replay построили бы с входами графа анализа, до правки:
+
+| scope | все графы | из них в replay | из них с ключом графа анализа | повторных ключей |
+|---|---:|---:|---:|---:|
+| demo Demo.Web | 1341 | 1015 | 965 (95 %) | 1022 (replay 997, граф 25) |
+| eShop Catalog.API | 100 | 75 | 67 (89 %) | 72 |
+| eShop Ordering.API | 64 | 48 | 40 (83 %) | 45 |
+
+До и после:
+
+| scope | `flows` | `flowsShared` | `flowNodes` | `Resolve` | холодное спаривание, мс (3 прогона) |
+|---|---:|---:|---:|---:|---|
+| demo Demo.Web, до | 1341 | — | 66 691 | 32 124 | 903, 779, 718 |
+| demo Demo.Web, после | 319 | 1022 | 14 868 | 16 792 | 656, 557, 602 |
+| eShop Catalog.API, до | 100 | — | 39 740 | 36 530 | 1171, 979, 953 |
+| eShop Catalog.API, после | 28 | 72 | 14 036 | 36 530 | 1405, 1016, 938 |
+| eShop Ordering.API, до | 64 | — | 21 808 | 676 | 94, 64, 108 |
+| eShop Ordering.API, после | 19 | 45 | 8 380 | 676 | 57, 34, 33 |
+
+У каждого scope `pairs`, `assumed`, `orderQueries`, `assumptionQueries` и `replays` те же. Replay теперь строят 18 графов
+на demo (было 1015) и 3 на каждом из двух scope eShop.
+
+Что это значит:
+- **Графы `Flow` в replay почти исчезли.** Память графов replay, главный риск для Nop.Web по оценке #465, растёт теперь с
+  числом исполнений, чьи ранние ожидания удержанный набор меняет, а не со всеми исполнениями.
+- **demo.** Холодное спаривание быстрее примерно на четверть. `Resolve` вдвое меньше. По чтению кода это общий
+  `IsQuietEvent`: `QuietEvent` обходит все экземпляры кучи с `Resolve`. По вызывающим это не разложено.
+- **eShop Catalog.API.** Время в пределах шума. `Resolve` не изменился: цена там в доказательствах соединений и поиске
+  путей, которые остаются у каждого replay (таблица выше).
+
+### Гейт
+
+Все — на `d386db36` с этим изменением, на окончательном дереве (зонд уже удалён), под corpus-lock, 22.11.
+
+| Прогон | Время | Итог |
+|---|---|---|
+| классы изменения в Release на Idle, без lock: `ReplaySharingTests`, `HappensBeforeTests`, `TimingCountersTests`, `PassCompletion`, `CanonicalOrderTests`, `DemoExpectationTests`, `CancellationCoverageTests`, `AssumptionAttributionMatrixTests`, `BlockingWaitAssumptionMatrixTests`, `AwaitExitFlowTests` | 19:09–19:16 | 1661 прошли, 1 пропущен (снапшот eShop без `CH_ESHOP_ROOT`), 0 упали |
+| `build/check-test-baseline.ps1` с `CH_ESHOP_ROOT`, без `CH_ACCESS_WORKERS` | 20:00–20:12 | Cli 178/178, Core 17 367 прошли, 39 пропущены, 0 упали; каждый случай baseline проходит |
+| то же с `CH_ACCESS_WORKERS=4` | 20:12–20:25 | Cli 178/178, Core 17 367 прошли, 39 пропущены, 0 упали; каждый случай baseline проходит |
+| `build/record-demo-models.ps1 -Check` после восстановления demo | 20:25–20:26 | выход 0: «A fresh generation answers all 25 committed member(s) as the committed files do» |
+
+`EShop_measurement_matches_the_snapshot` прогнан и прошёл в обоих прогонах. Снапшоты demo и eShop при одном и при четырёх
+воркерах совпали с закоммиченными и не переписывались: находки, пары мест, вхождения, отпечатки, gaps, счётчики и
+`assumed` те же.

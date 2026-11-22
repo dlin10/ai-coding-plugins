@@ -67,12 +67,15 @@ internal sealed partial class HappensBefore
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> _steps;
     private readonly IReadOnlyDictionary<string, string> _tails;
     private readonly IReadOnlySet<string> _duringStartup;
-    private readonly Dictionary<string, List<SpawnAnchor>> _anchors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<SpawnAnchor>> _anchors;
     /// <summary>Every start of each execution, by the execution started, from the anchors kept per parent and in their order
     /// (<see cref="StartsOf"/>).</summary>
-    private readonly Dictionary<string, List<SpawnAnchor>> _startsOfChild = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<SpawnAnchor>> _startsOfChild;
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
-    private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _handles;
+
+    /// <summary>What this graph shares with the graph it replays, or with its replays (<see cref="Shared"/>).</summary>
+    private readonly Shared _shared;
     private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _admittedCalls;
 
     /// <summary>The admitted calls whose record also orders every run's continuation, per run or per pass: the only ones anchors and the
@@ -90,8 +93,6 @@ internal sealed partial class HappensBefore
     private readonly HashSet<(string Instance, int Operation)> _proving = [];
     private readonly HashSet<(string Instance, int Operation)> _provingBindings = [];
     private readonly HashSet<(string Task, int Depth)> _provingTasks = [];
-    private readonly Dictionary<string, bool> _quietEvents = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HashSet<string>> _enumerated = new(StringComparer.Ordinal);
     private readonly Context _global = new(null);
     private readonly Dictionary<string, Context> _contexts = new(StringComparer.Ordinal);
 
@@ -99,8 +100,6 @@ internal sealed partial class HappensBefore
     private Context _context;
     private CancellationToken _constructionToken;
     private PassCompletionProof? _passCompletion;
-    private ThreadContextFacts? _contextFacts;
-    private Dictionary<string, List<SpawnSite>>? _spawnsOfHandle;
     private readonly IReadOnlyList<SpawnAnchor> _anchorList;
 
     /// <summary>The assumption sets whose blocking waits for a task this graph reads as ordering nothing on their exceptional exit, as
@@ -141,17 +140,66 @@ internal sealed partial class HappensBefore
         internal bool JoinsReady { get; set; }
     }
 
+    /// <summary>What a graph and the replays it builds for R5 share: the facts no withheld assumption set changes, since none of them
+    /// reads one, and the flows of an execution by every input of their construction that can differ between those graphs
+    /// (<see cref="Flows"/>). Each entry is a function of what it is kept under alone, so whichever graph asks first fills it, the
+    /// others take it, and a query of one graph inside a query of another finds the same answer. What reads a withheld set — the
+    /// joins, the flows with throwing waits, the reach of executions, the composite tasks, the handle proofs that read a flow, the
+    /// pass completion proof — stays each graph's own.</summary>
+    internal sealed class Shared
+    {
+        /// <summary>The anchors kept per parent (<see cref="_anchors"/>).</summary>
+        internal Dictionary<string, List<SpawnAnchor>> Anchors { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The starts of each execution (<see cref="_startsOfChild"/>).</summary>
+        internal Dictionary<string, List<SpawnAnchor>> StartsOfChild { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The executions each handle region names (<see cref="_handles"/>).</summary>
+        internal Dictionary<string, List<string>> Handles { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The spawn and async call sites (<see cref="SpawnSites"/>), made with the anchors.</summary>
+        internal IReadOnlyList<SpawnSiteCoverage>? SpawnSites { get; set; }
+
+        /// <summary>The instances each execution runs inside an async iterator (<see cref="IsEnumerated"/>).</summary>
+        internal Dictionary<string, HashSet<string>> Enumerated { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Whether each handle region is a quiet event (<see cref="IsQuietEvent"/>).</summary>
+        internal Dictionary<string, bool> QuietEvents { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The thread context facts of the scope.</summary>
+        internal ThreadContextFacts? ContextFacts { get; set; }
+
+        /// <summary>The spawns whose handle is each region (<see cref="SpawnsOfHandle"/>).</summary>
+        internal Dictionary<string, List<SpawnSite>>? SpawnsOfHandle { get; set; }
+
+        /// <summary>The executions by their parent (<see cref="ChildrenByParent"/>).</summary>
+        internal ILookup<string, ExecutionInstance>? Children { get; set; }
+
+        /// <summary>Each tail's entries into the tail segment (<see cref="AtResumptions"/>).</summary>
+        internal Dictionary<string, ExecutionEntry[]> TailEntries { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The flows built, by <see cref="FlowKey"/>. A flow is a function of the inputs of its constructor. The scope, the heap,
+        /// the segments, the execution's entries, visits and steps and the sequential runs are the same for every graph that shares
+        /// this, since a replay is given the inputs of the graph it replays; the execution names its entries, visits and steps. What
+        /// can differ is in the key: the waits whose exception comes after their tasks with the points of each, the early waits and
+        /// whether waits are read by their form. The flow checks the cancellation of the graph that built it, which is the ambient
+        /// work's once a graph is made, as every graph's is.</summary>
+        internal Dictionary<string, Flow> Flows { get; } = new(StringComparer.Ordinal);
+    }
+
     internal HappensBefore(ScopeProgram scope, HeapSolution heap, AsyncSegments segments, IReadOnlyDictionary<string, ExecutionInstance> executions,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> visits,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps, IReadOnlyList<SpawnAnchor> anchors,
                            IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup,
                            IReadOnlyList<ExecutionModel.AdmittedCall> admittedCalls, CancellationToken cancellationToken,
-                           IReadOnlySet<OrderingAssumption>? withheld = null, TimingCounters? counters = null)
+                           IReadOnlySet<OrderingAssumption>? withheld = null, TimingCounters? counters = null, Shared? shared = null)
     {
         Counters = counters ?? new TimingCounters();
         _constructionToken = cancellationToken;
         _withheld = withheld;
+        _shared = shared ?? new Shared();
+        (_anchors, _startsOfChild, _handles) = (_shared.Anchors, _shared.StartsOfChild, _shared.Handles);
         _anchorList = anchors;
         _context = _global;
         _scope = scope;
@@ -170,8 +218,12 @@ internal sealed partial class HappensBefore
         _spawnSites = heap.Spawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var asyncSites = heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var timerSites = heap.TimerCallbacks.ToDictionary(site => (site.CallerInstance, site.OperationId));
-        foreach (var anchor in anchors.OrderBy(anchor => anchor.ExecutionId, StringComparer.Ordinal).ThenBy(anchor => anchor.CallerInstance, StringComparer.Ordinal)
-                                      .ThenBy(anchor => anchor.OperationId))
+        // A replay takes the anchors and handles the graph it replays made from the same inputs.
+        var kept = shared is not null
+            ? Enumerable.Empty<SpawnAnchor>()
+            : anchors.OrderBy(anchor => anchor.ExecutionId, StringComparer.Ordinal).ThenBy(anchor => anchor.CallerInstance, StringComparer.Ordinal)
+                     .ThenBy(anchor => anchor.OperationId);
+        foreach (var anchor in kept)
         {
             CheckCancellation();
             if (!_executions.ContainsKey(anchor.ExecutionId) || !_executions.ContainsKey(anchor.ChildId))
@@ -202,7 +254,7 @@ internal sealed partial class HappensBefore
             IsComposite(child);
         }
 
-        SpawnSites = _anchors.Values.SelectMany(list => list)
+        SpawnSites = _shared.SpawnSites ??= _anchors.Values.SelectMany(list => list)
                              .Where(anchor => anchor.Kind != SpawnAnchorKind.Timer && _executions[anchor.ChildId].Origin is not null)
                              .Select(anchor => new SpawnSiteCoverage(new OperationSite(_executions[anchor.ChildId].Origin!.BodyId, anchor.OperationId),
                                                                      _executions[anchor.ChildId].Origin!.Api))
@@ -321,7 +373,7 @@ internal sealed partial class HappensBefore
     }
 
     /// <summary>The graph of the same scope whose blocking waits for a task, read under one of the given assumption sets, order nothing
-    /// on their exceptional exit.</summary>
+    /// on their exceptional exit. It shares with this graph what no withheld set changes (<see cref="Shared"/>).</summary>
     /// <param name="withheld">The assumption sets withheld.</param>
     private HappensBefore Withholding(IReadOnlyList<OrderingAssumption> withheld)
     {
@@ -329,7 +381,7 @@ internal sealed partial class HappensBefore
         if (!_replays.TryGetValue(key, out var replay))
         {
             _replays.Add(key, replay = new HappensBefore(_scope, _heap, _segments, _executions, _entries, _visits, _steps, _anchorList, _tails,
-                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet(), Counters));
+                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet(), Counters, _shared));
             Counters.Replays++;
         }
         return replay;
@@ -717,7 +769,7 @@ internal sealed partial class HappensBefore
     /// <param name="instance">The instance.</param>
     private bool IsEnumerated(string execution, string instance)
     {
-        if (!_enumerated.TryGetValue(execution, out var enumerated))
+        if (!_shared.Enumerated.TryGetValue(execution, out var enumerated))
         {
             enumerated = new HashSet<string>(StringComparer.Ordinal);
             var steps = _steps.GetValueOrDefault(execution) ?? [];
@@ -734,7 +786,7 @@ internal sealed partial class HappensBefore
                 }
             }
 
-            _enumerated.Add(execution, enumerated);
+            _shared.Enumerated.Add(execution, enumerated);
         }
 
         return enumerated.Contains(instance);
@@ -1097,12 +1149,6 @@ internal sealed partial class HappensBefore
     internal static ILookup<string, ExecutionInstance> ChildrenByParent(IEnumerable<ExecutionInstance> executions) =>
         executions.Where(execution => execution.ParentId is not null).ToLookup(execution => execution.ParentId!, StringComparer.Ordinal);
 
-    /// <summary>The executions of the graph by their parent (<see cref="ChildrenByParent"/>), made the first time a tail is asked for.</summary>
-    private ILookup<string, ExecutionInstance>? _children;
-
-    /// <summary>Each tail's entries into the tail segment, read once from the execution entries, which keep no list (ADR 0039).</summary>
-    private readonly Dictionary<string, ExecutionEntry[]> _tailEntries = new(StringComparer.Ordinal);
-
     /// <summary>What a tail may rely on at its start: it resumes after one of the <c>await</c>s the prefixes it continues stopped at, and
     /// which of them is not known, so only the work every one of those suspensions waits for has completed by then.</summary>
     /// <param name="candidates">The candidates.</param>
@@ -1111,11 +1157,13 @@ internal sealed partial class HappensBefore
     private void AtResumptions(List<Candidate> candidates, string execution,
                                IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyList<string>> resumed)
     {
-        foreach (var tail in (_children ??= ChildrenByParent(_executions.Values))[execution])
+        // The executions by their parent are made the first time a tail is asked for, and each tail's entries into the tail segment are
+        // read once from the execution entries, which keep no list (ADR 0039).
+        foreach (var tail in (_shared.Children ??= ChildrenByParent(_executions.Values))[execution])
         {
             CheckCancellation();
-            if (!_tailEntries.TryGetValue(tail.Id, out var entries))
-                _tailEntries.Add(tail.Id, entries = (_entries.GetValueOrDefault(tail.Id) ?? []).Where(entry => entry.Segment == BodySegment.Tail).ToArray());
+            if (!_shared.TailEntries.TryGetValue(tail.Id, out var entries))
+                _shared.TailEntries.Add(tail.Id, entries = (_entries.GetValueOrDefault(tail.Id) ?? []).Where(entry => entry.Segment == BodySegment.Tail).ToArray());
             var continued = entries.Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
             var targets = (IReadOnlyList<string>?)null;
             foreach (var entry in entries)
@@ -1297,10 +1345,10 @@ internal sealed partial class HappensBefore
     {
         if (!join.ThrowsOnlyAfterCompletion || join.Kind == SummaryJoinKind.Await)
             return join.ThrowsOnlyAfterCompletion;
-        _contextFacts ??= ThreadContextFacts.Of(_scope);
+        var contextFacts = _shared.ContextFacts ??= ThreadContextFacts.Of(_scope);
         var waited = WaitedTasks(handleInstance, handles);
-        if (!proven || _contextFacts.InstallsContext ||
-            !waited.All(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).All(site => _contextFacts.Scheduling(site) != TaskScheduling.Program)))
+        if (!proven || contextFacts.InstallsContext ||
+            !waited.All(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).All(site => contextFacts.Scheduling(site) != TaskScheduling.Program)))
             return false;
         var assumption = Assumption(execution, waited);
         if (_withheld?.Contains(assumption) == true)
@@ -1317,7 +1365,7 @@ internal sealed partial class HappensBefore
     private OrderingAssumption Assumption(string execution, IReadOnlySet<string> waited)
     {
         var assumption = (OnThreadPool(execution) ? OrderingAssumption.ThreadPoolEntry : OrderingAssumption.ThreadContext) | OrderingAssumption.Observers;
-        return waited.Any(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).Any(site => _contextFacts!.Scheduling(site) == TaskScheduling.Thread))
+        return waited.Any(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).Any(site => _shared.ContextFacts!.Scheduling(site) == TaskScheduling.Thread))
             ? assumption | OrderingAssumption.ThreadContext
             : assumption;
     }
@@ -1379,8 +1427,8 @@ internal sealed partial class HappensBefore
     /// <summary>The spawns whose handle is each region.</summary>
     private Dictionary<string, List<SpawnSite>> SpawnsOfHandle()
     {
-        if (_spawnsOfHandle is not null)
-            return _spawnsOfHandle;
+        if (_shared.SpawnsOfHandle is not null)
+            return _shared.SpawnsOfHandle;
         var spawns = new Dictionary<string, List<SpawnSite>>(StringComparer.Ordinal);
         foreach (var site in _heap.Spawns)
         {
@@ -1392,7 +1440,7 @@ internal sealed partial class HappensBefore
             }
         }
 
-        return _spawnsOfHandle = spawns;
+        return _shared.SpawnsOfHandle = spawns;
     }
 
     /// <summary>The executions a join waits for with proven identity, and whether every handle it waits for is proven (R8: a handle the
@@ -1552,10 +1600,10 @@ internal sealed partial class HappensBefore
     /// <param name="region">The handle's region.</param>
     private bool IsQuietEvent(string region)
     {
-        if (_quietEvents.TryGetValue(region, out var cached))
+        if (_shared.QuietEvents.TryGetValue(region, out var cached))
             return cached;
         var quiet = QuietEvent(region);
-        _quietEvents.Add(region, quiet);
+        _shared.QuietEvents.Add(region, quiet);
         return quiet;
     }
 
@@ -2112,15 +2160,66 @@ internal sealed partial class HappensBefore
         return flow;
     }
 
+    /// <summary>The flow of an execution with the waits given, built the first time this graph, the graph it replays or one of their
+    /// replays asks for it with the same inputs (<see cref="Shared.Flows"/>), and taken from there afterwards. The early waits are worked
+    /// out by every graph that asks, since they hold the readings it takes.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="throwsAfter">The operations, by instance, whose exception comes only after the work they wait for completed, each with
+    /// the points of the waits it comes after.</param>
+    /// <param name="readByForm">Whether a blocking wait the early waits do not hold throws after the wait by its form alone.</param>
     private Flow NewFlow(string execution, IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> throwsAfter,
                          bool readByForm = false)
     {
-        var flow = new Flow(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
-                            _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation, EarlyTaskWaits(execution), _sequentialRuns,
-                            readByForm);
+        var early = EarlyTaskWaits(execution);
+        var key = FlowKey(execution, throwsAfter, early, readByForm);
+        if (_shared.Flows.TryGetValue(key, out var flow))
+        {
+            Counters.SharedFlows++;
+            return flow;
+        }
+        flow = new Flow(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
+                        _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation, early, _sequentialRuns, readByForm);
+        _shared.Flows.Add(key, flow);
         Counters.Flows++;
         Counters.FlowNodes += flow.NodeCount;
         return flow;
+    }
+
+    /// <summary>The key of <see cref="Shared.Flows"/>: the execution, whether waits are read by their form, the early waits, and the
+    /// waits whose exception comes after their tasks, each with the set of points it comes after, which the flow reads as a set. Every
+    /// part is written with its length or count in front, so that two different inputs never give one key.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="throwsAfter">The waits whose exception comes after their tasks, with the points of each.</param>
+    /// <param name="early">The early waits.</param>
+    /// <param name="readByForm">Whether waits are read by their form.</param>
+    private string FlowKey(string execution, IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> throwsAfter,
+                           IReadOnlySet<(string Instance, int Operation)> early, bool readByForm)
+    {
+        var key = new System.Text.StringBuilder();
+        Text(execution).Append(readByForm ? 'F' : 'P');
+        key.Append('E').Append(early.Count).Append(':');
+        foreach (var (instance, operation) in early.OrderBy(wait => wait.Instance, StringComparer.Ordinal).ThenBy(wait => wait.Operation))
+        {
+            CheckCancellation();
+            Text(instance).Append(operation).Append(',');
+        }
+        key.Append('T').Append(throwsAfter.Count).Append(':');
+        foreach (var ((instance, operation), points) in throwsAfter.OrderBy(pair => pair.Key.Instance, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation))
+        {
+            CheckCancellation();
+            Text(instance).Append(operation).Append(',');
+            var distinct = points.Distinct().OrderBy(point => point.Instance, StringComparer.Ordinal).ThenBy(point => point.Operation)
+                                 .ThenBy(point => point.AfterCall).ToArray();
+            key.Append(distinct.Length).Append(':');
+            foreach (var point in distinct)
+            {
+                CheckCancellation();
+                Text(point.Instance).Append(point.Operation).Append(point.AfterCall ? 'A' : 'B');
+            }
+        }
+        return key.ToString();
+
+        System.Text.StringBuilder Text(string text) => key.Append(text.Length).Append(':').Append(text);
     }
 
     /// <summary>The blocking waits for tasks of an execution's visits whose form throws only after their tasks complete but whose

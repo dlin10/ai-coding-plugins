@@ -23,6 +23,9 @@ internal sealed class TimingCounters
     /// <summary>The flows of one execution built, on the graph and its replays.</summary>
     internal long Flows;
 
+    /// <summary>The flows one of them asked for and took as another built it with the same inputs.</summary>
+    internal long SharedFlows;
+
     /// <summary>The nodes of those flows.</summary>
     internal long FlowNodes;
 
@@ -41,5 +44,5 @@ internal sealed class TimingCounters
         $"orderQueries={OrderQueries - before.OrderQueries} pathSearches={PathSearches - before.PathSearches} " +
         $"pathEvents={PathEvents - before.PathEvents} assumptionQueries={AssumptionQueries - before.AssumptionQueries} " +
         $"replays={Replays - before.Replays} replaysTotal={Replays} flows={Flows - before.Flows} flowNodes={FlowNodes - before.FlowNodes} " +
-        $"flowsTotal={Flows} reachSets={ReachSets - before.ReachSets} reachExecutions={ReachExecutions - before.ReachExecutions}";
+        $"flowsTotal={Flows} flowsShared={SharedFlows - before.SharedFlows} reachSets={ReachSets - before.ReachSets} reachExecutions={ReachExecutions - before.ReachExecutions}";
 }
