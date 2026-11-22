@@ -3354,6 +3354,10 @@ ConcurrencyHunter.Core.Tests.Engine.CaptureOwnerMatrixTests.Every_cell_accesses_
 ConcurrencyHunter.Core.Tests.Engine.CaptureOwnerMatrixTests.Every_value_of_every_axis_occurs	Passed
 ConcurrencyHunter.Core.Tests.Engine.CaptureOwnerMatrixTests.No_cell_loses_an_access	Passed
 ConcurrencyHunter.Core.Tests.Engine.CaptureOwnerMatrixTests.No_counter_pairs_across_runs_of_its_declarer	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_collection_counts_its_visits_lookups_and_accesses	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_path_under_fewer_guards_counts_a_replaced_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_path_under_more_guards_counts_its_lookups_as_hits_the_rule_would_skip	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.The_execution_line_names_every_counter_in_one_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_Sort_with_a_comparison_runs_it_now_and_writes_the_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "ConvertAll", statement: "System.Array.ConvertAll(_state.Cells, x => { x.Hit"···, result: "alloc:State..ctor()#Spare")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "Exists", statement: "_ = System.Array.Exists(_state.Cells, x => { x.Hit"···, result: "")	Passed

@@ -131,13 +131,16 @@ public static class EngineFixture
     /// <summary>Collects the interprocedural accesses, coverage and gaps of an execution model over the heap it was built on.</summary>
     /// <param name="execution">The execution model and its solved heap.</param>
     public static InterproceduralCollection Collect(ExecutionRun execution) =>
-        InterproceduralAccesses.Collect(new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap,
-                                                                 execution.Analysis), CancellationToken.None);
+        InterproceduralAccesses.Collect(Input(execution), CancellationToken.None);
+
+    /// <summary>What the collection of an execution model's accesses is given: the scope, the heap it was built on and the model.</summary>
+    /// <param name="execution">The execution model and its solved heap.</param>
+    public static InterproceduralInput Input(ExecutionRun execution) =>
+        new(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);
 
     private static EngineRun Analyze(ExecutionRun execution)
     {
-        var input = new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);
-        var collection = InterproceduralAccesses.Collect(input, CancellationToken.None);
+        var collection = InterproceduralAccesses.Collect(Input(execution), CancellationToken.None);
         return new EngineRun(execution, collection, InterproceduralPairing.Pair(collection.Accesses, execution.Analysis, execution.Heap.Heap));
     }
 

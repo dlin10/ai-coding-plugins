@@ -137,6 +137,63 @@ public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap,
     /// <summary>Told, each time a worker makes an execution's entries, how many executions' entries the workers and the fold hold
     /// then: a test pins that it never passes the window (ADR 0040). Null for no one.</summary>
     internal Action<int>? EntryListsHeld { get; init; }
+
+    /// <summary>Told, as the fold takes each walked execution, its id and what its collection counted (ADR 0041): a test reads the
+    /// counters a diagnostic run reports. Null for no one.</summary>
+    internal Action<string, CollectionCounters>? Counted { get; init; }
+}
+
+/// <summary>What the collection of one execution did, as the <c>execution:</c> checkpoint of a diagnostic run reports it (ADR 0041):
+/// how far the walk went, how much of the emission repeated what the execution had emitted already, and where the time went.</summary>
+internal sealed class CollectionCounters
+{
+    /// <summary>The execution's entries.</summary>
+    internal int Entries { get; set; }
+
+    /// <summary>The visits of the walk: one path from one entry to one state each.</summary>
+    internal long Visits { get; set; }
+
+    /// <summary>The distinct states the visits reach, counted only where the counters are read.</summary>
+    internal long States { get; set; }
+
+    /// <summary>The resources the emission went through, one for each access of each visit.</summary>
+    internal long Rows { get; set; }
+
+    /// <summary>The keys the emission looked up: a row once for each locality and call path.</summary>
+    internal long Keys { get; set; }
+
+    /// <summary>The lookups that found an access under guards the visit's include, which emit nothing.</summary>
+    internal long Hits { get; set; }
+
+    /// <summary>The accesses the emission made.</summary>
+    internal long Emitted { get; set; }
+
+    /// <summary>The accesses made that one under fewer guards replaced later.</summary>
+    internal long Replaced { get; set; }
+
+    /// <summary>The lookups of accesses the execution had emitted under guards the visit's include, where the emission reads the
+    /// visit's path for its guards alone: the lookups the rule of ADR 0041 leaves out. Counted only where the counters are read.</summary>
+    internal long WouldSkip { get; set; }
+
+    /// <summary>Those of <see cref="WouldSkip"/> that made an access after all: none, if the rule is right.</summary>
+    internal long WouldSkipEmitted { get; set; }
+
+    /// <summary>The milliseconds of the walk from the entries, the hosts included.</summary>
+    internal long WalkMs { get; set; }
+
+    /// <summary>The milliseconds of the lock fixpoint.</summary>
+    internal long LocksMs { get; set; }
+
+    /// <summary>The milliseconds of the loads the stores depend on.</summary>
+    internal long DependenciesMs { get; set; }
+
+    /// <summary>The milliseconds of the emission.</summary>
+    internal long EmitMs { get; set; }
+
+    /// <summary>The counters as the tail of the <c>execution:</c> report line.</summary>
+    internal string Line() =>
+        $"entries={Entries} visits={Visits} states={States} rows={Rows} keys={Keys} hits={Hits} emitted={Emitted} replaced={Replaced} " +
+        $"wouldSkip={WouldSkip} wouldSkipEmitted={WouldSkipEmitted} walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
 }
 
 /// <summary>
@@ -185,7 +242,10 @@ public static partial class InterproceduralAccesses
             var gaps = SemanticGaps.Find(input);
             DiagnosticCheckpoint.Reach($"gaps:{input.Scope.ScopeId}", collect: true,
                                        () => [$"gaps={gaps.Count} regions={gaps.Sum(gap => (long)gap.Regions)} callSites={gaps.Sum(gap => (long)gap.CallSites)} " +
-                                              $"executionAccesses={input.Executions.Accesses.Count}"]);
+                                              $"executionAccesses={input.Executions.Accesses.Count} " +
+                                              // Each access of the execution model with each execution that runs it: what the collection
+                                              // will fold at the least, known before it starts (ADR 0041).
+                                              $"executionAccessExecutions={input.Executions.Accesses.Sum(access => (long)access.Executions.Count)}"]);
             var origins = new GapOrigins(input.Heap, gaps);
             // What an unresolved call may do is made where it stands, as its unknown effect (R1); a locator has none.
             var unknownCalls = UnknownCalls.Of(input.Scope, input.Heap).Where(call => !call.IsLocator)
@@ -226,8 +286,10 @@ public static partial class InterproceduralAccesses
                 folded.UnionWith(collector.FoldedReferences);
                 unresolved.UnionWith(collector.UnresolvedBases);
                 filled.UnionWith(collector.UnseenFilled);
+                input.Counted?.Invoke(executions[at].Id, collector.Counters);
                 DiagnosticCheckpoint.Reach(executionCheckpoint, collect: false,
-                                           () => [$"n={at + 1}/{executions.Count} execution={executions[at].Id} accesses={accesses.Count} ms={milliseconds}"]);
+                                           () => [$"n={at + 1}/{executions.Count} execution={executions[at].Id} accesses={accesses.Count} ms={milliseconds} " +
+                                                  collector.Counters.Line()]);
             }
 
             if (input.Workers <= 1 && !input.ThroughWorkers)
@@ -1272,8 +1334,16 @@ public static partial class InterproceduralAccesses
             cancellationToken.ThrowIfCancellationRequested();
         }
 
+        /// <summary>What this collection counted, for the <c>execution:</c> checkpoint (ADR 0041).</summary>
+        internal CollectionCounters Counters { get; } = new();
+
+        /// <summary>Whether anyone reads <see cref="Counters"/>: a diagnostic run or a test. What costs more than adding one is counted
+        /// only then.</summary>
+        private readonly bool _countsAll = DiagnosticCheckpoint.IsOn || input.Counted is not null;
+
         internal IReadOnlyList<Access> Collect()
         {
+            var started = Stopwatch.GetTimestamp();
             foreach (var entry in entries)
             {
                 CheckCancellation();
@@ -1281,9 +1351,21 @@ public static partial class InterproceduralAccesses
             }
             HostSequenceEnumeration();
             HostWork();
+            var walked = Stopwatch.GetTimestamp();
             SolveLocks();
+            var locked = Stopwatch.GetTimestamp();
             SolveDependencies();
-            return Emit();
+            var solved = Stopwatch.GetTimestamp();
+            var accesses = Emit();
+            Counters.Entries = entries.Count;
+            Counters.Visits = _visits.Count;
+            if (_countsAll)
+                Counters.States = _visits.Select(visit => visit.Node.State).Distinct().Count();
+            Counters.WalkMs = (long)Stopwatch.GetElapsedTime(started, walked).TotalMilliseconds;
+            Counters.LocksMs = (long)Stopwatch.GetElapsedTime(walked, locked).TotalMilliseconds;
+            Counters.DependenciesMs = (long)Stopwatch.GetElapsedTime(locked, solved).TotalMilliseconds;
+            Counters.EmitMs = (long)Stopwatch.GetElapsedTime(solved).TotalMilliseconds;
+            return accesses;
         }
 
         private void HostSequenceEnumeration()
@@ -2652,6 +2734,11 @@ public static partial class InterproceduralAccesses
             // finding and removing each one as it is replaced would cost the whole list every time.
             var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
             var seen = new Dictionary<EmittedKey, List<KeptAccess>>();
+            // The guards each access of an instance was emitted under on the visits whose path the emission read for its guards
+            // alone, kept where the counters are read: what the rule of ADR 0041 would go by.
+            var emittedUnder = _countsAll
+                ? new Dictionary<MethodInstance, Dictionary<SummaryAccess, List<ulong[]>>>(ReferenceEqualityComparer.Instance)
+                : null;
             foreach (var (entry, node) in _visits)
             {
                 CheckCancellation();
@@ -2756,6 +2843,10 @@ public static partial class InterproceduralAccesses
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
                     Guards? guards = null;
+                    // Whether the emission reads the visit's path for this access's guards alone, known at its first resource that
+                    // gets as far as its guards, and whether the execution has emitted the access under guards the visit's include.
+                    bool? isPathFree = null;
+                    var wouldSkip = false;
                     // A stable unseen write is an unknown effect's access, kept for this execution alone (issue 454).
                     var resources = !isStable ? ResourcesOf(source, access)
                                     : isUnseenWrite ? EffectResources(source, access)
@@ -2766,6 +2857,7 @@ public static partial class InterproceduralAccesses
                     foreach (var original in resources)
                     {
                         CheckCancellation();
+                        Counters.Rows++;
                         var (identity, identityNumber) = isStable ? IdentityOf(original) : Numbered(original.Identity);
                         var feed = feeds.GetValueOrDefault((NumberOf(instance).Id, access.OperationId, identityNumber));
                         if (access.Kind == SummaryAccessKind.Load && feed is { Dropped: true })
@@ -2808,6 +2900,14 @@ public static partial class InterproceduralAccesses
                         // other read that feeds it; only a section held over all of them protects it (R2).
                         if (!pathLocks.Known)
                             pathLocks = (true, EnumerationPathLocks(node));
+                        if (emittedUnder is not null && isPathFree is null)
+                        {
+                            isPathFree = isStable && access.SelectorTerm is null && !hosted && pathLocks.Locks is null;
+                            wouldSkip = isPathFree.Value && emittedUnder.TryGetValue(instance, out var emittedAccesses) &&
+                                        emittedAccesses.TryGetValue(access, out var emittedGuards) &&
+                                        emittedGuards.Exists(other => Bits.Covers(conditionKeys, other));
+                        }
+
                         // Work without a body runs after its starter goes on: what the starter holds where it starts it holds nothing over it.
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
@@ -2832,8 +2932,18 @@ public static partial class InterproceduralAccesses
                                                      termNumber, isFresh, isLibraryInternal);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
+                            Counters.Keys++;
+                            if (wouldSkip)
+                                Counters.WouldSkip++;
                             if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
+                            {
+                                Counters.Hits++;
                                 continue;
+                            }
+
+                            Counters.Emitted++;
+                            if (wouldSkip)
+                                Counters.WouldSkipEmitted++;
                             for (var index = kept.Count - 1; index >= 0; index--)
                             {
                                 CheckCancellation();
@@ -2913,9 +3023,19 @@ public static partial class InterproceduralAccesses
                             accesses.Add(emitted);
                         }
                     }
+
+                    if (emittedUnder is not null && isPathFree == true && !wouldSkip)
+                    {
+                        if (!emittedUnder.TryGetValue(instance, out var emittedAccesses))
+                            emittedUnder.Add(instance, emittedAccesses = new Dictionary<SummaryAccess, List<ulong[]>>(ReferenceEqualityComparer.Instance));
+                        if (!emittedAccesses.TryGetValue(access, out var emittedGuards))
+                            emittedAccesses.Add(access, emittedGuards = []);
+                        emittedGuards.Add(guards!.Keys);
+                    }
                 }
             }
 
+            Counters.Replaced = replaced.Count;
             return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
 
             // The entry of one access of an instance on one resource, made on its first mention.

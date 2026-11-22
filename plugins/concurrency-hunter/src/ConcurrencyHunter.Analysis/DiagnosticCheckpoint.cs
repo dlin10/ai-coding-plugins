@@ -17,6 +17,9 @@ internal static class DiagnosticCheckpoint
     /// threads writing at once would make the second open fail, and their lines on standard error would interleave.</summary>
     private static readonly Lock WRITING = new();
 
+    /// <summary>Whether the run is a diagnostic one: a stage counts what only a report reads when it is.</summary>
+    internal static bool IsOn => FOLDER is not null;
+
     /// <summary>Reports the process's memory at a checkpoint, then the details, each line as soon as it is known, and pauses there when
     /// asked to.</summary>
     /// <param name="name">The checkpoint, with the scope it is reached in.</param>
