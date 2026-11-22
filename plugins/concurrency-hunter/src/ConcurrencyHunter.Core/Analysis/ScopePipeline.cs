@@ -243,7 +243,11 @@ public static class ScopePipeline
             var executionTime = Complete();
 
             Begin(ScopeStep.Accesses);
-            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions) { Collects = accessesFilter?.Invoke(executions) };
+            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions)
+            {
+                Collects = accessesFilter?.Invoke(executions),
+                Workers = InterproceduralAccesses.ConfiguredWorkers
+            };
             var collection = InterproceduralAccesses.Collect(interprocedural, cancellationToken);
             counters[ScopeStep.Accesses] = new Dictionary<string, int>(StringComparer.Ordinal)
             {

@@ -13,6 +13,10 @@ internal static class DiagnosticCheckpoint
     private static readonly string[] PAUSES = (Environment.GetEnvironmentVariable("CH_DIAG_PAUSE") ?? string.Empty)
                                               .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    /// <summary>Taken around each line a report writes: the log is opened anew for every line and shared only for reading, so two
+    /// threads writing at once would make the second open fail, and their lines on standard error would interleave.</summary>
+    private static readonly Lock WRITING = new();
+
     /// <summary>Reports the process's memory at a checkpoint, then the details, each line as soon as it is known, and pauses there when
     /// asked to.</summary>
     /// <param name="name">The checkpoint, with the scope it is reached in.</param>
@@ -72,8 +76,11 @@ internal static class DiagnosticCheckpoint
     private static void Report(string folder, string line)
     {
         var stamped = $"{DateTimeOffset.Now:o} {line}";
-        File.AppendAllText(Path.Combine(folder, "checkpoints.log"), stamped + Environment.NewLine);
-        Console.Error.WriteLine(stamped);
+        lock (WRITING)
+        {
+            File.AppendAllText(Path.Combine(folder, "checkpoints.log"), stamped + Environment.NewLine);
+            Console.Error.WriteLine(stamped);
+        }
     }
 
     /// <summary>A checkpoint name as a file name.</summary>

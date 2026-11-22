@@ -23,4 +23,19 @@ public sealed class TextNumbersTests
         Assert.NotEqual(other, empty);
         Assert.Equal(empty, numbers.Of(string.Empty));
     }
+
+    [Fact]
+    public void Threads_asking_at_once_get_one_number_per_string_and_different_numbers_for_different_strings()
+    {
+        // Collectors on several workers share one table (ADR 0040): every thread asks for the same strings at once.
+        var numbers = new TextNumbers();
+        var texts = Enumerable.Range(0, 2000).Select(index => $"Scope|Assembly|r{index}|State.Value:Field").ToArray();
+        var answers = new int[8][];
+        Parallel.For(0, answers.Length, thread =>
+            answers[thread] = texts.Select(text => numbers.Of(string.Concat(text.AsSpan(0, 6), text.AsSpan(6)))).ToArray());
+
+        foreach (var answer in answers)
+            Assert.Equal(answers[0], answer);
+        Assert.Equal(texts.Length, answers[0].Distinct().Count());
+    }
 }

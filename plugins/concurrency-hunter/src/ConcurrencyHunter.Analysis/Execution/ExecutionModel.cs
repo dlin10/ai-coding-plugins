@@ -4,6 +4,7 @@ using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
+using System.Collections.Concurrent;
 using System.Numerics;
 
 namespace ConcurrencyHunter.Execution;
@@ -583,7 +584,9 @@ internal static class CreatorRuns
 /// <param name="heap">The solved heap, giving the async spawn sites and instances.</param>
 public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
 {
-    private readonly Dictionary<string, (HashSet<int> Prefix, HashSet<int> Tail)> _bodies = new(StringComparer.Ordinal);
+    /// <summary>Each body's segments, by body id, worked out on the first request: access collection asks for them from several
+    /// workers (ADR 0040), and a set is only read once it is kept.</summary>
+    private readonly ConcurrentDictionary<string, (HashSet<int> Prefix, HashSet<int> Tail)> _bodies = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Caller, int Operation), HashSet<string>> _asyncCallees =
         heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId), site => site.Callees.ToHashSet(StringComparer.Ordinal));
 
@@ -625,10 +628,7 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
 
         var (prefix, tail) = (new HashSet<int>(), new HashSet<int>());
         if (!scope.Reachable.Bodies.TryGetValue(bodyId, out var body) || body.Blocks.Count == 0)
-        {
-            _bodies.Add(bodyId, (prefix, tail));
-            return (prefix, tail);
-        }
+            return _bodies.GetOrAdd(bodyId, (prefix, tail));
 
         var successors = body.Blocks.SelectMany(block => block.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, Successor: block.Ordinal,
                                                                                                          Exceptional: predecessor.EdgeKind == IrEdgeKind.Exceptional)))
@@ -660,8 +660,7 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
             }
         }
 
-        _bodies.Add(bodyId, (prefix, tail));
-        return (prefix, tail);
+        return _bodies.GetOrAdd(bodyId, (prefix, tail));
     }
 }
 
@@ -2718,7 +2717,9 @@ public static class ExecutionModel
         /// do not start the construction looks for a node the construction does not reach, or another entry of that execution. Each
         /// search stops once it has found every execution it asks about. A search that ends without finding an execution shows that no
         /// node it passed is reached outside the construction by it, and later searches for the same object stop at those nodes. The
-        /// answers are kept, and a query takes a lock, since the readers of a built model may ask from several threads.</summary>
+        /// answers are kept. The readers of a built model may ask from several threads (ADR 0040): the searches for one object take
+        /// turns under that object's lock, since they share what they learn, and searches for different objects run at once, each
+        /// thread marking the nodes it passes in marks of its own.</summary>
         /// <param name="nodes">The walk graph's nodes, by their id.</param>
         /// <param name="objectIds">The number of each object whose construction an edge or entry starts.</param>
         /// <param name="ids">The numbering of the execution ids.</param>
@@ -2738,10 +2739,9 @@ public static class ExecutionModel
         {
             private readonly Dictionary<string, WalkNode[]> _byInstance = nodes.GroupBy(node => node.Instance, StringComparer.Ordinal)
                                                                                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
-            private readonly Dictionary<int, ObjectSearch> _searches = [];
-            private readonly Dictionary<(int Node, int Object), ConstructionAt> _answers = [];
-            private readonly int[] _marks = new int[nodes.Count];
-            private int _stamp;
+            private readonly ConcurrentDictionary<int, ObjectSearch> _searches = new();
+            private readonly ConcurrentDictionary<(int Node, int Object), ConstructionAt> _answers = new();
+            private readonly ThreadLocal<SearchMarks> _marks = new(() => new SearchMarks(nodes.Count));
 
             public ConstructionStatus Of(string execution, string instance, int operation, string region, CancellationToken cancellationToken)
             {
@@ -2750,24 +2750,21 @@ public static class ExecutionModel
                 var bodyId = heap.Instances[instance].BodyId;
                 var hasObject = objectIds.TryGetValue(region, out var @object);
                 var (reached, may, notMust) = (false, false, false);
-                lock (_searches)
+                foreach (var node in instanceNodes)
                 {
-                    foreach (var node in instanceNodes)
+                    WorkCancellation.Check();
+                    if (!Bits.Contains(node.Executions, number) || !segments.Runs(bodyId, node.Segment, operation))
+                        continue;
+                    reached = true;
+                    if (!hasObject || !Bits.Contains(node.Objects, @object))
                     {
-                        WorkCancellation.Check();
-                        if (!Bits.Contains(node.Executions, number) || !segments.Runs(bodyId, node.Segment, operation))
-                            continue;
-                        reached = true;
-                        if (!hasObject || !Bits.Contains(node.Objects, @object))
-                        {
-                            notMust = true;
-                            continue;
-                        }
-
-                        var answer = At(node, @object, cancellationToken);
-                        may |= Bits.Contains(answer.May, number);
-                        notMust |= Bits.Contains(answer.NotMust, number);
+                        notMust = true;
+                        continue;
                     }
+
+                    var answer = At(node, @object, cancellationToken);
+                    may |= Bits.Contains(answer.May, number);
+                    notMust |= Bits.Contains(answer.NotMust, number);
                 }
 
                 return new ConstructionStatus(reached, may, notMust);
@@ -2791,32 +2788,38 @@ public static class ExecutionModel
                         WorkCancellation.Check();
                         Bits.UnionWith(ref enteredInside, executions);
                     }
-                    _searches.Add(@object, search = new ObjectSearch(starts.Length != 0 && starts.All(set => Bits.SameAs(set, starts[0])) ? starts[0] : null,
-                                                                     outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY, enteredInside));
+                    search = _searches.GetOrAdd(@object, new ObjectSearch(starts.Length != 0 && starts.All(set => Bits.SameAs(set, starts[0])) ? starts[0] : null,
+                                                                          outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY, enteredInside));
                 }
 
-                var may = search.Shared ?? Back(node, node.Executions, inside: true, @object, search, cancellationToken);
-                // A clean path avoids the construction, unless the execution entered inside the object.
-                var clear = new ulong[node.Executions.Length];
-                var wanted = new ulong[node.Executions.Length];
-                for (var index = 0; index < clear.Length; index++)
+                // The searches for one object share what they learn (ObjectSearch.Known), so they take turns.
+                lock (search)
                 {
-                    WorkCancellation.Check();
-                    clear[index] = (index < node.Clean.Length ? node.Clean[index] : 0) &
-                                   ~(index < search.EnteredInside.Length ? search.EnteredInside[index] : 0);
-                    wanted[index] = (index < may.Length ? may[index] : 0) & (index < search.Entering.Length ? search.Entering[index] : 0) & ~clear[index];
-                }
+                    if (_answers.TryGetValue((node.Id, @object), out known))
+                        return known;
+                    var may = search.Shared ?? Back(node, node.Executions, inside: true, @object, search, cancellationToken);
+                    // A clean path avoids the construction, unless the execution entered inside the object.
+                    var clear = new ulong[node.Executions.Length];
+                    var wanted = new ulong[node.Executions.Length];
+                    for (var index = 0; index < clear.Length; index++)
+                    {
+                        WorkCancellation.Check();
+                        clear[index] = (index < node.Clean.Length ? node.Clean[index] : 0) &
+                                       ~(index < search.EnteredInside.Length ? search.EnteredInside[index] : 0);
+                        wanted[index] = (index < may.Length ? may[index] : 0) & (index < search.Entering.Length ? search.Entering[index] : 0) & ~clear[index];
+                    }
 
-                var outside = Back(node, wanted, inside: false, @object, search, cancellationToken);
-                var notMust = (ulong[])node.Executions.Clone();
-                for (var index = 0; index < notMust.Length; index++)
-                {
-                    WorkCancellation.Check();
-                    notMust[index] = notMust[index] & ~((index < may.Length ? may[index] : 0) & ~clear[index]) | (index < outside.Length ? outside[index] : 0);
+                    var outside = Back(node, wanted, inside: false, @object, search, cancellationToken);
+                    var notMust = (ulong[])node.Executions.Clone();
+                    for (var index = 0; index < notMust.Length; index++)
+                    {
+                        WorkCancellation.Check();
+                        notMust[index] = notMust[index] & ~((index < may.Length ? may[index] : 0) & ~clear[index]) | (index < outside.Length ? outside[index] : 0);
+                    }
+                    var answer = new ConstructionAt(node, may, notMust);
+                    _answers.TryAdd((node.Id, @object), answer);
+                    return answer;
                 }
-                var answer = new ConstructionAt(node, may, notMust);
-                _answers.Add((node.Id, @object), answer);
-                return answer;
             }
 
             /// <summary>Searches back from a node among the nodes the construction reaches for the executions asked about: inside, the
@@ -2832,8 +2835,9 @@ public static class ExecutionModel
                 var found = Bits.EMPTY;
                 if (Bits.IsEmpty(wanted))
                     return found;
-                var stamp = ++_stamp;
-                _marks[node.Id] = stamp;
+                var marks = _marks.Value!;
+                var stamp = ++marks.Stamp;
+                marks.Nodes[node.Id] = stamp;
                 var passed = new List<WalkNode>();
                 var pending = new Queue<WalkNode>([node]);
                 var complete = false;
@@ -2876,9 +2880,9 @@ public static class ExecutionModel
                         var reached = Bits.Contains(predecessor.Objects, @object);
                         if (inside ? starting : !starting && !reached)
                             Bits.UnionWith(ref found, predecessor.Executions, wanted);
-                        else if (!starting && reached && _marks[predecessor.Id] != stamp)
+                        else if (!starting && reached && marks.Nodes[predecessor.Id] != stamp)
                         {
-                            _marks[predecessor.Id] = stamp;
+                            marks.Nodes[predecessor.Id] = stamp;
                             pending.Enqueue(predecessor);
                         }
                     }
@@ -2930,6 +2934,14 @@ public static class ExecutionModel
             internal ulong[] Entering { get; } = entering;
             internal ulong[] EnteredInside { get; } = enteredInside;
             internal Dictionary<WalkNode, SearchFacts> Known { get; } = new(ReferenceEqualityComparer.Instance);
+        }
+
+        /// <summary>The nodes one thread's search back has passed, marked with that search's stamp.</summary>
+        /// <param name="count">The number of nodes of the walk graph.</param>
+        private sealed class SearchMarks(int count)
+        {
+            internal int[] Nodes { get; } = new int[count];
+            internal int Stamp;
         }
 
         private ConstructionIndex? _constructionIndex;

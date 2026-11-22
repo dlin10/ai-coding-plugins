@@ -29,4 +29,36 @@ public sealed class DiagnosticCheckpointTests
             Directory.Delete(folder, recursive: true);
         }
     }
+
+    [Fact]
+    public void Checkpoints_reached_on_several_threads_at_once_write_every_line_whole()
+    {
+        // Access collection on several workers (ADR 0040) must not make a report line fail or break another one.
+        var folder = Directory.CreateTempSubdirectory("ch-diag-").FullName;
+        try
+        {
+            const int THREADS = 8;
+            const int CHECKPOINTS = 25;
+            Parallel.For(0, THREADS, new ParallelOptions { MaxDegreeOfParallelism = THREADS }, thread =>
+            {
+                for (var at = 0; at < CHECKPOINTS; at++)
+                    DiagnosticCheckpoint.ReachIn(folder, [], $"execution:T{thread}", collect: false, () => [$"n={at}"]);
+            });
+
+            var lines = File.ReadAllLines(Path.Combine(folder, "checkpoints.log")).Select(line => line[(line.IndexOf(' ') + 1)..]).ToArray();
+            Assert.Equal(THREADS * CHECKPOINTS * 2, lines.Length);
+            for (var thread = 0; thread < THREADS; thread++)
+            {
+                var name = $"execution:T{thread} ";
+                Assert.Equal(CHECKPOINTS, lines.Count(line => line.StartsWith(name + "collected=False collectMs=", StringComparison.Ordinal) &&
+                                                             line.Contains(" workingSet=", StringComparison.Ordinal)));
+                Assert.Equal(Enumerable.Range(0, CHECKPOINTS).Select(at => $"{name}n={at}"),
+                             lines.Where(line => line.StartsWith(name + "n=", StringComparison.Ordinal)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

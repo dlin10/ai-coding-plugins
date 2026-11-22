@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
@@ -123,6 +125,18 @@ public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap,
     /// <summary>Whether the collection goes through an execution, by its id; <c>null</c> for every execution. An execution it refuses
     /// is not walked, so none of its accesses is collected.</summary>
     public Func<string, bool>? Collects { get; init; }
+
+    /// <summary>How many workers walk the executions (ADR 0040): one walks them one after another on the calling thread; more walk
+    /// them at once, and the accesses are folded in the executions' order all the same.</summary>
+    public int Workers { get; init; } = 1;
+
+    /// <summary>Whether one worker walks the executions on a worker thread as several would, rather than in the loop on the calling
+    /// thread: a test compares the two (ADR 0040).</summary>
+    internal bool ThroughWorkers { get; init; }
+
+    /// <summary>Told, each time a worker makes an execution's entries, how many executions' entries the workers and the fold hold
+    /// then: a test pins that it never passes the window (ADR 0040). Null for no one.</summary>
+    internal Action<int>? EntryListsHeld { get; init; }
 }
 
 /// <summary>
@@ -138,6 +152,13 @@ public static partial class InterproceduralAccesses
 
     /// <summary>The reason of the edge an enumeration runs an iterator's body by (ADR 0011).</summary>
     private const string ITERATOR_ENUMERATION = "iterator-enumeration";
+
+    /// <summary>The environment variable a run sets to walk the executions on several workers (ADR 0040).</summary>
+    private const string WORKERS_VARIABLE = "CH_ACCESS_WORKERS";
+
+    /// <summary>How many workers a run asks for in <c>CH_ACCESS_WORKERS</c> (ADR 0040): one unless it names a larger number.</summary>
+    public static int ConfiguredWorkers { get; } =
+        int.TryParse(Environment.GetEnvironmentVariable(WORKERS_VARIABLE), out var workers) && workers > 1 ? workers : 1;
 
     /// <summary>Collects the accesses every execution of a scope runs, and what the scope's analysis covered.</summary>
     /// <param name="input">The scope, its solved heap and its executions.</param>
@@ -175,40 +196,72 @@ public static partial class InterproceduralAccesses
             var admission = input.Scope.Reachable.Admission;
             var libraryInternal = admission is null ? null : new LibraryInternalObjects(input.Heap, admission);
             var workHosts = WorkHosts(input, unknownCalls);
-            // The collectors run one after another, so they share one pool: the accesses of every execution restate the same texts.
+            // The collectors share one pool, on one worker or several: the accesses of every execution restate the same texts.
             var strings = new StringPool();
             // What binds a container object is the same in every execution that touches it (issue 443).
-            var bindingEvidence = new Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>>(ReferenceEqualityComparer.Instance);
+            var bindingEvidence = new ConcurrentDictionary<HeapRegion, IReadOnlyList<BindingEvidence>>(ReferenceEqualityComparer.Instance);
             // So are the resources an access names and the steps, labels and checks of its accesses (issue 454).
             var shares = new CollectorShares();
-            foreach (var execution in input.Executions.Executions)
-            {
-                WorkCancellation.Check();
-                cancellationToken.ThrowIfCancellationRequested();
-                // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5), and an
-                // execution running work without a body makes its unresolved call though it runs no body (question 145). An execution
-                // the input's filter refuses is not walked.
-                if (!input.Executions.IsInert(execution.Id) && (input.Collects is null || input.Collects(execution.Id)) &&
-                    (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
-                     execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
-                     workHosts.Contains(execution.Id)))
-                {
-                    var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, freshness, libraryInternal, strings, bindingEvidence, shares,
-                                                           cancellationToken);
-                    folding.Add(collector.Collect());
-                    unproven.UnionWith(collector.UnprovenReferences);
-                    folded.UnionWith(collector.FoldedReferences);
-                    unresolved.UnionWith(collector.UnresolvedBases);
-                    filled.UnionWith(collector.UnseenFilled);
-                }
+            var executionCheckpoint = $"execution:{input.Scope.ScopeId}";
+            var executions = input.Executions.Executions;
 
-                collected++;
+            // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5), and an
+            // execution running work without a body makes its unresolved call though it runs no body (question 145). An execution
+            // the input's filter refuses is not walked. Whether it has entries is asked last, as the loop asks it.
+            bool Walks(ExecutionInstance execution, Func<bool> entered) =>
+                !input.Executions.IsInert(execution.Id) && (input.Collects is null || input.Collects(execution.Id)) &&
+                (entered() ||
+                 execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
+                 workHosts.Contains(execution.Id));
+
+            ExecutionCollector CollectorOf(ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries, CancellationToken token) =>
+                new(input, execution, entries, graph, discoveries, holders, slotFields, origins, unknownCalls, reach, freshness, libraryInternal,
+                    strings, bindingEvidence, shares, token);
+
+            // The fold takes the executions in their order whatever walked them, so every access keeps its executions and positions.
+            void Fold(int at, ExecutionCollector collector, IReadOnlyList<Access> accesses, long milliseconds)
+            {
+                folding.Add(accesses);
+                unproven.UnionWith(collector.UnprovenReferences);
+                folded.UnionWith(collector.FoldedReferences);
+                unresolved.UnionWith(collector.UnresolvedBases);
+                filled.UnionWith(collector.UnseenFilled);
+                DiagnosticCheckpoint.Reach(executionCheckpoint, collect: false,
+                                           () => [$"n={at + 1}/{executions.Count} execution={executions[at].Id} accesses={accesses.Count} ms={milliseconds}"]);
+            }
+
+            if (input.Workers <= 1 && !input.ThroughWorkers)
+            {
+                for (var at = 0; at < executions.Count; at++)
+                {
+                    WorkCancellation.Check();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var execution = executions[at];
+                    IReadOnlyList<ExecutionEntry>? entries = null;
+                    if (Walks(execution, () => input.Executions.Entries.TryGetValue(execution.Id, out entries)))
+                    {
+                        var clock = Stopwatch.StartNew();
+                        var collector = CollectorOf(execution, entries ?? [], cancellationToken);
+                        var made = collector.Collect();
+                        Fold(at, collector, made, clock.ElapsedMilliseconds);
+                    }
+
+                    collected++;
+                }
+            }
+            else
+            {
+                // Only whether an execution is walked is decided ahead: its entries are made when a worker takes it, since the model
+                // makes an entry list anew on every request and keeps none (ADR 0039), and they go when the fold has taken it.
+                CollectOnWorkers(executions, Math.Max(1, input.Workers),
+                                 execution => Walks(execution, () => input.Executions.Entries.ContainsKey(execution.Id)),
+                                 execution => input.Executions.Entries.TryGetValue(execution.Id, out var entries) ? entries : [], CollectorOf, Fold,
+                                 () => collected++, input.EntryListsHeld, cancellationToken);
             }
 
             var accesses = folding.Accesses();
             DiagnosticCheckpoint.Reach($"accesses-end:{input.Scope.ScopeId}", collect: true,
-                                       () => [$"accesses={folding.Count} accessExecutions={folding.ExecutionCount}"]);
+                                       () => [$"accesses={folding.Count} accessExecutions={folding.ExecutionCount} workers={input.Workers}"]);
             // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
             return new InterproceduralCollection(new AccessExecutionList([accesses]),
                                                  Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)))
@@ -225,6 +278,155 @@ public static partial class InterproceduralAccesses
                 ["accesses"] = folding.Count,
                 ["accessExecutions"] = folding.ExecutionCount
             }, cancellationToken, error);
+        }
+    }
+
+    /// <summary>What a worker leaves for the fold about one execution (ADR 0040).</summary>
+    private sealed class WorkerSlot
+    {
+        /// <summary>Set once the worker is done with the execution, walked, skipped or failed.</summary>
+        internal ManualResetEventSlim Done { get; } = new();
+
+        /// <summary>The execution's collector, for what it learned besides its accesses; null when it was not walked.</summary>
+        internal ExecutionCollector? Collector { get; set; }
+
+        /// <summary>The execution's accesses, in the order its collector made them.</summary>
+        internal IReadOnlyList<Access> Accesses { get; set; } = [];
+
+        /// <summary>How long the walk took.</summary>
+        internal long Milliseconds { get; set; }
+
+        /// <summary>What the walk threw, if it failed.</summary>
+        internal Exception? Error { get; set; }
+
+        /// <summary>Whether the worker made the execution's entries, which the slot holds through its collector until the fold.</summary>
+        internal bool HeldEntries { get; set; }
+    }
+
+    /// <summary>Walks the executions on several workers and folds each one's accesses in the executions' order (ADR 0040). The workers
+    /// take the executions in order and run at most two executions each ahead of the fold. The fold, on the calling thread, waits for
+    /// each execution in turn, so it sees the same accesses in the same order as one worker. An execution whose walk failed stops the
+    /// collection when the fold reaches it: the workers are cancelled and joined, and its exception is thrown, so the failure reported
+    /// is the earliest in collection order whatever the timing. An execution's entries are made when its worker takes it and held
+    /// until the fold has taken it, so no more executions' entries are alive at once than the window lets workers take.</summary>
+    /// <param name="executions">The scope's executions, in collection order.</param>
+    /// <param name="workers">How many workers walk them: more than one, or one when a test asks for this path.</param>
+    /// <param name="walks">Whether an execution is walked, decided ahead on the calling thread without making its entries.</param>
+    /// <param name="entriesOf">An execution's entries, made on the worker that walks it.</param>
+    /// <param name="collectorOf">A collector for an execution from its entries, cancelled by the token it is given.</param>
+    /// <param name="fold">Folds a walked execution, by its index, with its collector and accesses and how long its walk took.</param>
+    /// <param name="passed">Counts an execution the fold has passed, walked or not.</param>
+    /// <param name="entryListsHeld">Told, each time a worker makes an execution's entries, how many executions' entries the workers and
+    /// the fold hold then; null for no one.</param>
+    /// <param name="cancellationToken">Cancels the collection, every worker with it.</param>
+    private static void CollectOnWorkers(IReadOnlyList<ExecutionInstance> executions, int workers, Func<ExecutionInstance, bool> walks,
+                                         Func<ExecutionInstance, IReadOnlyList<ExecutionEntry>> entriesOf,
+                                         Func<ExecutionInstance, IReadOnlyList<ExecutionEntry>, CancellationToken, ExecutionCollector> collectorOf,
+                                         Action<int, ExecutionCollector, IReadOnlyList<Access>, long> fold, Action passed,
+                                         Action<int>? entryListsHeld, CancellationToken cancellationToken)
+    {
+        var count = executions.Count;
+        var walked = new bool[count];
+        var slots = new WorkerSlot?[count];
+        for (var at = 0; at < count; at++)
+        {
+            WorkCancellation.Check();
+            walked[at] = walks(executions[at]);
+            slots[at] = new WorkerSlot();
+        }
+
+        var held = 0;
+
+        // The stop follows the collection's token and the work's own, so a cancellation of either reaches a fold waiting on a worker.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, WorkCancellation.Token);
+        using var window = new SemaphoreSlim(2 * workers);
+        var next = -1;
+        var threads = new Thread[workers];
+        // bounded: starts one thread per worker.
+        for (var at = 0; at < workers; at++)
+        {
+            threads[at] = new Thread(Work) { Name = $"ch-collect-{at + 1}", IsBackground = true };
+            threads[at].Start();
+        }
+
+        try
+        {
+            for (var at = 0; at < count; at++)
+            {
+                WorkCancellation.Check();
+                cancellationToken.ThrowIfCancellationRequested();
+                var slot = slots[at]!;
+                slot.Done.Wait(stop.Token);
+                slots[at] = null;
+                slot.Done.Dispose();
+                if (slot.Error is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(slot.Error);
+                if (slot.Collector is not null)
+                    fold(at, slot.Collector, slot.Accesses, slot.Milliseconds);
+                // The slot was the last to hold the collector, and with it the execution's entries.
+                if (slot.HeldEntries)
+                    Interlocked.Decrement(ref held);
+                passed();
+                window.Release();
+            }
+        }
+        finally
+        {
+            stop.Cancel();
+            // bounded: joins one thread per worker.
+            foreach (var thread in threads)
+                thread.Join();
+            // bounded: disposes what the fold did not reach, at most one event per execution.
+            foreach (var slot in slots)
+                slot?.Done.Dispose();
+        }
+
+        // A worker takes the next execution once the window lets it, and runs in the collection's cancellation, linked to the stop.
+        void Work()
+        {
+            using var frame = WorkCancellation.Enter(stop.Token);
+            try
+            {
+                while (true)
+                {
+                    WorkCancellation.Check();
+                    window.Wait(stop.Token);
+                    var at = Interlocked.Increment(ref next);
+                    if (at >= count)
+                        return;
+                    var slot = slots[at]!;
+                    try
+                    {
+                        if (walked[at])
+                        {
+                            var clock = Stopwatch.StartNew();
+                            var entries = entriesOf(executions[at]);
+                            slot.HeldEntries = true;
+                            entryListsHeld?.Invoke(Interlocked.Increment(ref held));
+                            var collector = collectorOf(executions[at], entries, stop.Token);
+                            slot.Accesses = collector.Collect();
+                            slot.Collector = collector;
+                            slot.Milliseconds = clock.ElapsedMilliseconds;
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        slot.Error = error;
+                    }
+                    finally
+                    {
+                        slot.Done.Set();
+                    }
+
+                    // A walk the cancellation stopped ends the worker there: it has made its one check after the cancellation.
+                    if (slot.Error is OperationCanceledException && stop.IsCancellationRequested)
+                        return;
+                }
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+                // The fold has stopped the workers: it is done, or it has an exception to throw.
+            }
         }
     }
 
@@ -563,7 +765,9 @@ public static partial class InterproceduralAccesses
                  .SelectMany(initializer => initializer.TriggeringInstances.Select(trigger => (Trigger: trigger, Initializer: initializer)))
                  .GroupBy(item => item.Trigger, StringComparer.Ordinal)
                  .ToDictionary(group => group.Key, group => group.Select(item => item.Initializer).ToArray(), StringComparer.Ordinal);
-        private readonly Dictionary<string, IReadOnlyList<Step>> _steps = new(StringComparer.Ordinal);
+        /// <summary>Each instance's steps, by instance id. Collectors on several workers ask for them (ADR 0040), and a collector
+        /// keeps the steps it took by reference, so every caller gets the one list kept.</summary>
+        private readonly ConcurrentDictionary<string, IReadOnlyList<Step>> _steps = new(StringComparer.Ordinal);
 
         internal IReadOnlyList<Step> Of(MethodInstance instance)
         {
@@ -602,8 +806,7 @@ public static partial class InterproceduralAccesses
                                .OrderBy(step => step.OperationId)
                                .ThenBy(step => step.Edge.CalleeInstance, StringComparer.Ordinal)
                                .ToArray();
-            _steps.Add(instance.Id, ordered);
-            return ordered;
+            return _steps.GetOrAdd(instance.Id, ordered);
         }
 
         /// <summary>The first operation of an instance's body that uses a type's static member or constructor.</summary>
@@ -905,13 +1108,15 @@ public static partial class InterproceduralAccesses
 
     /// <summary>What the collectors of one scope share because it is the same in every execution (issue 454): the resources each
     /// access of an instance's summary names, and one copy of each code flow, label list and gap check list. Only the summary's
-    /// accesses are keys: an unknown effect's accesses are made anew in each execution, and a scope cache would keep every copy.</summary>
+    /// accesses are keys: an unknown effect's accesses are made anew in each execution, and a scope cache would keep every copy.
+    /// Collectors on several workers share it (ADR 0040), so each map is concurrent and caches a pure function of its key: a race
+    /// computes a value twice and keeps one, and every caller uses the one kept.</summary>
     private sealed class CollectorShares
     {
-        internal Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> Resources { get; } =
+        internal ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> Resources { get; } =
             new(ReferenceEqualityComparer.Instance);
 
-        internal Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> ValueResources { get; } =
+        internal ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> ValueResources { get; } =
             new(ReferenceEqualityComparer.Instance);
 
         internal SequencePool<CodeFlowStep> Flows { get; } = new();
@@ -923,13 +1128,13 @@ public static partial class InterproceduralAccesses
         internal TextNumbers Numbers { get; } = new();
 
         /// <summary>The numbers of each instance's id and body, by the instance object.</summary>
-        internal Dictionary<MethodInstance, InstanceNumbers> Instances { get; } = new(ReferenceEqualityComparer.Instance);
+        internal ConcurrentDictionary<MethodInstance, InstanceNumbers> Instances { get; } = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>What the emission asks of each region for every access on it, by region id: the same in every execution.</summary>
-        internal Dictionary<string, RegionFacts> Regions { get; } = new(StringComparer.Ordinal);
+        internal ConcurrentDictionary<string, RegionFacts> Regions { get; } = new(StringComparer.Ordinal);
 
         /// <summary>The storage each region id an access names is located at (<see cref="HeapSolution.Located"/>), by region id.</summary>
-        internal Dictionary<string, (string Region, string Slot)?> Locations { get; } = new(StringComparer.Ordinal);
+        internal ConcurrentDictionary<string, (string Region, string Slot)?> Locations { get; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>The numbers of an instance's id and of its body (<see cref="TextNumbers"/>).</summary>
@@ -950,7 +1155,7 @@ public static partial class InterproceduralAccesses
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
                                             HandedFreshness freshness, LibraryInternalObjects? libraryInternal, StringPool strings,
-                                            Dictionary<HeapRegion, IReadOnlyList<BindingEvidence>> bindingEvidence, CollectorShares shares,
+                                            ConcurrentDictionary<HeapRegion, IReadOnlyList<BindingEvidence>> bindingEvidence, CollectorShares shares,
                                             CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
@@ -1030,7 +1235,7 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The resources of each access an instance's summary makes, by the access object (<see cref="Resources"/>): the
         /// scope's, since they depend on the heap and the instance alone (issue 454).</summary>
-        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources = shares.Resources;
+        private readonly ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources = shares.Resources;
 
         /// <summary>The resources of each access an unknown effect makes (<see cref="EffectResources"/>), and the identity of each
         /// resource either cache keeps (<see cref="IdentityOf"/>): this execution's, since its unknown effects make their accesses
@@ -1039,7 +1244,7 @@ public static partial class InterproceduralAccesses
             new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The storage each access of an instance reads or writes as a value lives in (<see cref="ValueResources"/>).</summary>
-        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources = shares.ValueResources;
+        private readonly ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources = shares.ValueResources;
         private readonly Dictionary<AccessResource, NumberedText> _identities = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
@@ -1364,9 +1569,9 @@ public static partial class InterproceduralAccesses
         {
             if (!shares.Regions.TryGetValue(regionId, out var facts))
             {
-                shares.Regions.Add(regionId, facts = new RegionFacts(shares.Numbers.Of(regionId), _heap.Regions[regionId],
-                                                                     input.Executions.Ownership.GetValueOrDefault(regionId),
-                                                                     input.Executions.PublishedObjects.Contains(regionId)));
+                facts = shares.Regions.GetOrAdd(regionId, new RegionFacts(shares.Numbers.Of(regionId), _heap.Regions[regionId],
+                                                                          input.Executions.Ownership.GetValueOrDefault(regionId),
+                                                                          input.Executions.PublishedObjects.Contains(regionId)));
             }
 
             return facts;
@@ -1378,7 +1583,7 @@ public static partial class InterproceduralAccesses
         private string? LocatedRegion(string regionId)
         {
             if (!shares.Locations.TryGetValue(regionId, out var located))
-                shares.Locations.Add(regionId, located = _heap.Located(regionId, string.Empty));
+                located = shares.Locations.GetOrAdd(regionId, _heap.Located(regionId, string.Empty));
             return located?.Region;
         }
 
@@ -1387,7 +1592,7 @@ public static partial class InterproceduralAccesses
         private InstanceNumbers NumberOf(MethodInstance instance)
         {
             if (!shares.Instances.TryGetValue(instance, out var numbers))
-                shares.Instances.Add(instance, numbers = new InstanceNumbers(shares.Numbers.Of(instance.Id), shares.Numbers.Of(instance.BodyId)));
+                numbers = shares.Instances.GetOrAdd(instance, new InstanceNumbers(shares.Numbers.Of(instance.Id), shares.Numbers.Of(instance.BodyId)));
             return numbers;
         }
 
@@ -4646,9 +4851,7 @@ public static partial class InterproceduralAccesses
         {
             if (region.Kind != HeapRegionKind.Di)
                 return [];
-            if (!bindingEvidence.TryGetValue(region, out var evidence))
-                bindingEvidence.Add(region, evidence = BindingEvidenceScan(region));
-            return evidence;
+            return bindingEvidence.TryGetValue(region, out var evidence) ? evidence : bindingEvidence.GetOrAdd(region, BindingEvidenceScan(region));
         }
 
         /// <summary>What binds a container object's region, read off every injection binding and registration of the scope
@@ -4697,6 +4900,20 @@ public static partial class InterproceduralAccesses
             Cached(_valueResources, instance, access, copies: true);
 
         /// <summary>The resources of an access kept in a cache, worked out on its first request (<see cref="ResourcesOf"/>).</summary>
+        /// <param name="cache">The cache, by instance and access object.</param>
+        /// <param name="instance">The instance that makes the access.</param>
+        /// <param name="access">The access whose resources are named.</param>
+        /// <param name="copies">Whether a struct copy stands as the value it is.</param>
+        private IReadOnlyList<AccessResource> Cached(ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> cache,
+                                                     MethodInstance instance, SummaryAccess access, bool copies)
+        {
+            if (!cache.TryGetValue(instance, out var byAccess))
+                byAccess = cache.GetOrAdd(instance, new ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>(ReferenceEqualityComparer.Instance));
+            return byAccess.TryGetValue(access, out var resources) ? resources : byAccess.GetOrAdd(access, ResourcesOf(instance, access, copies));
+        }
+
+        /// <summary>The resources of an access kept in a cache of this collector alone, worked out on its first request
+        /// (<see cref="ResourcesOf"/>): one thread asks it, so plain dictionaries do.</summary>
         /// <param name="cache">The cache, by instance and access object.</param>
         /// <param name="instance">The instance that makes the access.</param>
         /// <param name="access">The access whose resources are named.</param>

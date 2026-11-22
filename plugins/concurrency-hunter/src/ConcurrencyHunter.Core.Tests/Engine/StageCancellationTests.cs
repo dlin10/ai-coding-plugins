@@ -227,7 +227,12 @@ public sealed class StageCancellationTests
         private int _total;
         private int _count;
         private int? _firedAt;
+        private int _firedOn;
         private string? _afterCancellation;
+
+        // The checks each thread made after the cancellation fired. Access collection on several workers (ADR 0040) has every other
+        // worker stop at its next check, so a thread other than the one that fired may check once more, and that check stops it.
+        private readonly Dictionary<int, int> _checksAfter = [];
 
         internal int Count { get { lock (_gate) return _count; } }
         internal IReadOnlyList<T> Started { get { lock (_gate) return _started.ToArray(); } }
@@ -246,7 +251,12 @@ public sealed class StageCancellationTests
             lock (_gate)
             {
                 if (_firedAt.HasValue)
-                    _afterCancellation ??= string.Join("\n", Environment.StackTrace.Split('\n').Take(10));
+                {
+                    var thread = Environment.CurrentManagedThreadId;
+                    _checksAfter[thread] = _checksAfter.GetValueOrDefault(thread) + 1;
+                    if (thread == _firedOn || _checksAfter[thread] > 1)
+                        _afterCancellation ??= string.Join("\n", Environment.StackTrace.Split('\n').Take(10));
+                }
                 _total++;
                 if (_current is not { } current || !EqualityComparer<T>.Default.Equals(current, target))
                     return;
@@ -254,6 +264,7 @@ public sealed class StageCancellationTests
                 if (_count == cancelAt)
                 {
                     _firedAt = _total;
+                    _firedOn = Environment.CurrentManagedThreadId;
                     cancellation.Cancel();
                 }
             }
@@ -264,8 +275,10 @@ public sealed class StageCancellationTests
             lock (_gate)
             {
                 Assert.True(_firedAt.HasValue, $"{target} did not reach check {cancelAt}");
-                Assert.True(_firedAt == _total, $"{target} checked again after cancellation: {_afterCancellation}");
-                Assert.Equal(cancelAt, _count);
+                // The thread that fired checks no more, and any other thread at most once more: the check that stops it. With one
+                // thread, as every stage has but access collection on several workers, no check follows the one that fired.
+                Assert.True(_afterCancellation is null, $"{target} checked again after cancellation: {_afterCancellation}");
+                Assert.InRange(_count, cancelAt!.Value, cancelAt.Value + _checksAfter.Count);
             }
         }
     }
