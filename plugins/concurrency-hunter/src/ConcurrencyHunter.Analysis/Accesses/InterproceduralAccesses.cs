@@ -750,6 +750,10 @@ public static partial class InterproceduralAccesses
         /// from the root every time.</summary>
         private int _hash;
 
+        /// <summary>The guards of the calls the path came through, kept with the path once its collector has bound them
+        /// (<c>ExecutionCollector.PathGuards</c>); they are no part of what makes two paths equal.</summary>
+        internal Guards? Guards { get; set; }
+
         public bool Equals(PathNode? other)
         {
             WorkCancellation.Check();
@@ -757,6 +761,48 @@ public static partial class InterproceduralAccesses
         }
 
         public override int GetHashCode() => _hash != 0 ? _hash : _hash = HashCode.Combine(State, Parent, Edge) | 1;
+    }
+
+    /// <summary>The guards that hold where an access runs, or along a path, with the numbers of the keys that tell them apart:
+    /// some guards of their own first, then the guards they stand under. An access's are its own guards and then its visit's
+    /// path's; a path's are the guards of the call that entered the visit and then its caller's path's. The numbers are kept
+    /// for every one, since the emission compares them on every visit; the guards are listed only where an access is emitted
+    /// under them.</summary>
+    /// <param name="first">The guards that come first.</param>
+    /// <param name="rest">The guards they stand under, null for none.</param>
+    /// <param name="keys">The numbers of the keys of all the guards, as bits.</param>
+    private sealed class Guards(IReadOnlyList<PathPredicate> first, Guards? rest, ulong[] keys)
+    {
+        private readonly IReadOnlyList<PathPredicate> _first = first;
+        private readonly Guards? _rest = rest;
+        private IReadOnlyList<PathPredicate>? _conditions;
+
+        /// <summary>The numbers of the keys of the guards, as bits, by which the emission tells two paths of one body apart.</summary>
+        internal ulong[] Keys { get; } = keys;
+
+        /// <summary>The guards in order, the first ones first: one list for every access emitted under them.</summary>
+        internal IReadOnlyList<PathPredicate> Conditions => _conditions ??= Listed();
+
+        private IReadOnlyList<PathPredicate> Listed()
+        {
+            var count = 0;
+            for (var guards = this; guards is not null; guards = guards._rest)
+            {
+                WorkCancellation.Check();
+                count += guards._first.Count;
+            }
+
+            if (count == 0)
+                return [];
+            var conditions = new List<PathPredicate>(count);
+            for (var guards = this; guards is not null; guards = guards._rest)
+            {
+                WorkCancellation.Check();
+                conditions.AddRange(guards._first);
+            }
+
+            return conditions;
+        }
     }
 
     /// <summary><see cref="Capacity"/> is the count the lock object was constructed with, when it is a constant.</summary>
@@ -3103,7 +3149,7 @@ public static partial class InterproceduralAccesses
                         // guards for both would let them decide a pair the other path is part of (R1, R8). A path under every guard
                         // of another and more adds nothing, since each pair it may be part of the other may be part of too.
                         guards ??= Conditions(instance, access, node);
-                        var (conditions, conditionKeys) = guards;
+                        var conditionKeys = guards.Keys;
                         var termNumber = shares.Numbers.Of(term?.ToString() ?? string.Empty);
                         var regionId = isReference ? resource.CollectionId ?? resource.RegionId! : resource.RegionId!;
                         var regionFacts = Facts(regionId);
@@ -3165,7 +3211,7 @@ public static partial class InterproceduralAccesses
                                 held.Select(info => info.SingleObjectId).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
                                 BindingEvidenceOf(region),
                                 CodeFlow(entry, node, held, $"{operation.ToWireName()} {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span),
-                                Uncertainties(instance, region, access, resource, conditions))
+                                Uncertainties(instance, region, access, resource, guards.Conditions))
                             {
                                 // One object can be held by more than one mechanism at once, and the two are independent, so the
                                 // holdings of an object are a list and never one entry that the last mechanism wins (TD-083). An
@@ -3194,7 +3240,7 @@ public static partial class InterproceduralAccesses
                                 CallPath = callPath,
                                 SpawnSites = input.Executions.SpawnSitesOf(execution.Id, callPath),
                                 PathRoot = pathRoot,
-                                Conditions = conditions,
+                                Conditions = guards.Conditions,
                                 IsIterationIndexed = access.SelectorParameter is { } ordinal &&
                                                      IterationParameters.GetValueOrDefault(instance.BodyId, -1) == ordinal &&
                                                      (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
@@ -4567,34 +4613,23 @@ public static partial class InterproceduralAccesses
             // The guards of the path are the same for every access the visit makes, so they are bound once for its node; an access
             // with no guards of its own runs under exactly those.
             if (_visitGuards is not { } visit || !ReferenceEquals(visit.Node, node))
-            {
-                var path = PathGuards(node);
-                _visitGuards = visit = new VisitGuards(node, new Guards(path, Bits.Of(path.Select(ConditionNumber))));
-            }
+                _visitGuards = visit = new VisitGuards(node, PathGuards(node));
 
             var guards = visit.Path;
             if (own.Count != 0)
             {
-                var conditions = new List<PathPredicate>(own.Count + visit.Path.Conditions.Count);
-                conditions.AddRange(own);
-                conditions.AddRange(visit.Path.Conditions);
                 var keys = (ulong[])visit.Path.Keys.Clone();
                 foreach (var condition in own)
                 {
                     CheckCancellation();
                     Bits.Add(ref keys, ConditionNumber(condition));
                 }
-                guards = new Guards(conditions, keys);
+                guards = new Guards(own, visit.Path, keys);
             }
 
             visit.ByOwn.Add(ownGuards, guards);
             return guards;
         }
-
-        /// <summary>The guards that hold where an access runs, with the numbers of their <see cref="ConditionKey"/>s.</summary>
-        /// <param name="Conditions">The guards, the access's own first.</param>
-        /// <param name="Keys">The numbers of the keys of the guards, as bits, by which the emission tells two paths of one body apart.</param>
-        private sealed record Guards(IReadOnlyList<PathPredicate> Conditions, ulong[] Keys);
 
         /// <summary>The number of a guard's <see cref="ConditionKey"/> in this collector, given the first time it is met.</summary>
         /// <param name="condition">The guard.</param>
@@ -4624,40 +4659,90 @@ public static partial class InterproceduralAccesses
         private static string ConditionKey(PathPredicate condition) =>
             $"{condition.Subject}/{condition.SubjectTerm}/{condition.Relation}/{condition.Value}/{condition.Width}/{condition.Signed}";
 
-        /// <summary>The guards of the calls a path came through, each bound where its caller stands, from the visit up.</summary>
+        /// <summary>The guards of a path with no call on it.</summary>
+        private readonly Guards _noGuards = new([], null, Bits.EMPTY);
+
+        /// <summary>The guards of the calls a path came through, each bound where its caller stands, from the visit up. Each visit
+        /// carries one path to its accesses; once the path budget is spent, the visit starts at the merge and carries no guards
+        /// from above it. A path's guards are its caller's path's and those of the call that entered it: the guards of each call are
+        /// bound once and kept with its path's node, so a visit binds the guards of that one call. They are numbered in the order
+        /// the path lists them: the visit's first, then its caller's.</summary>
         /// <param name="node">The visit whose path is read.</param>
-        private List<PathPredicate> PathGuards(PathNode node)
+        private Guards PathGuards(PathNode node)
         {
-            var conditions = new List<PathPredicate>();
-            // Each visit carries one path to this access. Once the path budget is spent, the visit starts at the merge and
-            // carries no guards from above it.
-            for (var step = node; step is { Edge: { } edge, Parent: { } caller }; step = caller)
+            // The calls of the path whose guards are not bound yet, from the visit up to the first path that has its own.
+            var entered = new List<(PathNode Step, List<PathPredicate> Guards)>();
+            var guards = _noGuards;
+            for (var step = node; step is { Edge: not null, Parent: { } caller }; step = caller)
             {
                 CheckCancellation();
-                if (_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance) &&
-                    callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
+                if (step.Guards is { } known)
                 {
-                    conditions.AddRange(Predicates(callerInstance, transfer.Conditions, caller));
-                }
-                // A factory runs where its `GetOrAdd` or `AddOrUpdate` stands, under that call's guards (R11).
-                else if (callerInstance?.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } factoryCall &&
-                         RunsFactories(factoryCall.Collection))
-                {
-                    conditions.AddRange(Predicates(callerInstance, factoryCall.Conditions, caller));
+                    guards = known;
+                    break;
                 }
 
-                // An iterator's body runs with the arguments its creation bound, so the guards that call stood under hold of those
-                // values wherever it is enumerated — and so do the guards of the call its creator was reached by, where that call
-                // is not on this path already (R1, ADR 0011).
-                if (edge.Reason == ITERATOR_ENUMERATION && BindingCall(step) is { } created)
+                var bound = CallGuards(step);
+                foreach (var condition in bound)
                 {
-                    conditions.AddRange(Predicates(created.Instance, created.Call.Conditions, created.Node));
-                    if (created.Node is { Edge: { } creatorEdge, Parent: { } creatorCaller } && !Ancestors(caller).Contains(created.Node) &&
-                        _heap.Instances.TryGetValue(creatorEdge.CallerInstance, out var creatorCallerInstance) &&
-                        creatorCallerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == creatorEdge.OperationId) is { } creatorCall)
+                    CheckCancellation();
+                    ConditionNumber(condition);
+                }
+
+                entered.Add((step, bound));
+            }
+
+            for (var index = entered.Count - 1; index >= 0; index--)
+            {
+                CheckCancellation();
+                var (step, bound) = entered[index];
+                var keys = guards.Keys;
+                if (bound.Count != 0)
+                {
+                    keys = (ulong[])keys.Clone();
+                    foreach (var condition in bound)
                     {
-                        conditions.AddRange(Predicates(creatorCallerInstance, creatorCall.Conditions, creatorCaller));
+                        CheckCancellation();
+                        Bits.Add(ref keys, ConditionNumber(condition));
                     }
+                }
+
+                step.Guards = guards = new Guards(bound, guards, keys);
+            }
+
+            return guards;
+        }
+
+        /// <summary>The guards of the call that entered a visit, bound where its caller stands.</summary>
+        /// <param name="step">The visit, which a call entered.</param>
+        private List<PathPredicate> CallGuards(PathNode step)
+        {
+            var conditions = new List<PathPredicate>();
+            var edge = step.Edge!;
+            var caller = step.Parent!;
+            if (_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance) &&
+                callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
+            {
+                conditions.AddRange(Predicates(callerInstance, transfer.Conditions, caller));
+            }
+            // A factory runs where its `GetOrAdd` or `AddOrUpdate` stands, under that call's guards (R11).
+            else if (callerInstance?.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } factoryCall &&
+                     RunsFactories(factoryCall.Collection))
+            {
+                conditions.AddRange(Predicates(callerInstance, factoryCall.Conditions, caller));
+            }
+
+            // An iterator's body runs with the arguments its creation bound, so the guards that call stood under hold of those
+            // values wherever it is enumerated — and so do the guards of the call its creator was reached by, where that call
+            // is not on this path already (R1, ADR 0011).
+            if (edge.Reason == ITERATOR_ENUMERATION && BindingCall(step) is { } created)
+            {
+                conditions.AddRange(Predicates(created.Instance, created.Call.Conditions, created.Node));
+                if (created.Node is { Edge: { } creatorEdge, Parent: { } creatorCaller } && !Ancestors(caller).Contains(created.Node) &&
+                    _heap.Instances.TryGetValue(creatorEdge.CallerInstance, out var creatorCallerInstance) &&
+                    creatorCallerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == creatorEdge.OperationId) is { } creatorCall)
+                {
+                    conditions.AddRange(Predicates(creatorCallerInstance, creatorCall.Conditions, creatorCaller));
                 }
             }
 

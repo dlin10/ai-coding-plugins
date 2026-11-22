@@ -116,6 +116,10 @@ include them skips those accesses before it lists them or reads their resources.
   visit too, and the rule asks them earlier. One order moves: the order in which the collector numbers the keys of
   guards, where an access outside the path-free ones stood between two of them. The numbers are the collector's own and
   are read as bits of the inclusion test alone, which does not depend on which number a key has.
+- **The guards of a path.** A path's guards are those of the call that entered the visit and then its caller's path's.
+  They are bound once for a path's node and kept with it, so a visit binds the guards of one call. Their keys are
+  numbered in the order a walk of the whole path lists them, the visit's first. The guards are listed only for an
+  access emitted under them; a visit that is skipped compares their numbers.
 - **Where the memory lives.** In the collector, like `seen`, and it goes with it. No collector reads another's.
 - **Counters.** With `CH_DIAG_DIR` set, the `execution:<scope>` checkpoint also reports the execution's entries, visits,
   distinct states, resources gone through, key checks, hits, emitted and replaced accesses, the accesses the rule
@@ -200,7 +204,7 @@ sort in `CodeFlow`).
     `build/record-demo-models.ps1 -Check`. No finding, site pair, occurrence, fingerprint, gap or counter moves,
     `accesses` and `accessExecutions` included; a shift is a defect of the rule.
 - **The walk still enumerates every path.** `_visits` is as long as it was, and a visit that is skipped still costs the
-  guards of its path and one comparison for each recorded list. If the walk itself becomes the cost,
+  guards of the call that entered it and one comparison for each recorded list. If the walk itself becomes the cost,
   the bound of TD-090, 16 paths per state in each entry, is the question, and changing it changes the guards of
   accesses.
 - **Every execution still emits every access it runs once.** OrchardCore's 25 copies per access are made as before, each
