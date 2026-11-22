@@ -5100,6 +5100,15 @@ public static class InterproceduralPairing
         var sides = new Dictionary<Access, PairingSide>(ReferenceEqualityComparer.Instance);
         for (var at = 0; at < candidates.Length; at++)
             sides.TryAdd(candidates[at], new PairingSide(candidates[at], at));
+        // What the stage holds and does, for a run that has not reached it before: the accesses on entry, and at the end the pairs,
+        // the pairs of executions asked and what their timing did on the happens-before graph and its replays.
+        var scope = candidates.Length == 0 ? string.Empty : candidates[0].Resource.Scope;
+        var timingCounters = executions.TimingCounters;
+        var timingBefore = timingCounters?.Copy();
+        var executionPairs = 0L;
+        DiagnosticCheckpoint.Reach($"pairing:{scope}", collect: true,
+                                   () => [$"accesses={accesses.Count} candidates={candidates.Length} " +
+                                          $"accessExecutions={candidates.Sum(access => (long)access.ExecutionCount)}"]);
 
         void Count(string skip, IReadOnlySet<string> assumptions)
         {
@@ -5183,6 +5192,7 @@ public static class InterproceduralPairing
         {
             var (first, second) = views;
             assumptions = NoAssumptions;
+            executionPairs++;
             if (first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first))
                 return SKIP_NO_OVERLAP;
             if (Skip(executions.Timing(first, second, out assumptions)) is { } timing)
@@ -5212,6 +5222,10 @@ public static class InterproceduralPairing
         // In the order of an all-pairs loop over every execution of every access: by the earlier one, then the later one. Findings keep the
         // first of two pairs with one identity, so this order makes them what the plain loop gives.
         var pairs = found.OrderBy(item => item.Order).Select(item => item.Pair).ToArray();
+        DiagnosticCheckpoint.Reach($"pairing-end:{scope}", collect: true,
+                                   () => [$"comparisons={counted} executionPairs={executionPairs} candidates={pairs.Length} suppressed={suppressed} " +
+                                          $"buckets={index.Buckets} largestBucket={index.LargestBucket}",
+                                          $"timing {(timingCounters is null ? "none" : timingCounters.Since(timingBefore!))}"]);
         return new PairAnalysis(pairs, counted, suppressed, skips)
         {
             CartesianBound = (int)((long)candidates.Length * (candidates.Length + 1) / 2),

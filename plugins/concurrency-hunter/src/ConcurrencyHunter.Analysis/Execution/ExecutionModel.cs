@@ -298,6 +298,10 @@ public sealed class ExecutionAnalysis
 
     public ExecutionInstance Execution(string id) => _executions[id];
 
+    /// <summary>What the timing of the scope's pairs did on the happens-before graph and its replays, for the pairing checkpoints; null
+    /// without a graph.</summary>
+    internal TimingCounters? TimingCounters => _order?.Counters;
+
     /// <summary>Two executions of one scope overlap; an execution overlaps itself only when its policy says so.</summary>
     /// <param name="first">The first execution's id.</param>
     /// <param name="second">The second execution's id.</param>

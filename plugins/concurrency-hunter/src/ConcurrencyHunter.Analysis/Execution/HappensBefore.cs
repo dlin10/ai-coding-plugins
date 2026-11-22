@@ -112,6 +112,9 @@ internal sealed partial class HappensBefore
     /// <summary>The graphs that withhold some assumption sets, by the sets withheld, made the first time a pair asks for one.</summary>
     private readonly Dictionary<string, HappensBefore> _replays = new(StringComparer.Ordinal);
 
+    /// <summary>What the timing did on this graph and on the replays it builds, for the pairing checkpoints.</summary>
+    internal TimingCounters Counters { get; }
+
     /// <summary>Every assumption set a reading can rest on: the waiting code's entry with or without the waited task's thread scheduler.</summary>
     private static readonly OrderingAssumption[] AssumptionSets =
     [
@@ -143,8 +146,9 @@ internal sealed partial class HappensBefore
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps, IReadOnlyList<SpawnAnchor> anchors,
                            IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup,
                            IReadOnlyList<ExecutionModel.AdmittedCall> admittedCalls, CancellationToken cancellationToken,
-                           IReadOnlySet<OrderingAssumption>? withheld = null)
+                           IReadOnlySet<OrderingAssumption>? withheld = null, TimingCounters? counters = null)
     {
+        Counters = counters ?? new TimingCounters();
         _constructionToken = cancellationToken;
         _withheld = withheld;
         _anchorList = anchors;
@@ -247,10 +251,14 @@ internal sealed partial class HappensBefore
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
     /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
-    internal TimingBranch? OrderedBy(Access first, Access second, string? creator = null) => In(creator, () =>
-        first.ExecutionId != second.ExecutionId && (Path(first, second) || Path(second, first)) ? TimingBranch.HappensBeforePath
-        : (_passCompletion ??= new PassCompletionProof(this)).Ordered(first, second, creator) ? TimingBranch.PassCompletion
-        : (TimingBranch?)null);
+    internal TimingBranch? OrderedBy(Access first, Access second, string? creator = null)
+    {
+        Counters.OrderQueries++;
+        return In(creator, () =>
+            first.ExecutionId != second.ExecutionId && (Path(first, second) || Path(second, first)) ? TimingBranch.HappensBeforePath
+            : (_passCompletion ??= new PassCompletionProof(this)).Ordered(first, second, creator) ? TimingBranch.PassCompletion
+            : (TimingBranch?)null);
+    }
 
     /// <summary>Whether the path that ordered a pair runs from its first access to its second, on a diagnostic request after
     /// <see cref="OrderedBy"/> answered <see cref="TimingBranch.HappensBeforePath"/>: the direction that decision tried first.</summary>
@@ -295,7 +303,10 @@ internal sealed partial class HappensBefore
     internal OrderingAssumption Assumed(Access first, Access second, string? creator)
     {
         // Every reading a decision made was taken when it was first computed, so a scope that took none has nothing to withhold.
-        if (_assumptions.Count == 0 || Withholding(AssumptionSets).OrderedBy(first, second, creator) is not null)
+        if (_assumptions.Count == 0)
+            return OrderingAssumption.None;
+        Counters.AssumptionQueries++;
+        if (Withholding(AssumptionSets).OrderedBy(first, second, creator) is not null)
             return OrderingAssumption.None;
         var taken = AssumptionSets.Where(_assumptions.Contains).ToArray();
         var needed = taken.Where(set => Withholding([set]).OrderedBy(first, second, creator) is null).ToArray();
@@ -315,8 +326,11 @@ internal sealed partial class HappensBefore
     {
         var key = string.Join(",", withheld.Order());
         if (!_replays.TryGetValue(key, out var replay))
+        {
             _replays.Add(key, replay = new HappensBefore(_scope, _heap, _segments, _executions, _entries, _visits, _steps, _anchorList, _tails,
-                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet()));
+                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet(), Counters));
+            Counters.Replays++;
+        }
         return replay;
     }
 
@@ -601,6 +615,7 @@ internal sealed partial class HappensBefore
         if (!ExecutionReach(from.ExecutionId).Contains(to.ExecutionId))
             return false;
 
+        Counters.PathSearches++;
         var source = new PointKey(from.InstanceId, from.OperationId, false);
         var target = new PointKey(to.InstanceId, to.OperationId, false);
         var seen = new HashSet<EventNode>();
@@ -608,6 +623,7 @@ internal sealed partial class HappensBefore
         while (pending.TryDequeue(out var node))
         {
             CheckCancellation();
+            Counters.PathEvents++;
             if (!seen.Add(node))
                 continue;
 
@@ -813,6 +829,8 @@ internal sealed partial class HappensBefore
         }
 
         _context.ExecutionReach.Add(start, reach);
+        Counters.ReachSets++;
+        Counters.ReachExecutions += reach.Count;
         return reach;
     }
 
@@ -2048,9 +2066,15 @@ internal sealed partial class HappensBefore
     }
 
     private Flow NewFlow(string execution, IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> throwsAfter,
-                         bool readByForm = false) =>
-        new(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
-            _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation, EarlyTaskWaits(execution), _sequentialRuns, readByForm);
+                         bool readByForm = false)
+    {
+        var flow = new Flow(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
+                            _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation, EarlyTaskWaits(execution), _sequentialRuns,
+                            readByForm);
+        Counters.Flows++;
+        Counters.FlowNodes += flow.NodeCount;
+        return flow;
+    }
 
     /// <summary>The blocking waits for tasks of an execution's visits whose form throws only after their tasks complete but whose
     /// environment does not let them (<see cref="ThrowsAfterCompletion"/>), by instance and join operation: the handles' proof is each
@@ -2180,6 +2204,9 @@ internal sealed partial class HappensBefore
         }
 
         private readonly Dictionary<string, bool[]> _reach = new(StringComparer.Ordinal);
+
+        /// <summary>How many nodes the flow has, for the pairing checkpoints.</summary>
+        internal int NodeCount => _plain.Length;
 
         /// <summary>Builds the flow of one execution.</summary>
         /// <param name="scope">The process scope whose bodies the visits run.</param>
