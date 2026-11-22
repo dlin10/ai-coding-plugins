@@ -1,3 +1,4 @@
+using System.Numerics;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
@@ -136,7 +137,7 @@ internal sealed partial class HappensBefore
         internal Dictionary<string, IReadOnlyList<JoinAnchor>> Joins { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, List<(string Execution, int Join)>> JoinedBy { get; } = new(StringComparer.Ordinal);
         internal HashSet<(string BodyId, int OperationId)> UnprovenJoins { get; } = [];
-        internal Dictionary<string, HashSet<string>> ExecutionReach { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, ulong[]> ExecutionReach { get; } = new(StringComparer.Ordinal);
         internal bool JoinsReady { get; set; }
     }
 
@@ -603,80 +604,111 @@ internal sealed partial class HappensBefore
         Join
     }
 
-    /// <summary>An event of the search; a join node remembers the execution whose end reached it.</summary>
+    /// <summary>An event of the search; a join node remembers the execution whose end reached it. Executions are named by their
+    /// numbers (<see cref="_executionNumbers"/>), which only equality reads.</summary>
     /// <param name="Kind">The kind of event.</param>
-    /// <param name="Execution">The execution the event belongs to.</param>
+    /// <param name="Execution">The number of the execution the event belongs to.</param>
     /// <param name="Join">The index of the join among the execution's joins, or -1 for other events.</param>
-    /// <param name="Joined">The execution whose end reached a join node; null for other events.</param>
-    private sealed record EventNode(EventKind Kind, string Execution, int Join, string? Joined = null);
+    /// <param name="Joined">The number of the execution whose end reached a join node; -1 for other events.</param>
+    private readonly record struct EventNode(EventKind Kind, int Execution, int Join, int Joined = -1);
+
+    /// <summary>The numbers the reach sets and the path search give execution ids: a number is an identity alone, which no answer reads
+    /// for its value.</summary>
+    private readonly ExecutionIds _executionNumbers = new();
+
+    /// <summary>The events a path search met and the ones it has still to take, kept for the next search to reuse; null while a search
+    /// holds them, so that a search a query of it starts takes its own.</summary>
+    private HashSet<EventNode>? _seenEvents = [];
+
+    /// <summary>See <see cref="_seenEvents"/>.</summary>
+    private Queue<EventNode>? _pendingEvents = new();
+
+    /// <summary>The most events a search's set may have held to be kept for the next one: clearing a larger set costs more than a new one.</summary>
+    private const int KEPT_SEARCH_EVENTS = 4096;
 
     private bool Path(Access from, Access to)
     {
-        if (!ExecutionReach(from.ExecutionId).Contains(to.ExecutionId))
+        var reach = ExecutionReach(from.ExecutionId);
+        if (!_executionNumbers.TryGetNumber(to.ExecutionId, out var destination) || !Bits.Contains(reach, destination))
             return false;
 
         Counters.PathSearches++;
         var source = new PointKey(from.InstanceId, from.OperationId, false);
         var target = new PointKey(to.InstanceId, to.OperationId, false);
-        var seen = new HashSet<EventNode>();
-        var pending = new Queue<EventNode>([new EventNode(EventKind.Point, from.ExecutionId, -1)]);
-        while (pending.TryDequeue(out var node))
+        var (seen, pending) = (_seenEvents ?? [], _pendingEvents ?? new Queue<EventNode>());
+        (_seenEvents, _pendingEvents) = (null, null);
+        try
         {
-            CheckCancellation();
-            Counters.PathEvents++;
-            if (!seen.Add(node))
-                continue;
-
-            var execution = node.Execution;
-            switch (node.Kind)
+            pending.Enqueue(new EventNode(EventKind.Point, _executionNumbers.Number(from.ExecutionId), -1));
+            while (pending.TryDequeue(out var node))
             {
-                case EventKind.Point:
-                    foreach (var anchor in IsEnumerated(execution, from.InstanceId) ? Enumerable.Empty<SpawnAnchor>() : TrustedAnchors(execution))
-                    {
-                        CheckCancellation();
-                        if (Precedes(execution, source, AnchorPoint(anchor)))
-                            pending.Enqueue(new EventNode(EventKind.Start, anchor.ChildId, -1));
-                    }
+                CheckCancellation();
+                Counters.PathEvents++;
+                if (!seen.Add(node))
+                    continue;
 
-                    pending.Enqueue(new EventNode(EventKind.End, execution, -1));
-                    break;
-                case EventKind.Start:
-                    if (execution == to.ExecutionId)
-                        return true;
-                    foreach (var anchor in TrustedAnchors(execution))
-                    {
-                        CheckCancellation();
-                        pending.Enqueue(new EventNode(EventKind.Start, anchor.ChildId, -1));
-                    }
-                    pending.Enqueue(new EventNode(EventKind.End, execution, -1));
-                    break;
-                case EventKind.End:
-                    foreach (var next in EndEdges(execution))
-                    {
-                        CheckCancellation();
-                        pending.Enqueue(next);
-                    }
-                    break;
-                case EventKind.Join:
+                var execution = _executionNumbers.Id(node.Execution);
+                switch (node.Kind)
                 {
-                    var join = Joins(execution)[node.Join];
-                    if (execution == to.ExecutionId && !IsEnumerated(execution, to.InstanceId) && Dominates(execution, node.Joined!, target))
-                        return true;
-                    foreach (var anchor in TrustedAnchors(execution))
-                    {
-                        CheckCancellation();
-                        if (Dominates(execution, node.Joined!, AnchorPoint(anchor)))
-                            pending.Enqueue(new EventNode(EventKind.Start, anchor.ChildId, -1));
-                    }
+                    case EventKind.Point:
+                        foreach (var anchor in IsEnumerated(execution, from.InstanceId) ? Enumerable.Empty<SpawnAnchor>() : TrustedAnchors(execution))
+                        {
+                            CheckCancellation();
+                            if (Precedes(execution, source, AnchorPoint(anchor)))
+                                pending.Enqueue(new EventNode(EventKind.Start, _executionNumbers.Number(anchor.ChildId), -1));
+                        }
 
-                    if (BoundsEnd(execution, join, node.Joined!))
-                        pending.Enqueue(new EventNode(EventKind.End, execution, -1));
-                    break;
+                        pending.Enqueue(new EventNode(EventKind.End, node.Execution, -1));
+                        break;
+                    case EventKind.Start:
+                        if (node.Execution == destination)
+                            return true;
+                        foreach (var anchor in TrustedAnchors(execution))
+                        {
+                            CheckCancellation();
+                            pending.Enqueue(new EventNode(EventKind.Start, _executionNumbers.Number(anchor.ChildId), -1));
+                        }
+                        pending.Enqueue(new EventNode(EventKind.End, node.Execution, -1));
+                        break;
+                    case EventKind.End:
+                        foreach (var next in EndEdges(execution))
+                        {
+                            CheckCancellation();
+                            pending.Enqueue(next);
+                        }
+                        break;
+                    case EventKind.Join:
+                    {
+                        var join = Joins(execution)[node.Join];
+                        var joined = _executionNumbers.Id(node.Joined);
+                        if (node.Execution == destination && !IsEnumerated(execution, to.InstanceId) && Dominates(execution, joined, target))
+                            return true;
+                        foreach (var anchor in TrustedAnchors(execution))
+                        {
+                            CheckCancellation();
+                            if (Dominates(execution, joined, AnchorPoint(anchor)))
+                                pending.Enqueue(new EventNode(EventKind.Start, _executionNumbers.Number(anchor.ChildId), -1));
+                        }
+
+                        if (BoundsEnd(execution, join, joined))
+                            pending.Enqueue(new EventNode(EventKind.End, node.Execution, -1));
+                        break;
+                    }
                 }
             }
-        }
 
-        return false;
+            return false;
+        }
+        finally
+        {
+            // The next search reuses what this one grew, unless it grew too large to be worth clearing.
+            if (seen.Count <= KEPT_SEARCH_EVENTS)
+            {
+                seen.Clear();
+                pending.Clear();
+                (_seenEvents, _pendingEvents) = (seen, pending);
+            }
+        }
     }
 
     /// <summary>Whether an instance runs inside an async iterator the execution calls: the iterator's body runs when it is enumerated,
@@ -784,53 +816,55 @@ internal sealed partial class HappensBefore
     private IEnumerable<EventNode> EndEdges(string execution)
     {
         EnsureJoins();
+        var number = _executionNumbers.Number(execution);
         foreach (var (joining, join) in _context.JoinedBy.GetValueOrDefault(execution) ?? [])
         {
             CheckCancellation();
-            yield return new EventNode(EventKind.Join, joining, join, execution);
+            yield return new EventNode(EventKind.Join, _executionNumbers.Number(joining), join, number);
         }
         foreach (var continuation in _context.Continuations.GetValueOrDefault(execution) ?? [])
         {
             CheckCancellation();
-            yield return new EventNode(EventKind.Start, continuation, -1);
+            yield return new EventNode(EventKind.Start, _executionNumbers.Number(continuation), -1);
         }
         if (_tails.TryGetValue(execution, out var tail) && Once(execution))
-            yield return new EventNode(EventKind.Start, tail, -1);
+            yield return new EventNode(EventKind.Start, _executionNumbers.Number(tail), -1);
         if (execution == ExecutionModel.STARTUP)
         {
             foreach (var other in _executions.Values.Where(other => !_duringStartup.Contains(other.Id)))
             {
                 CheckCancellation();
-                yield return new EventNode(EventKind.Start, other.Id, -1);
+                yield return new EventNode(EventKind.Start, _executionNumbers.Number(other.Id), -1);
             }
         }
     }
 
-    /// <summary>The executions an execution's trusted edges lead to, transitively: a cheap filter before the point-level search.</summary>
+    /// <summary>The executions an execution's trusted edges lead to, transitively, as bits over <see cref="_executionNumbers"/>: a cheap
+    /// filter before the point-level search, an eighth of a byte for each execution of the scope.</summary>
     /// <param name="start">The start.</param>
-    private HashSet<string> ExecutionReach(string start)
+    private ulong[] ExecutionReach(string start)
     {
         if (_context.ExecutionReach.TryGetValue(start, out var cached))
             return cached;
 
-        var reach = new HashSet<string>(StringComparer.Ordinal);
+        var reach = new ulong[(_executions.Count >> 6) + 1];
         var pending = new Stack<string>([start]);
         while (pending.TryPop(out var execution))
         {
             CheckCancellation();
-            var next = TrustedAnchors(execution).Select(anchor => anchor.ChildId)
+            var next = TrustedAnchors(execution).Select(anchor => _executionNumbers.Number(anchor.ChildId))
                                                 .Concat(EndEdges(execution).Select(edge => edge.Execution));
             foreach (var target in next)
             {
                 CheckCancellation();
-                if (reach.Add(target))
-                    pending.Push(target);
+                if (Bits.Add(ref reach, target))
+                    pending.Push(_executionNumbers.Id(target));
             }
         }
 
         _context.ExecutionReach.Add(start, reach);
         Counters.ReachSets++;
-        Counters.ReachExecutions += reach.Count;
+        Counters.ReachExecutions += reach.Sum(word => (long)BitOperations.PopCount(word));
         return reach;
     }
 
