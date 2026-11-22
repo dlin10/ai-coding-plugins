@@ -30,6 +30,33 @@ public sealed class InterproceduralAccessTests
         Assert.Equal(heap.Heap.ReachableBodies.Count, heap.Summaries.Built);
     }
 
+    /// <summary>A call step names one receiver of the instance called: the first in ordinal order of the regions' ids, whatever order
+    /// the calls reached the instance in (issue 470).</summary>
+    [Fact]
+    public void A_call_step_names_the_first_of_several_receivers_in_ordinal_order()
+    {
+        var run = Analyze("""
+            public sealed class Box { public object? Value; public void Set(object value) => Value = value; }
+            public class BoxController : ControllerBase
+            {
+                public void Post()
+                {
+                    var first = new Box(); var second = new Box(); var third = new Box();
+                    third.Set(new object()); second.Set(new object()); first.Set(new object());
+                }
+            }
+            """ + Startup(), new AnalysisLimits(MaxContextsPerMethod: 1));
+
+        var heap = run.Execution.Heap;
+        var merged = Assert.Single(heap.Instances("body:Fixture:M:Box.Set(System.Object)"), instance => instance.IsMerged);
+        var displays = merged.Receivers.Order(StringComparer.Ordinal).Select(region => heap.Heap.Regions[region].Display).ToArray();
+        Assert.Equal(3, displays.Distinct(StringComparer.Ordinal).Count());
+        var calls = run.Collection.Accesses.Where(access => access.InstanceId == merged.Id)
+                       .SelectMany(access => access.CodeFlow.Where(step => step.Kind == "call").Select(step => step.Text))
+                       .Distinct(StringComparer.Ordinal);
+        Assert.Equal([$"calls Box.Set(object) on {displays[0]}"], calls);
+    }
+
     [Fact]
     public void Lambda_calling_a_local_function_that_writes_a_field_accesses_the_singleton()
     {

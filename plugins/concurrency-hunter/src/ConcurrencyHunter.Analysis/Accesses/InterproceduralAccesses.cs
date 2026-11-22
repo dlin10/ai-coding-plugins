@@ -1202,6 +1202,10 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The storage each region id an access names is located at (<see cref="HeapSolution.Located"/>), by region id.</summary>
         internal ConcurrentDictionary<string, (string Region, string Slot)?> Locations { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The receiver a call step of a code flow names for each instance called: the display of the first of its receivers
+        /// in ordinal order, null where it has none. It is the instance's and the heap's alone (issue 470).</summary>
+        internal ConcurrentDictionary<MethodInstance, string?> FirstReceivers { get; } = new(ReferenceEqualityComparer.Instance);
     }
 
     /// <summary>The numbers of an instance's id and of its body (<see cref="TextNumbers"/>).</summary>
@@ -4878,10 +4882,26 @@ public static partial class InterproceduralAccesses
                       .FirstOrDefault(allocate => allocate.Id == operationId)?.SynchronizationCapacity
                 : null;
 
+        /// <summary>The steps reaching an access: the root the execution starts from, the construction its entry runs, each call of
+        /// the visit's path from the entry down, the locks held, and the access. A call names the first receiver of the instance it
+        /// calls. The lists are made at their final size: every access emitted gets a code flow of its own, and a deep path would
+        /// grow them step by step (issue 470).</summary>
+        /// <param name="entry">The entry the visit's walk started from.</param>
+        /// <param name="node">The visit, whose path the calls are read from.</param>
+        /// <param name="held">The locks held over the access.</param>
+        /// <param name="accessText">What the access does, as its step says it.</param>
+        /// <param name="accessSource">The access's source span, which a step without a span of its own takes.</param>
         private IReadOnlyList<CodeFlowStep> CodeFlow(ExecutionEntry entry, PathNode node, IReadOnlyList<HeldProtectionInfo> held, string accessText,
                                                      SourceSpan accessSource)
         {
-            var steps = new List<CodeFlowStep>();
+            var depth = 0;
+            for (var current = node; current.Edge is not null; current = current.Parent!)
+            {
+                CheckCancellation();
+                depth++;
+            }
+
+            var steps = new List<CodeFlowStep>(depth + held.Count + 3);
             var entryInstance = _heap.Instances[entry.InstanceId];
             steps.Add(execution.RootId is not null
                 ? new CodeFlowStep("root", strings.Get($"{RootDescriptor().Entry.Display} starts"), RootDescriptor().Entry.Source)
@@ -4892,14 +4912,13 @@ public static partial class InterproceduralAccesses
                 steps.Add(new CodeFlowStep("construction", strings.Get($"constructs {subject}"), BodySource(entryInstance.BodyId) ?? accessSource));
             }
 
-            var path = new List<PathNode>();
+            var path = new PathNode[depth];
             for (var current = node; current.Edge is not null; current = current.Parent!)
             {
                 CheckCancellation();
-                path.Add(current);
+                path[--depth] = current;
             }
 
-            path.Reverse();
             foreach (var step in path)
             {
                 CheckCancellation();
@@ -4914,7 +4933,7 @@ public static partial class InterproceduralAccesses
                     continue;
                 }
 
-                var receiver = callee.Receivers.Order(StringComparer.Ordinal).Select(region => _heap.Regions[region].Display).FirstOrDefault();
+                var receiver = FirstReceiver(callee);
                 steps.Add(new CodeFlowStep("call", strings.Get(receiver is null ? $"calls {calleeSymbol}" : $"calls {calleeSymbol} on {receiver}"),
                                            Provenance(caller.BodyId, step.Edge.OperationId)?.Span ?? accessSource));
             }
@@ -4923,6 +4942,24 @@ public static partial class InterproceduralAccesses
                                .Select(info => new CodeFlowStep("acquire", strings.Get($"acquires {info.Display}"), info.Acquisition)));
             steps.Add(new CodeFlowStep("access", strings.Get(accessText), accessSource));
             return shares.Flows.Get(steps);
+        }
+
+        /// <summary>The receiver a call step names: the display of the first of the called instance's receivers in ordinal order, null
+        /// where it has none. It is found by one pass without sorting them, once for the scope (issue 470).</summary>
+        /// <param name="callee">The instance called.</param>
+        private string? FirstReceiver(MethodInstance callee)
+        {
+            if (shares.FirstReceivers.TryGetValue(callee, out var known))
+                return known;
+            string? first = null;
+            foreach (var region in callee.Receivers)
+            {
+                CheckCancellation();
+                if (first is null || string.CompareOrdinal(region, first) < 0)
+                    first = region;
+            }
+
+            return shares.FirstReceivers.GetOrAdd(callee, first is null ? null : _heap.Regions[first].Display);
         }
 
         private SourceSpan? BodySource(string bodyId) =>
