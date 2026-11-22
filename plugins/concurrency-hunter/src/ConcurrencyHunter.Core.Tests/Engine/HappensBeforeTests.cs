@@ -24,6 +24,22 @@ public sealed class HappensBeforeTests
         Assert.Contains(run.Execution.Analysis.UnprovenJoins, site => site.BodyId.EndsWith("Worker.Drain(System.Threading.Tasks.Task)", StringComparison.Ordinal));
     }
 
+    /// <summary>The children of every execution, listed once for the whole graph, come in the order a pass over the executions asking
+    /// for one parent gives: the order the resumptions of a parent's tails are read in.</summary>
+    [Fact]
+    public void Children_by_parent_keep_the_order_of_a_pass_over_the_executions()
+    {
+        var run = Analyze(Worker("var a = Task.Run(() => F()); await Task.Delay(1); var b = Task.Run(() => F()); await Task.Delay(1); " +
+                                 "var c = Task.Run(() => F()); await Task.WhenAll(a, b, c); P1();", string.Empty));
+        var executions = run.Execution.Analysis.Executions;
+
+        var children = HappensBefore.ChildrenByParent(executions);
+
+        Assert.Contains(executions, execution => children[execution.Id].Count() >= 3);
+        Assert.All(executions, parent => Assert.Equal(executions.Where(execution => execution.ParentId == parent.Id).Select(execution => execution.Id),
+                                                      children[parent.Id].Select(execution => execution.Id)));
+    }
+
     [Theory]
     [InlineData("Task.CompletedTask")]
     [InlineData("Task.Delay(1)")]

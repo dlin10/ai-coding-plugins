@@ -1091,6 +1091,18 @@ internal sealed partial class HappensBefore
             : targets;
     }
 
+    /// <summary>The executions each execution is the parent of, in the order the executions are listed: what a pass over every execution
+    /// asking for one parent gives, worked out once for every parent.</summary>
+    /// <param name="executions">The graph's executions.</param>
+    internal static ILookup<string, ExecutionInstance> ChildrenByParent(IEnumerable<ExecutionInstance> executions) =>
+        executions.Where(execution => execution.ParentId is not null).ToLookup(execution => execution.ParentId!, StringComparer.Ordinal);
+
+    /// <summary>The executions of the graph by their parent (<see cref="ChildrenByParent"/>), made the first time a tail is asked for.</summary>
+    private ILookup<string, ExecutionInstance>? _children;
+
+    /// <summary>Each tail's entries into the tail segment, read once from the execution entries, which keep no list (ADR 0039).</summary>
+    private readonly Dictionary<string, ExecutionEntry[]> _tailEntries = new(StringComparer.Ordinal);
+
     /// <summary>What a tail may rely on at its start: it resumes after one of the <c>await</c>s the prefixes it continues stopped at, and
     /// which of them is not known, so only the work every one of those suspensions waits for has completed by then.</summary>
     /// <param name="candidates">The candidates.</param>
@@ -1099,10 +1111,11 @@ internal sealed partial class HappensBefore
     private void AtResumptions(List<Candidate> candidates, string execution,
                                IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyList<string>> resumed)
     {
-        foreach (var tail in _executions.Values.Where(other => other.ParentId == execution))
+        foreach (var tail in (_children ??= ChildrenByParent(_executions.Values))[execution])
         {
             CheckCancellation();
-            var entries = (_entries.GetValueOrDefault(tail.Id) ?? []).Where(entry => entry.Segment == BodySegment.Tail).ToArray();
+            if (!_tailEntries.TryGetValue(tail.Id, out var entries))
+                _tailEntries.Add(tail.Id, entries = (_entries.GetValueOrDefault(tail.Id) ?? []).Where(entry => entry.Segment == BodySegment.Tail).ToArray());
             var continued = entries.Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
             var targets = (IReadOnlyList<string>?)null;
             foreach (var entry in entries)
