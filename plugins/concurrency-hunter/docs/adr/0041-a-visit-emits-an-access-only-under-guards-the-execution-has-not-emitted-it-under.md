@@ -172,7 +172,7 @@ sort in `CodeFlow`).
 | Model, ADR 0038, ADR 0040 | none | new shared caches | the execution of an access is represented anew; the fold and the witness search read sets | none |
 | Memory | a list of guard sets per path-free access with rows, per collector | grows: the scope keeps what a collector kept for one execution | falls: no record per copy under C2 | as today |
 | Gain on `Nop.Web` | the stall: at least 6× on the seven executions, a lower bound | at most 2.1× at the stall, by trace shares | needed if the copies do not fit | at most 1.5× at the stall, 2.6× in the first minutes |
-| Gain on OrchardCore | not measured | at most 1.45×, by trace shares | up to the 25 copies per access | at most 1.2× |
+| Gain on OrchardCore | 2.5× by the executions passed in the first hour of collection | at most 1.45×, by trace shares | up to the 25 copies per access | at most 1.2× |
 | Work and risk | days; low | one to two weeks; medium | weeks; high | a day or two; low |
 
 ### Why A
@@ -208,7 +208,10 @@ sort in `CodeFlow`).
   the bound of TD-090, 16 paths per state in each entry, is the question, and changing it changes the guards of
   accesses.
 - **Every execution still emits every access it runs once.** OrchardCore's 25 copies per access are made as before, each
-  with its code flow, and the fold drops them. The counters say what that costs once the visits are not repeated.
+  with its code flow, and the fold drops them. The counters say what that costs once the visits are not repeated: in
+  an hour of OrchardCore 91 % of the visits are skipped whole, and the emission is still 94 % of the walk. The visits
+  that are left list each execution's unknown effects anew, a fifth of the thread in deep reads, and make its copies,
+  40 % of which a later path under fewer guards replaces.
 - **Copies may not fit on `Nop.Web`.** Of its first 42 executions, 8 made about 0.6 million accesses each. If that
   share holds over 17,442 executions, the scope makes about two thousand million copies, and one `AccessExecution` is
   24 bytes. This is a projection from two controllers. The `gaps:` counter replaces it with a number, and if the number
