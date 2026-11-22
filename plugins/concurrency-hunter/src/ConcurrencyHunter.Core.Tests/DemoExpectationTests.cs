@@ -9,10 +9,11 @@ using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace ConcurrencyHunter.Core.Tests;
 
-public sealed class DemoExpectationTests
+public sealed class DemoExpectationTests(ITestOutputHelper output)
 {
     private const string CURRENT_POINT = "5d-B4c";
 
@@ -133,9 +134,18 @@ public sealed class DemoExpectationTests
         await Task.WhenAll(indexedTask, referenceTask);
         var indexed = await indexedTask;
         var reference = await referenceTask;
+        // The one answer the clock decides is a solver query stopped by its safeguard (ADR 0021): reported on every run, so a
+        // divergence shows whether a query of either analysis was cut by the machine's load.
+        var solver = $"reference: {SolverAnswers(reference)}; indexed: {SolverAnswers(indexed)}";
+        output.WriteLine(solver);
 
         Assert.NotEmpty(indexed.Findings);
-        Assert.Equal(JsonSerializer.Serialize(reference.Findings, JsonOptions), JsonSerializer.Serialize(indexed.Findings, JsonOptions));
+        var serialized = new[] { JsonSerializer.Serialize(reference.Findings, JsonOptions), JsonSerializer.Serialize(indexed.Findings, JsonOptions) };
+        var scratchRoot = Path.Combine(Path.GetDirectoryName(RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx"))!,
+                                       "..", "scratch", "divergent-demo-runs");
+        var savedTo = SaveRunsIfTheyDiffer(serialized, scratchRoot);
+        Assert.True(savedTo is null,
+                    $"The reference pairing (run-0) and the candidate index (run-1) gave different findings, saved in {savedTo}; {solver}");
         Assert.Equal(reference.Pairs.Candidates, indexed.Pairs.Candidates);
         Assert.True(indexed.Pairs.Comparisons <= reference.Pairs.Comparisons);
     }
@@ -158,6 +168,15 @@ public sealed class DemoExpectationTests
         Assert.Equal(JsonSerializer.Serialize(ordinal.Pairs, JsonOptions), JsonSerializer.Serialize(reversed.Pairs, JsonOptions));
         Assert.Equal(JsonSerializer.Serialize(ordinal.Coverage.Select(scope => scope.Skips), JsonOptions),
                      JsonSerializer.Serialize(reversed.Coverage.Select(scope => scope.Skips), JsonOptions));
+    }
+
+    /// <summary>What the solver answered over every scope of an analysis: its queries, the unknown answers and, among them, the
+    /// queries its wall-clock safeguard stopped.</summary>
+    /// <param name="result">The analysis.</param>
+    private static string SolverAnswers(AnalysisResult result)
+    {
+        int Count(string counter) => result.Coverage.Sum(scope => scope.Skips.GetValueOrDefault(counter));
+        return $"queries={Count(SolverCounters.QUERIES)} unknown={Count(SolverCounters.UNKNOWN)} safeguard={Count(SolverCounters.SAFEGUARD_TIMEOUT)}";
     }
 
     /// <summary>The runs serialized differently: writes each one's findings to its own file in a new folder under the root, so
