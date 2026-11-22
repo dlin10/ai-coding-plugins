@@ -251,8 +251,11 @@ public static partial class InterproceduralAccesses
             var discoveries = Discoveries(input, graph);
             var holders = new Lazy<IReadOnlyDictionary<string, CollectionHolder>>(() => Holders(input));
             var slotFields = new Lazy<IReadOnlyDictionary<string, IrFieldRef>>(() => SlotFields(input));
+            // One reach serves both searches for gaps and the collectors. Its walks run only in the searches, before the walk of the
+            // executions and after the fold; a collector asks it only for starts and library fields, which write nothing of it (ADR 0040).
+            var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
             // The gaps come first: a lock whose identity is a gap's result is a check that gap decides on every access holding it (R6).
-            var gaps = SemanticGaps.Find(input);
+            var gaps = SemanticGaps.Find(input, reach: reach);
             DiagnosticCheckpoint.Reach($"gaps:{input.Scope.ScopeId}", collect: true,
                                        () => [$"gaps={gaps.Count} regions={gaps.Sum(gap => (long)gap.Regions)} callSites={gaps.Sum(gap => (long)gap.CallSites)} " +
                                               $"executionAccesses={input.Executions.Accesses.Count} " +
@@ -264,7 +267,6 @@ public static partial class InterproceduralAccesses
             var unknownCalls = UnknownCalls.Of(input.Scope, input.Heap).Where(call => !call.IsLocator)
                                            .GroupBy(call => call.Instance.Id, StringComparer.Ordinal)
                                            .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
-            var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
             var freshness = new HandedFreshness(input.Scope, input.Heap, input.Executions);
             var admission = input.Scope.Reachable.Admission;
             var libraryInternal = admission is null ? null : new LibraryInternalObjects(input.Heap, admission);
@@ -339,7 +341,7 @@ public static partial class InterproceduralAccesses
                                        () => [$"accesses={folding.Count} accessExecutions={folding.ExecutionCount} workers={input.Workers}"]);
             // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
             return new InterproceduralCollection(new AccessExecutionList([accesses]),
-                                                 Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)))
+                                                 Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses, reach)))
             {
                 Folded = accesses,
                 UnseenFilledStorage = filled

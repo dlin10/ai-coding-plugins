@@ -63,10 +63,12 @@ What they have in common is either read-only or a cache of a pure function of th
   another".
 - **Scope helpers with lazy memos.**
   - `WalkGraph._steps` is a memo by instance id, and each answer depends on its id alone.
-  - `UnknownCalls.Reach` keeps numbered regions, their steps, its walks and its shared bits (#462). Only its walk
-    (`Of`, `BitsOf`) writes them, and only `SemanticGaps.Find` asks for it, on the coordinator before and after the walk
-    of the executions. A collector asks only for `Starts` and `LibraryFieldsOf`: the first reads the heap and the
-    program, the second a `Lazy<T>`.
+  - `UnknownCalls.Reach` keeps numbered regions, their steps, the answers of its starts, its strongly connected
+    components with what each reaches, and its shared bits (#462, #468). Only its walks (`Of`, `BitsOf`) write them,
+    and only `SemanticGaps.Find` asks for them, on the coordinator before and after the walk of the executions.
+    `Collect` makes one reach of the scope, which both searches for gaps and every collector share; the second search
+    runs after the workers are joined. A collector asks only for `Starts` and `LibraryFieldsOf`: the first reads the
+    heap and the program, the second a `Lazy<T>`.
   - `AsyncSegments._bodies` is a memo of each body's prefix and tail operations. The collector reads it through
     `ExecutionAnalysis.Runs` and `Follow`, and the construction query reads it too.
   - `GapOrigins` fills `_sites` in its constructor and only reads afterwards. The memo of facts by execution in
@@ -124,7 +126,7 @@ the same pure functions, and what belongs to one execution stays in its collecto
 | `unproven`, `folded`, `unresolved`, `filled` | `UnionWith` after each collector | unchanged: the coordinator merges them at the fold, in execution order, so the insertion order that a `HashSet` iterates in is today's |
 | `ConstructionIndex.Of` | one lock over the whole search | scratch marks per worker (`ThreadLocal`), `_searches` and `_answers` concurrent. Kept under its lock, it would serialise the miss path of `Localities`, 16 % of the thread before #464 |
 | `WalkGraph._steps`, `AsyncSegments._bodies` | `Dictionary` memos | concurrent memos. Each answer is a pure function of its key: an instance's steps, a body's segments. The caller keeps the answer the memo keeps, since `_takenSteps` compares steps by reference |
-| `UnknownCalls.Reach` (numbers, steps, walks, shared bits, counters) | written by its walk | unchanged: its walk runs only in `SemanticGaps.Find`, on the coordinator before and after the walk of the executions; collectors call `Starts` and `LibraryFieldsOf`, which write nothing of it |
+| `UnknownCalls.Reach` (numbers, steps, answers of starts, components, shared bits, counters) | written by its walks | unchanged: one reach of the scope serves both searches for gaps and the collectors; its walks run only in `SemanticGaps.Find`, on the coordinator before the walk of the executions and after the workers are joined; collectors call `Starts` and `LibraryFieldsOf`, which write nothing of it |
 | `TypeSafety` | one per collector | unchanged: each collector makes its own; #463 has made its memos concurrent anyway |
 | `GapOrigins` | `_sites` filled by its constructor | read-only after construction; unchanged |
 | `HandedFreshness` | `_fresh` and `_forwarders` filled by its constructor | read-only after construction: only the constructor's fixpoint calls `IsForwarder`, and collectors call only `IsFresh`; unchanged |

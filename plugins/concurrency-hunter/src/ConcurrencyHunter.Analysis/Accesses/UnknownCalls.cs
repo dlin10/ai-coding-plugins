@@ -512,10 +512,10 @@ public static class UnknownCalls
         }
 
         /// <summary>What <see cref="Of"/> answers, the regions as bits over <see cref="Number"/>. The same receivers and arguments start
-        /// the unknown effects of many calls, so each start's walk is made once and kept, and a call joins its starts' (#462). The one
-        /// walk of a call's starts in turn reads alike, but for a receiver seen through its declaring type that its own walk meets again:
-        /// that walk stops there, and the receiver stays unseen whole for a later start of the call too. Such a call is walked whole,
-        /// its starts in turn, as before.</summary>
+        /// the unknown effects of many calls, so each start's reach is worked out once and kept, and a call joins its starts' (#462). The
+        /// one walk of a call's starts in turn reads alike, but for a receiver seen through its declaring type that its own walk meets
+        /// again: that walk stops there, and the receiver stays unseen whole for a later start of the call too. Such a call is walked
+        /// whole, its starts in turn (<see cref="Walk"/>).</summary>
         /// <param name="call">The unknown call whose reach is computed.</param>
         internal (ulong[] Regions, bool TakesDelegate) BitsOf(UnknownCall call)
         {
@@ -568,23 +568,279 @@ public static class UnknownCalls
         /// <summary>How many regions are numbered so far: a number is below it.</summary>
         internal int Numbered => _regionIds.Count;
 
-        /// <summary>What the reach did, for a diagnostic run: the calls asked, the distinct starts walked, the calls walked whole, the
-        /// regions numbered and the region visits all walks made.</summary>
+        /// <summary>The regions an effect from one start reaches, as <see cref="BitsOf"/> joins them for a call.</summary>
+        /// <param name="regionId">The start's region.</param>
+        /// <param name="declaringTypeKey">The type a receiver is seen through, or null for a region seen whole.</param>
+        internal IReadOnlySet<string> OfStart(string regionId, string? declaringTypeKey) =>
+            Bits.Numbers(WalkOf((Number(regionId), declaringTypeKey)).Reached).Select(RegionId).ToHashSet(StringComparer.Ordinal);
+
+        /// <summary>What the reach did, for a diagnostic run, over its whole life: the calls asked, the distinct starts answered, the calls
+        /// walked whole, the regions numbered, the region visits all walks made, the distinct answers of starts and whole calls, the
+        /// strongly connected components worked out, the slots' targets the walks followed, the visits of those walks of receivers seen
+        /// through their declaring type that went region by region (<see cref="RestrictedWalk"/>), and the words of every distinct set
+        /// of regions it keeps.</summary>
         internal string Counts() =>
             $"calls={_calls} startWalks={_walks.Count} wholeCallWalks={_wholeWalks} regions={_regionIds.Count} visits={_visits} " +
-            $"distinctReaches={_reaches.Count}";
+            $"distinctReaches={_answers.Count} components={_componentReaches.Count} edges={_edges} restrictedVisits={_restrictedVisits} " +
+            $"reachWords={_reaches.Keys.Sum(bits => (long)bits.Length)}";
 
-        /// <summary>The walk of one start, made the first time it is asked for.</summary>
+        /// <summary>The reach of one start, worked out the first time it is asked for: a region seen whole reaches what its strongly
+        /// connected component reaches, and a receiver seen through its declaring type is walked from the slots that type shows.</summary>
         /// <param name="start">The start region and the type restricting it, if it is a receiver seen through its declaring type.</param>
         private Walked WalkOf((int Region, string? DeclaringTypeKey) start)
         {
             if (!_walks.TryGetValue(start, out var walked))
-                _walks.Add(start, walked = Walk([start]));
+            {
+                walked = start.DeclaringTypeKey is { } declaringTypeKey
+                    ? RestrictedWalk(start.Region, declaringTypeKey)
+                    : new Walked(ComponentReach(start.Region), false);
+                _walks.Add(start, walked);
+                _answers.Add(walked.Reached);
+            }
             return walked;
         }
 
+        /// <summary>What an effect from a region seen whole reaches: the same for every region of its strongly connected component, and
+        /// worked out for the component the first time a walk meets one of them (<see cref="Strong"/>).</summary>
+        /// <param name="region">The region's number.</param>
+        private ulong[] ComponentReach(int region)
+        {
+            if (ComponentOf(region) == UNSEEN)
+                Strong(region);
+            return _componentReaches[ComponentOf(region)];
+        }
+
+        /// <summary>
+        /// Walks every region an effect from <paramref name="root"/> reaches that no earlier walk of components met, and gives each of
+        /// their strongly connected components (Tarjan's) what it reaches: its own regions with state, and what the components its
+        /// regions point to reach. A component is complete before any component pointing to it, so what it reaches is made of finished
+        /// sets, once. A region's successors are taken last first, as a walk with a stack pops them: regions are met, and their targets
+        /// numbered, in the order such a walk from the same root meets the regions it has not walked before.
+        /// </summary>
+        /// <param name="root">The region's number.</param>
+        private void Strong(int root)
+        {
+            var frames = new Stack<Frame>();
+            frames.Push(Enter(root));
+            while (frames.TryPop(out var frame))
+            {
+                WorkCancellation.Check();
+                if (Advance(ref frame, out var successor))
+                {
+                    frames.Push(frame);
+                    _edges++;
+                    var state = ComponentOf(successor);
+                    if (state == UNSEEN)
+                        frames.Push(Enter(successor));
+                    else if (state == OPEN)
+                        _low[frame.Region] = Math.Min(_low[frame.Region], _order[successor]);
+                    continue;
+                }
+
+                if (frames.TryPeek(out var caller))
+                    _low[caller.Region] = Math.Min(_low[caller.Region], _low[frame.Region]);
+                if (_low[frame.Region] == _order[frame.Region])
+                    Complete(frame.Region);
+            }
+        }
+
+        /// <summary>Meets a region in a walk of components: asks its step, which numbers its targets, and opens it.</summary>
+        /// <param name="region">The region's number.</param>
+        private Frame Enter(int region)
+        {
+            _visits++;
+            var step = StepOf(region);
+            while (_componentOf.Count <= region)
+            {
+                WorkCancellation.Check();
+                _componentOf.Add(UNSEEN);
+                _order.Add(0);
+                _low.Add(0);
+            }
+            _componentOf[region] = OPEN;
+            _order[region] = _low[region] = _opened++;
+            _open.Push(region);
+            return step.Captures is { } captures
+                ? new Frame { Region = region, Slot = 0, Target = captures.Length }
+                : new Frame { Region = region, Slot = step.Slots.Length, Target = 0 };
+        }
+
+        /// <summary>Takes a region's next successor, last first: what a delegate captures, or the targets of its slots; an immutable
+        /// object has none.</summary>
+        /// <param name="frame">The region and how far its successors are taken, moved on.</param>
+        /// <param name="successor">The successor taken, or -1 when none is left.</param>
+        private bool Advance(ref Frame frame, out int successor)
+        {
+            var step = _steps[frame.Region]!;
+            if (step.Captures is { } captures)
+            {
+                successor = frame.Target > 0 ? captures[--frame.Target] : -1;
+                return successor >= 0;
+            }
+            while (frame.Target == 0)
+            {
+                WorkCancellation.Check();
+                if (frame.Slot == 0)
+                {
+                    successor = -1;
+                    return false;
+                }
+                frame.Slot--;
+                frame.Target = step.Slots[frame.Slot].Targets.Length;
+            }
+            successor = step.Slots[frame.Slot].Targets[--frame.Target];
+            return true;
+        }
+
+        /// <summary>Closes the strongly connected component whose first region is <paramref name="root"/>: its regions leave the open
+        /// stack, and it reaches its regions with state and what the components they point to reach, those being complete.</summary>
+        /// <param name="root">The number of the component's first region.</param>
+        private void Complete(int root)
+        {
+            var component = _componentReaches.Count;
+            var members = new List<int>();
+            int member;
+            do
+            {
+                WorkCancellation.Check();
+                member = _open.Pop();
+                _componentOf[member] = component;
+                members.Add(member);
+            }
+            while (member != root);
+
+            var reached = Bits.EMPTY;
+            var below = new List<int>();
+            foreach (var region in members)
+            {
+                WorkCancellation.Check();
+                var step = _steps[region]!;
+                if (!step.IsImmutable && step.Captures is null && (step.IsCollection || step.HasState))
+                    Bits.Add(ref reached, region);
+                foreach (var successor in step.Captures ?? step.Slots.SelectMany(slot => slot.Targets))
+                {
+                    WorkCancellation.Check();
+                    var other = _componentOf[successor];
+                    if (other != component && _stamps[other] != component)
+                    {
+                        _stamps[other] = component;
+                        below.Add(other);
+                    }
+                }
+            }
+
+            // A component with no state of its own that points to one other component reaches what that one does, in the same array.
+            if (below.Count == 1 && Bits.IsEmpty(reached))
+                reached = _componentReaches[below[0]];
+            else
+            {
+                foreach (var other in below)
+                {
+                    WorkCancellation.Check();
+                    Bits.UnionWith(ref reached, _componentReaches[other]);
+                }
+                reached = Keep(reached);
+            }
+            _componentReaches.Add(reached);
+            _stamps.Add(-1);
+        }
+
+        /// <summary>
+        /// The walk of a receiver seen through its declaring type: the receiver with what that type shows of it, then what is reached from
+        /// the slots it shows, the receiver itself never again, so it stays unseen whole in this walk (R1). Of the regions a walk of
+        /// components has met, only those of the receiver's own component can lead back to it: one of another component reaches here what
+        /// its component reaches. So this walk goes region by region only through the receiver's component, when a walk of components has
+        /// met it, or else through regions no such walk has met, in the order a walk with a stack meets them, and where the receiver is
+        /// not met again, a walk of components then meets the regions it went through.
+        /// </summary>
+        /// <param name="start">The receiver's number.</param>
+        /// <param name="declaringTypeKey">The type the receiver is seen through.</param>
+        private Walked RestrictedWalk(int start, string declaringTypeKey)
+        {
+            _visits++;
+            _restrictedVisits++;
+            var step = StepOf(start);
+            if (step.IsImmutable)
+                return new Walked(Keep(Bits.EMPTY), false);
+            var reached = Bits.EMPTY;
+            int[] targets;
+            if (step.Captures is { } captures)
+                targets = captures;
+            else
+            {
+                var restricted = Seen(FieldsOf(RegionId(start), declaringTypeKey), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal);
+                if (step.IsCollection || restricted.Count > 0)
+                    Bits.Add(ref reached, start);
+                targets = step.Slots.Where(slot => restricted.Contains(slot.Root) || slot.Root == PathValue.KEPT ||
+                                                   step.IsCollection && PathValue.IsStorage(slot.Root))
+                              .SelectMany(slot => slot.Targets)
+                              .ToArray();
+            }
+
+            var startComponent = ComponentOf(start);
+            var visited = Bits.EMPTY;
+            var metItself = false;
+            var pending = new Stack<int>(targets);
+            while (pending.TryPop(out var region))
+            {
+                WorkCancellation.Check();
+                if (region == start)
+                {
+                    metItself = true;
+                    continue;
+                }
+                if (!Bits.Add(ref visited, region))
+                    continue;
+                if (ComponentOf(region) is >= 0 and var component && component != startComponent)
+                {
+                    Bits.UnionWith(ref reached, _componentReaches[component]);
+                    continue;
+                }
+
+                _visits++;
+                _restrictedVisits++;
+                var next = StepOf(region);
+                if (next.IsImmutable)
+                    continue;
+                if (next.Captures is null && (next.IsCollection || next.HasState))
+                    Bits.Add(ref reached, region);
+                foreach (var target in next.Captures ?? next.Slots.SelectMany(slot => slot.Targets))
+                {
+                    WorkCancellation.Check();
+                    _edges++;
+                    pending.Push(target);
+                }
+            }
+
+            if (!metItself && startComponent == UNSEEN)
+            {
+                for (var at = targets.Length - 1; at >= 0; at--)
+                {
+                    WorkCancellation.Check();
+                    if (ComponentOf(targets[at]) == UNSEEN)
+                        Strong(targets[at]);
+                }
+            }
+            return new Walked(Keep(reached), metItself);
+        }
+
+        /// <summary>The component of a region: <see cref="UNSEEN"/> before a walk of components meets it, <see cref="OPEN"/> while that
+        /// walk is in it, and the component's number once it is complete.</summary>
+        /// <param name="region">The region's number.</param>
+        private int ComponentOf(int region) => region < _componentOf.Count ? _componentOf[region] : UNSEEN;
+
+        /// <summary>The one copy kept of a set of regions: equal sets that walks and components reach share one array.</summary>
+        /// <param name="reached">The set, kept as it is when no equal one is.</param>
+        private ulong[] Keep(ulong[] reached)
+        {
+            if (!_reaches.TryGetValue(reached, out var kept))
+                _reaches.Add(reached, kept = reached);
+            return kept;
+        }
+
         /// <summary>Walks the reach of starts in turn, sharing what is visited: what an effect from them reaches, as bits, and whether
-        /// the walk of a receiver seen through its declaring type met that receiver again.</summary>
+        /// the walk of a receiver seen through its declaring type met that receiver again. Only a call walked whole walks so
+        /// (<see cref="BitsOf"/>).</summary>
         /// <param name="starts">The starts, each a region and the type restricting it or null.</param>
         private Walked Walk(IReadOnlyList<(int Region, string? DeclaringTypeKey)> starts)
         {
@@ -617,6 +873,7 @@ public static class UnknownCalls
                         foreach (var captured in captures)
                         {
                             WorkCancellation.Check();
+                            _edges++;
                             pending.Push(captured);
                         }
                         continue;
@@ -638,6 +895,7 @@ public static class UnknownCalls
                             foreach (var target in targets)
                             {
                                 WorkCancellation.Check();
+                                _edges++;
                                 pending.Push(target);
                             }
                         }
@@ -645,9 +903,8 @@ public static class UnknownCalls
                 }
             }
 
-            // Starts in one strongly connected part of the heap reach the same regions: they keep one copy.
-            if (!_reaches.TryGetValue(reached, out var kept))
-                _reaches.Add(reached, kept = reached);
+            var kept = Keep(reached);
+            _answers.Add(kept);
             return new Walked(kept, metItself);
         }
 
@@ -702,7 +959,34 @@ public static class UnknownCalls
         private readonly List<RegionStep?> _steps = [];
         private readonly Dictionary<(int Region, string? DeclaringTypeKey), Walked> _walks = [];
         private readonly Dictionary<ulong[], ulong[]> _reaches = new(ExecutionIds.BitsComparer.INSTANCE);
-        private long _calls, _wholeWalks, _visits;
+        // The answers of starts and of calls walked whole, each a kept array, so distinct by reference.
+        private readonly HashSet<ulong[]> _answers = new(ReferenceEqualityComparer.Instance);
+        // The walk of components, by region number: its component or its state (UNSEEN, OPEN), its order of meeting and its lowest link.
+        private readonly List<int> _componentOf = [];
+        private readonly List<int> _order = [];
+        private readonly List<int> _low = [];
+        private readonly Stack<int> _open = new();
+        private int _opened;
+        // By component: what it reaches, and the last component that took it as one it points to.
+        private readonly List<ulong[]> _componentReaches = [];
+        private readonly List<int> _stamps = [];
+        private long _calls, _wholeWalks, _visits, _edges, _restrictedVisits;
+
+        /// <summary>A region no walk of components has met.</summary>
+        private const int UNSEEN = -1;
+
+        /// <summary>A region a walk of components has met and whose component is not complete yet.</summary>
+        private const int OPEN = -2;
+
+        /// <summary>A region in a walk of components, with how far its successors are taken: the captures of a delegate counted down in
+        /// <see cref="Target"/>, or the slots counted down in <see cref="Slot"/> and the targets of the current one in
+        /// <see cref="Target"/>.</summary>
+        private struct Frame
+        {
+            public int Region;
+            public int Slot;
+            public int Target;
+        }
 
         /// <summary>What a walk of reach learns at one region.</summary>
         /// <param name="IsCollection">Whether the region is a collection ADR 0010 models.</param>

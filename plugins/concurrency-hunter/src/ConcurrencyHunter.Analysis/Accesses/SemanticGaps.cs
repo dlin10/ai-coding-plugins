@@ -39,10 +39,14 @@ public static class SemanticGaps
     /// collected, count those regions (R4).</summary>
     /// <param name="input">The scope whose gaps are collected.</param>
     /// <param name="accesses">The collected accesses, each with the executions that run it, or null before access collection.</param>
-    public static IReadOnlyList<SemanticGap> Find(InterproceduralInput input, IReadOnlyList<Access>? accesses = null)
+    /// <param name="reach">The reach of the scope's unknown effects, which the calls before and after access collection share: the heap
+    /// its walks read is frozen (ADR 0016), so what a start reaches is the same in both, and the second call walks nothing the first
+    /// walked; null for a reach of this call's own.</param>
+    public static IReadOnlyList<SemanticGap> Find(InterproceduralInput input, IReadOnlyList<Access>? accesses = null,
+                                                  UnknownCalls.Reach? reach = null)
     {
         var heap = input.Heap;
-        var reach = new UnknownCalls.Reach(input.Scope, heap);
+        reach ??= new UnknownCalls.Reach(input.Scope, heap);
         var gaps = new Dictionary<string, (string Kind, HashSet<OperationSite> Sites, HashSet<string> Instances, ulong[] Regions)>(StringComparer.Ordinal);
         var results = heap.Instances.Values.ToDictionary(instance => instance.Id, instance => instance.Summary.ResultStores.ToLookup(store => store.SourceOperationId),
                                                          StringComparer.Ordinal);
@@ -51,7 +55,7 @@ public static class SemanticGaps
                                 .ToArray();
         // Only the unknown executions of the delegates the calls are handed are read, so only theirs are worked out (#462).
         var executionRegions = ExecutionRegions(input, accesses, calls.SelectMany(item => item.Delegates).Select(ExecutionModel.UnknownDelegateCallId)
-                                                                      .ToHashSet(StringComparer.Ordinal));
+                                                                      .ToHashSet(StringComparer.Ordinal), reach);
         // The regions are bits over the reach's numbering, and whether one is shared is asked once per region (#462).
         var shared = Bits.EMPTY;
         var judged = 0;
@@ -76,12 +80,14 @@ public static class SemanticGaps
             // the unknown execution of a delegate it is handed touches is the call's reach too (R3).
             var (reached, takesDelegate) = reach.BitsOf(call);
             var touched = reached;
-            foreach (var region in delegates.SelectMany(region => executionRegions.GetValueOrDefault(ExecutionModel.UnknownDelegateCallId(region)) ?? []))
+            foreach (var handed in delegates)
             {
                 WorkCancellation.Check();
+                if (!executionRegions.TryGetValue(ExecutionModel.UnknownDelegateCallId(handed), out var added))
+                    continue;
                 if (touched == reached)
                     touched = (ulong[])reached.Clone();
-                Bits.Add(ref touched, reach.Number(region));
+                Bits.UnionWith(ref touched, added);
             }
             var regions = Shared(touched);
             if (Bits.IsEmpty(regions) && !takesDelegate && !FeedsShared(input, call, results[call.Instance.Id][call.OperationId]))
@@ -111,59 +117,72 @@ public static class SemanticGaps
                    .ToArray();
     }
 
-    /// <summary>The regions the accesses of some executions touch, by execution: of the collected accesses, or before collection of the
-    /// execution model's own, whose executions are bits. Each set of those is read once, for the executions asked for only, without
-    /// spelling out the executions it holds: on a large program a set holds hundreds, and the accesses are millions (#462).</summary>
+    /// <summary>The regions the accesses of some executions touch, by execution, as bits over the reach's numbering: of the collected
+    /// accesses, or before collection of the execution model's own, whose executions are bits. Each set of those is read once, for the
+    /// executions asked for only, without spelling out the executions it holds: on a large program a set holds hundreds, and the
+    /// accesses are millions (#462). An access's region is numbered once, however many of the executions asked for run it, and each of
+    /// them takes the number into its own bits: no text is hashed per execution (#468).</summary>
     /// <param name="input">The scope whose execution model holds the accesses before collection.</param>
     /// <param name="accesses">The collected accesses, each with the executions that run it (ADR 0038), or null before access
     /// collection.</param>
     /// <param name="executions">The executions asked for.</param>
-    private static Dictionary<string, HashSet<string>> ExecutionRegions(InterproceduralInput input, IReadOnlyList<Access>? accesses,
-                                                                        IReadOnlySet<string> executions)
+    /// <param name="reach">The reach whose numbering the regions take.</param>
+    private static Dictionary<string, ulong[]> ExecutionRegions(InterproceduralInput input, IReadOnlyList<Access>? accesses,
+                                                                IReadOnlySet<string> executions, UnknownCalls.Reach reach)
     {
-        var regions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        void Add(string execution, string region)
+        if (executions.Count == 0)
+            return new Dictionary<string, ulong[]>(StringComparer.Ordinal);
+        // Each execution asked for has a slot, and a slot holds the numbers of the regions its accesses touch.
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var execution in executions)
         {
             WorkCancellation.Check();
-            if (!regions.TryGetValue(execution, out var touched))
-                regions.Add(execution, touched = new HashSet<string>(StringComparer.Ordinal));
-            touched.Add(region);
+            slots.Add(execution, slots.Count);
         }
+        var regions = new ulong[slots.Count][];
+        Array.Fill(regions, Bits.EMPTY);
 
-        if (executions.Count == 0)
-            return regions;
         if (accesses is not null)
         {
             foreach (var access in accesses)
             {
                 WorkCancellation.Check();
+                var number = -1;
                 foreach (var execution in access.ExecutionIds)
                 {
                     WorkCancellation.Check();
-                    if (executions.Contains(execution))
-                        Add(execution, access.Resource.CollectionId ?? access.Resource.RegionId!);
+                    if (!slots.TryGetValue(execution, out var slot))
+                        continue;
+                    if (number < 0)
+                        number = reach.Number(access.Resource.CollectionId ?? access.Resource.RegionId!);
+                    Bits.Add(ref regions[slot], number);
                 }
             }
-            return regions;
         }
-
-        // The sets of one analysis number their executions alike, and equal sets are one object (ADR 0017): the executions asked for
-        // are one mask, and each set is matched against it once.
-        ulong[]? asked = null;
-        var found = new Dictionary<ExecutionSet, string[]>(ReferenceEqualityComparer.Instance);
-        foreach (var access in input.Executions.Accesses)
+        else
         {
-            WorkCancellation.Check();
-            asked ??= access.Executions.NumbersOf(executions);
-            if (!found.TryGetValue(access.Executions, out var among))
-                found.Add(access.Executions, among = access.Executions.Among(asked).ToArray());
-            foreach (var execution in among)
+            // The sets of one analysis number their executions alike, and equal sets are one object (ADR 0017): the executions asked
+            // for are one mask, and each set is matched against it once.
+            ulong[]? asked = null;
+            var found = new Dictionary<ExecutionSet, int[]>(ReferenceEqualityComparer.Instance);
+            foreach (var access in input.Executions.Accesses)
             {
                 WorkCancellation.Check();
-                Add(execution, access.RegionId);
+                asked ??= access.Executions.NumbersOf(executions);
+                if (!found.TryGetValue(access.Executions, out var among))
+                    found.Add(access.Executions, among = access.Executions.Among(asked).Select(execution => slots[execution]).ToArray());
+                if (among.Length == 0)
+                    continue;
+                var number = reach.Number(access.RegionId);
+                foreach (var slot in among)
+                {
+                    WorkCancellation.Check();
+                    Bits.Add(ref regions[slot], number);
+                }
             }
         }
-        return regions;
+
+        return slots.Where(pair => !Bits.IsEmpty(regions[pair.Value])).ToDictionary(pair => pair.Key, pair => regions[pair.Value], StringComparer.Ordinal);
     }
 
     /// <summary>Whether the call writes its result into a shared region: one that is neither owned nor confined to one execution. An
