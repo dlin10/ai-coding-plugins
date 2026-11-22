@@ -7,9 +7,11 @@ internal sealed record SolverWorklistOptions(bool Audit = false, bool VerifyConv
 
 public static partial class WholeProgram
 {
-    private sealed partial class Solver
+    private sealed partial class Solver : IStateOwner
     {
         private readonly SolverWorklistOptions _worklistOptions;
+        // Every container attached to this solver, as attached: Settle freezes them all, and drops the list.
+        private readonly List<TrackedContainer> _attached = [];
         private readonly Dictionary<StateKey, long> _writes = [];
         private readonly Dictionary<string, ProcessingHistory> _history = new(StringComparer.Ordinal);
         private HashSet<StateKey>? _reads;
@@ -45,6 +47,12 @@ public static partial class WholeProgram
         /// <param name="ReachSnapshot">The reach index the call read, if it read one.</param>
         private sealed record CallHistory(long Started, StateKey[] Reads, bool ReadsReach, RebuiltState? Contribution, int ReferenceLookups,
                                           Dictionary<RegionRef, List<RegionRef>>? ReachSnapshot);
+
+        void IStateOwner.ReadKey(StateKey key) => ReadState(key);
+
+        void IStateOwner.WroteKey(StateKey key) => WroteState(key);
+
+        void IStateOwner.Attached(TrackedContainer container) => _attached.Add(container);
 
         private void ReadState(StateKey key)
         {

@@ -19,7 +19,10 @@ namespace ConcurrencyHunter.Heap;
 public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, ProgramIndex program, AnalysisLimits limits,
                                  ReachableSetResult? reachable = null)
 {
-    private readonly Dictionary<string, MethodSummary> _summaries = new(StringComparer.Ordinal);
+    // Concurrent, since the stages after the heap solve may ask from several threads; a summary is built under one lock, so each body
+    // has one summary object, which call transfers and memos keyed by reference rely on.
+    private readonly ConcurrentDictionary<string, MethodSummary> _summaries = new(StringComparer.Ordinal);
+    private readonly Lock _building = new();
 
     public int Built => _summaries.Count;
 
@@ -49,9 +52,14 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
             return summary;
         if (!bodies.TryGetValue(bodyId, out var body))
             return null;
-        summary = MethodSummaryBuilder.Build(body, program, limits, bodies.GetValueOrDefault, reachable);
-        _summaries.Add(bodyId, summary);
-        return summary;
+        lock (_building)
+        {
+            if (_summaries.TryGetValue(bodyId, out summary))
+                return summary;
+            summary = MethodSummaryBuilder.Build(body, program, limits, bodies.GetValueOrDefault, reachable);
+            _summaries[bodyId] = summary;
+            return summary;
+        }
     }
 }
 
@@ -864,11 +872,11 @@ public static partial class WholeProgram
         private readonly TrackedValue<bool> _defaulted = new();
         internal bool Defaulted { get => _defaulted.Value; set => _defaulted.Value = value; }
 
-        public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+        public void Attach(StateKey key, IStateOwner owner)
         {
             WorkCancellation.Check();
-            Instances.Attach(key.Member("RegistrationState.Instances"), read, write);
-            _defaulted.Attach(key.Member("RegistrationState.Defaulted"), read, write);
+            Instances.Attach(key.Member("RegistrationState.Instances"), owner);
+            _defaulted.Attach(key.Member("RegistrationState.Defaulted"), owner);
         }
     }
 
@@ -916,26 +924,26 @@ public static partial class WholeProgram
         /// <summary>The HTTP invocations, by root id, whose request this instance runs in.</summary>
         internal TrackedSet<string> Requests { get; } = new(StringComparer.Ordinal);
 
-        public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+        public void Attach(StateKey key, IStateOwner owner)
         {
             WorkCancellation.Check();
-            Receivers.Attach(key.Member("InstanceState.Receivers"), read, write);
-            CellOwners.Attach(key.Member("InstanceState.CellOwners"), read, write);
-            NestedCellOwners.Attach(key.Member("InstanceState.NestedCellOwners"), read, write);
-            Parameters.Attach(key.Member("InstanceState.Parameters"), read, write);
-            CallResults.Attach(key.Member("InstanceState.CallResults"), read, write);
-            UnfollowedCallResults.Attach(key.Member("InstanceState.UnfollowedCallResults"), read, write);
-            UnfollowedCompletions.Attach(key.Member("InstanceState.UnfollowedCompletions"), read, write);
-            UnfollowedModelCompletions.Attach(key.Member("InstanceState.UnfollowedModelCompletions"), read, write);
-            UnresolvedCallTargets.Attach(key.Member("InstanceState.UnresolvedCallTargets"), read, write);
-            RefResults.Attach(key.Member("InstanceState.RefResults"), read, write);
-            Returns.Attach(key.Member("InstanceState.Returns"), read, write);
-            ParameterLocations.Attach(key.Member("InstanceState.ParameterLocations"), read, write);
-            ReturnedLocations.Attach(key.Member("InstanceState.ReturnedLocations"), read, write);
-            Yields.Attach(key.Member("InstanceState.Yields"), read, write);
-            RefParameters.Attach(key.Member("InstanceState.RefParameters"), read, write);
-            Requests.Attach(key.Member("InstanceState.Requests"), read, write);
-            _returnsUnfollowed.Attach(key.Member("InstanceState.ReturnsUnfollowed"), read, write);
+            Receivers.Attach(key.Member("InstanceState.Receivers"), owner);
+            CellOwners.Attach(key.Member("InstanceState.CellOwners"), owner);
+            NestedCellOwners.Attach(key.Member("InstanceState.NestedCellOwners"), owner);
+            Parameters.Attach(key.Member("InstanceState.Parameters"), owner);
+            CallResults.Attach(key.Member("InstanceState.CallResults"), owner);
+            UnfollowedCallResults.Attach(key.Member("InstanceState.UnfollowedCallResults"), owner);
+            UnfollowedCompletions.Attach(key.Member("InstanceState.UnfollowedCompletions"), owner);
+            UnfollowedModelCompletions.Attach(key.Member("InstanceState.UnfollowedModelCompletions"), owner);
+            UnresolvedCallTargets.Attach(key.Member("InstanceState.UnresolvedCallTargets"), owner);
+            RefResults.Attach(key.Member("InstanceState.RefResults"), owner);
+            Returns.Attach(key.Member("InstanceState.Returns"), owner);
+            ParameterLocations.Attach(key.Member("InstanceState.ParameterLocations"), owner);
+            ReturnedLocations.Attach(key.Member("InstanceState.ReturnedLocations"), owner);
+            Yields.Attach(key.Member("InstanceState.Yields"), owner);
+            RefParameters.Attach(key.Member("InstanceState.RefParameters"), owner);
+            Requests.Attach(key.Member("InstanceState.Requests"), owner);
+            _returnsUnfollowed.Attach(key.Member("InstanceState.ReturnsUnfollowed"), owner);
         }
     }
 
@@ -961,13 +969,13 @@ public static partial class WholeProgram
         /// <see cref="NestedCellOwners"/>.</summary>
         internal TrackedSet<IrClosureCell> CapturedCells { get; } = [];
 
-        public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+        public void Attach(StateKey key, IStateOwner owner)
         {
             WorkCancellation.Check();
-            CellOwners.Attach(key.Member("DelegateState.CellOwners"), read, write);
-            NestedCellOwners.Attach(key.Member("DelegateState.NestedCellOwners"), read, write);
-            CapturedReceivers.Attach(key.Member("DelegateState.CapturedReceivers"), read, write);
-            CapturedCells.Attach(key.Member("DelegateState.CapturedCells"), read, write);
+            CellOwners.Attach(key.Member("DelegateState.CellOwners"), owner);
+            NestedCellOwners.Attach(key.Member("DelegateState.NestedCellOwners"), owner);
+            CapturedReceivers.Attach(key.Member("DelegateState.CapturedReceivers"), owner);
+            CapturedCells.Attach(key.Member("DelegateState.CapturedCells"), owner);
         }
     }
 
@@ -992,12 +1000,12 @@ public static partial class WholeProgram
         internal RegionRef? Tail { get => _tail.Value; set => _tail.Value = value; }
         internal TrackedSet<(string Instance, SpawnRole Role)> Callees { get; } = [];
 
-        public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+        public void Attach(StateKey key, IStateOwner owner)
         {
             WorkCancellation.Check();
-            Handles.Attach(key.Member("SiteState.Handles"), read, write);
-            Callees.Attach(key.Member("SiteState.Callees"), read, write);
-            _tail.Attach(key.Member("SiteState.Tail"), read, write);
+            Handles.Attach(key.Member("SiteState.Handles"), owner);
+            Callees.Attach(key.Member("SiteState.Callees"), owner);
+            _tail.Attach(key.Member("SiteState.Tail"), owner);
         }
     }
 
@@ -1309,65 +1317,65 @@ public static partial class WholeProgram
             _limits = limits;
             _worklistOptions = options;
             _unresolvedDelegate = Intern(UNRESOLVED_DELEGATE);
-            _memberOfNestedBody.Attach(new StateKey("_memberOfNestedBody"), ReadState, WroteState);
-            _capturedCellsOfMember.Attach(new StateKey("_capturedCellsOfMember"), ReadState, WroteState);
-            _regions.Attach(new StateKey("_regions"), ReadState, WroteState);
-            _groups.Attach(new StateKey("_groups"), ReadState, WroteState);
-            _fields.Attach(new StateKey("_fields"), ReadState, WroteState);
-            _fieldsByRegion.Attach(new StateKey("_fieldsByRegion"), ReadState, WroteState);
-            _unseenLibraryFields.Attach(new StateKey("_unseenLibraryFields"), ReadState, WroteState);
-            _keeperCalls.Attach(new StateKey("_keeperCalls"), ReadState, WroteState);
-            _libraryKeeping.Attach(new StateKey("_libraryKeeping"), ReadState, WroteState);
-            _keptFallbacks.Attach(new StateKey("_keptFallbacks"), ReadState, WroteState);
-            _delegates.Attach(new StateKey("_delegates"), ReadState, WroteState);
-            _instances.Attach(new StateKey("_instances"), ReadState, WroteState);
-            _instanceOrder.Attach(new StateKey("_instanceOrder"), ReadState, WroteState);
-            _contextCounts.Attach(new StateKey("_contextCounts"), ReadState, WroteState);
-            _mergedBodies.Attach(new StateKey("_mergedBodies"), ReadState, WroteState);
-            _edges.Attach(new StateKey("_edges"), ReadState, WroteState);
-            _edgesByCallee.Attach(new StateKey("_edgesByCallee"), ReadState, WroteState);
-            _edgesByCaller.Attach(new StateKey("_edgesByCaller"), ReadState, WroteState);
-            _edgesByCall.Attach(new StateKey("_edgesByCall"), ReadState, WroteState);
-            _iteratorObjects.Attach(new StateKey("_iteratorObjects"), ReadState, WroteState);
-            _typeInitializers.Attach(new StateKey("_typeInitializers"), ReadState, WroteState);
-            _constructions.Attach(new StateKey("_constructions"), ReadState, WroteState);
-            _held.Attach(new StateKey("_held"), ReadState, WroteState);
-            _sequences.Attach(new StateKey("_sequences"), ReadState, WroteState);
-            _groupings.Attach(new StateKey("_groupings"), ReadState, WroteState);
-            _modelledState.Attach(new StateKey("_modelledState"), ReadState, WroteState);
-            _rootInstances.Attach(new StateKey("_rootInstances"), ReadState, WroteState);
-            _providers.Attach(new StateKey("_providers"), ReadState, WroteState);
-            _scopeObjects.Attach(new StateKey("_scopeObjects"), ReadState, WroteState);
-            _registrations.Attach(new StateKey("_registrations"), ReadState, WroteState);
-            _factoryInstances.Attach(new StateKey("_factoryInstances"), ReadState, WroteState);
-            _registeredAllocations.Attach(new StateKey("_registeredAllocations"), ReadState, WroteState);
-            _regionTypes.Attach(new StateKey("_regionTypes"), ReadState, WroteState);
-            _sinks.Attach(new StateKey("_sinks"), ReadState, WroteState);
-            _uncertainties.Attach(new StateKey("_uncertainties"), ReadState, WroteState);
-            _collections.Attach(new StateKey("_collections"), ReadState, WroteState);
-            _startupRegions.Attach(new StateKey("_startupRegions"), ReadState, WroteState);
-            _locatorCreators.Attach(new StateKey("_locatorCreators"), ReadState, WroteState);
-            _regionTriggers.Attach(new StateKey("_regionTriggers"), ReadState, WroteState);
-            _sites.Attach(new StateKey("_sites"), ReadState, WroteState);
-            _instanceRegistrationsByMember.Attach(new StateKey("_instanceRegistrationsByMember"), ReadState, WroteState);
-            _spawns.Attach(new StateKey("_spawns"), ReadState, WroteState);
-            _timerCallbacks.Attach(new StateKey("_timerCallbacks"), ReadState, WroteState);
-            _asyncSpawns.Attach(new StateKey("_asyncSpawns"), ReadState, WroteState);
-            _receiverlessCalls.Attach(new StateKey("_receiverlessCalls"), ReadState, WroteState);
-            _receiverlessFallbacks.Attach(new StateKey("_receiverlessFallbacks"), ReadState, WroteState);
-            _iteratorMemberReceivers.Attach(new StateKey("_iteratorMemberReceivers"), ReadState, WroteState);
-            _libraryStored.Attach(new StateKey("_libraryStored"), ReadState, WroteState);
-            _tails.Attach(new StateKey("_tails"), ReadState, WroteState);
-            _antecedents.Attach(new StateKey("_antecedents"), ReadState, WroteState);
-            _taskGroups.Attach(new StateKey("_taskGroups"), ReadState, WroteState);
-            _unfollowedCompletions.Attach(new StateKey("_unfollowedCompletions"), ReadState, WroteState);
-            _unfollowedKept.Attach(new StateKey("_unfollowedKept"), ReadState, WroteState);
-            _unfollowedKeptValues.Attach(new StateKey("_unfollowedKeptValues"), ReadState, WroteState);
-            _filledStorage.Attach(new StateKey("_filledStorage"), ReadState, WroteState);
-            _presenceCopies.Attach(new StateKey("_presenceCopies"), ReadState, WroteState);
-            _unseenFilled.Attach(new StateKey("_unseenFilled"), ReadState, WroteState);
-            _completers.Attach(new StateKey("_completers"), ReadState, WroteState);
-            _solvingState.Attach(new StateKey("_solvingState"), ReadState, WroteState);
+            _memberOfNestedBody.Attach(new StateKey("_memberOfNestedBody"), this);
+            _capturedCellsOfMember.Attach(new StateKey("_capturedCellsOfMember"), this);
+            _regions.Attach(new StateKey("_regions"), this);
+            _groups.Attach(new StateKey("_groups"), this);
+            _fields.Attach(new StateKey("_fields"), this);
+            _fieldsByRegion.Attach(new StateKey("_fieldsByRegion"), this);
+            _unseenLibraryFields.Attach(new StateKey("_unseenLibraryFields"), this);
+            _keeperCalls.Attach(new StateKey("_keeperCalls"), this);
+            _libraryKeeping.Attach(new StateKey("_libraryKeeping"), this);
+            _keptFallbacks.Attach(new StateKey("_keptFallbacks"), this);
+            _delegates.Attach(new StateKey("_delegates"), this);
+            _instances.Attach(new StateKey("_instances"), this);
+            _instanceOrder.Attach(new StateKey("_instanceOrder"), this);
+            _contextCounts.Attach(new StateKey("_contextCounts"), this);
+            _mergedBodies.Attach(new StateKey("_mergedBodies"), this);
+            _edges.Attach(new StateKey("_edges"), this);
+            _edgesByCallee.Attach(new StateKey("_edgesByCallee"), this);
+            _edgesByCaller.Attach(new StateKey("_edgesByCaller"), this);
+            _edgesByCall.Attach(new StateKey("_edgesByCall"), this);
+            _iteratorObjects.Attach(new StateKey("_iteratorObjects"), this);
+            _typeInitializers.Attach(new StateKey("_typeInitializers"), this);
+            _constructions.Attach(new StateKey("_constructions"), this);
+            _held.Attach(new StateKey("_held"), this);
+            _sequences.Attach(new StateKey("_sequences"), this);
+            _groupings.Attach(new StateKey("_groupings"), this);
+            _modelledState.Attach(new StateKey("_modelledState"), this);
+            _rootInstances.Attach(new StateKey("_rootInstances"), this);
+            _providers.Attach(new StateKey("_providers"), this);
+            _scopeObjects.Attach(new StateKey("_scopeObjects"), this);
+            _registrations.Attach(new StateKey("_registrations"), this);
+            _factoryInstances.Attach(new StateKey("_factoryInstances"), this);
+            _registeredAllocations.Attach(new StateKey("_registeredAllocations"), this);
+            _regionTypes.Attach(new StateKey("_regionTypes"), this);
+            _sinks.Attach(new StateKey("_sinks"), this);
+            _uncertainties.Attach(new StateKey("_uncertainties"), this);
+            _collections.Attach(new StateKey("_collections"), this);
+            _startupRegions.Attach(new StateKey("_startupRegions"), this);
+            _locatorCreators.Attach(new StateKey("_locatorCreators"), this);
+            _regionTriggers.Attach(new StateKey("_regionTriggers"), this);
+            _sites.Attach(new StateKey("_sites"), this);
+            _instanceRegistrationsByMember.Attach(new StateKey("_instanceRegistrationsByMember"), this);
+            _spawns.Attach(new StateKey("_spawns"), this);
+            _timerCallbacks.Attach(new StateKey("_timerCallbacks"), this);
+            _asyncSpawns.Attach(new StateKey("_asyncSpawns"), this);
+            _receiverlessCalls.Attach(new StateKey("_receiverlessCalls"), this);
+            _receiverlessFallbacks.Attach(new StateKey("_receiverlessFallbacks"), this);
+            _iteratorMemberReceivers.Attach(new StateKey("_iteratorMemberReceivers"), this);
+            _libraryStored.Attach(new StateKey("_libraryStored"), this);
+            _tails.Attach(new StateKey("_tails"), this);
+            _antecedents.Attach(new StateKey("_antecedents"), this);
+            _taskGroups.Attach(new StateKey("_taskGroups"), this);
+            _unfollowedCompletions.Attach(new StateKey("_unfollowedCompletions"), this);
+            _unfollowedKept.Attach(new StateKey("_unfollowedKept"), this);
+            _unfollowedKeptValues.Attach(new StateKey("_unfollowedKeptValues"), this);
+            _filledStorage.Attach(new StateKey("_filledStorage"), this);
+            _presenceCopies.Attach(new StateKey("_presenceCopies"), this);
+            _unseenFilled.Attach(new StateKey("_unseenFilled"), this);
+            _completers.Attach(new StateKey("_completers"), this);
+            _solvingState.Attach(new StateKey("_solvingState"), this);
         }
 
         private void Initialize()
@@ -1389,33 +1397,13 @@ public static partial class WholeProgram
             }
         }
 
-        /// <summary>Solves the heap, then applies grouped unseen writes and escaped deferred writes in one outer fixed point.
-        /// Filled-storage membership reads are tracked, so a new mark invalidates its presence readers before propagation resumes.
-        /// Both mark sets only grow and are bounded by the scope's struct storage; fallbacks wait for those readers.</summary>
+        /// <summary>Solves the heap (<see cref="Converge"/>) and ends the solve for the queries of the solved heap (<see cref="Settle"/>).</summary>
         internal HeapSolution Run()
         {
             var solving = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                CheckCancellation();
-                Initialize();
-                Seed();
-                HeapSolution result;
-                while (true)
-                {
-                    CheckCancellation();
-                    Propagate();
-                    // Presence readers must run before an empty receiver or keeper can acquire a fallback.
-                    if (MarkUnseenWrites())
-                        continue;
-                    if (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks())
-                        continue;
-                    result = Result();
-                    if (!MarkEscapedDeferredWrites(result))
-                        break;
-                }
-                if (_worklistOptions.VerifyConvergence)
-                    VerifyConvergence();
+                var result = Converge();
                 Settle();
                 CheckCancellation();
                 result.Profile = Profile(solving);
@@ -1433,10 +1421,39 @@ public static partial class WholeProgram
             }
         }
 
+        /// <summary>Solves the heap, then applies grouped unseen writes and escaped deferred writes in one outer fixed point.
+        /// Filled-storage membership reads are tracked, so a new mark invalidates its presence readers before propagation resumes.
+        /// Both mark sets only grow and are bounded by the scope's struct storage; fallbacks wait for those readers. The solver's state
+        /// stays tracked, so its steps may run again on it.</summary>
+        private HeapSolution Converge()
+        {
+            CheckCancellation();
+            Initialize();
+            Seed();
+            HeapSolution result;
+            while (true)
+            {
+                CheckCancellation();
+                Propagate();
+                // Presence readers must run before an empty receiver or keeper can acquire a fallback.
+                if (MarkUnseenWrites())
+                    continue;
+                if (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks())
+                    continue;
+                result = Result();
+                if (!MarkEscapedDeferredWrites(result))
+                    break;
+            }
+            if (_worklistOptions.VerifyConvergence)
+                VerifyConvergence();
+            return result;
+        }
+
         /// <summary>Ends the solve for the queries of the solved heap: the points-to sets holding the same regions in the same order share
         /// one copy, which they enumerate as before, and what only the solve reads is let go — the reads and writes the worklist decided
         /// by, for instances and for their calls, and the unions <see cref="Load"/> and the copies <see cref="CopyStruct"/> remembered. A query reads none of these and
-        /// writes nothing; a set changed after this makes its own copy first.</summary>
+        /// writes nothing. Last, every tracked container lets go of its state keys (<see cref="TrackedContainer.Freeze"/>): a read
+        /// of the solved heap writes nothing, so several threads may read it at once, and a change of it throws.</summary>
         private void Settle()
         {
             var contents = new SharedContents<RegionRef>();
@@ -1471,6 +1488,16 @@ public static partial class WholeProgram
             _givenRequests.TrimExcess();
             _boundEdges.Clear();
             _boundEdges.TrimExcess();
+            // The solve is over: so Run's own ending writes nothing into a frozen value.
+            Solving = false;
+            // Every container attached to the solver: a container gets its key only by attaching, which puts it in the list.
+            foreach (var container in _attached)
+            {
+                CheckCancellation();
+                container.Freeze();
+            }
+            _attached.Clear();
+            _attached.TrimExcess();
             _writes.Clear();
             _writes.TrimExcess();
             _loadedUnions.Clear();
@@ -4250,14 +4277,14 @@ public static partial class WholeProgram
             /// target of one argument is a dispatch of its own.</summary>
             public TrackedMap<(int Parameter, RegionRef Region), (string Callee, IReadOnlyList<CallArgument> Inputs, (RegionRef Region, string? DeclaringTypeKey)[] Receivers)> Unresolved { get; } = [];
 
-            public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+            public void Attach(StateKey key, IStateOwner owner)
             {
                 WorkCancellation.Check();
-                Callees.Attach(key.Member("SequenceState.Callees"), read, write);
-                Yields.Attach(key.Member("SequenceState.Yields"), read, write);
-                Sources.Attach(key.Member("SequenceState.Sources"), read, write);
-                ReturnedSources.Attach(key.Member("SequenceState.ReturnedSources"), read, write);
-                Unresolved.Attach(key.Member("SequenceState.Unresolved"), read, write);
+                Callees.Attach(key.Member("SequenceState.Callees"), owner);
+                Yields.Attach(key.Member("SequenceState.Yields"), owner);
+                Sources.Attach(key.Member("SequenceState.Sources"), owner);
+                ReturnedSources.Attach(key.Member("SequenceState.ReturnedSources"), owner);
+                Unresolved.Attach(key.Member("SequenceState.Unresolved"), owner);
             }
         }
 
@@ -5156,13 +5183,13 @@ public static partial class WholeProgram
             public TrackedList<TrackedSet<int>> HolderArguments { get; } = [];
             public TrackedList<TrackedSet<HeldNewInput>> NewInputs { get; } = [];
 
-            public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+            public void Attach(StateKey key, IStateOwner owner)
             {
                 WorkCancellation.Check();
-                Regions.Attach(key.Member("HeldDelegate.Regions"), read, write);
-                HolderArguments.Attach(key.Member("HeldDelegate.HolderArguments"), read, write);
-                NewInputs.Attach(key.Member("HeldDelegate.NewInputs"), read, write);
-                _callee.Attach(key.Member("HeldDelegate.Callee"), read, write);
+                Regions.Attach(key.Member("HeldDelegate.Regions"), owner);
+                HolderArguments.Attach(key.Member("HeldDelegate.HolderArguments"), owner);
+                NewInputs.Attach(key.Member("HeldDelegate.NewInputs"), owner);
+                _callee.Attach(key.Member("HeldDelegate.Callee"), owner);
             }
         }
 

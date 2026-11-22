@@ -73,54 +73,98 @@ internal sealed class StateKey : IEquatable<StateKey>
     }
 }
 
+/// <summary>What tracked state is attached to: it records each read and write of the state, and is told of every container
+/// attached, so that the containers can let go of their keys together once the solve is done (<see cref="TrackedContainer.Freeze"/>).
+/// A container gets its key in <see cref="TrackedContainer.Attach"/> alone, and there the owner hears of it: a container with a key
+/// is one the owner knows.</summary>
+internal interface IStateOwner
+{
+    /// <summary>Records a read of a state key.</summary>
+    /// <param name="key">The key read.</param>
+    void ReadKey(StateKey key);
+
+    /// <summary>Records a write of a state key.</summary>
+    /// <param name="key">The key written.</param>
+    void WroteKey(StateKey key);
+
+    /// <summary>Hears of a container that was just attached.</summary>
+    /// <param name="container">The container.</param>
+    void Attached(TrackedContainer container);
+}
+
 internal interface ITrackedState
 {
-    void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write);
+    void Attach(StateKey key, IStateOwner owner);
 }
 
 internal abstract class TrackedContainer : ITrackedState
 {
     internal StateKey? Key { get; private set; }
-    private Action<StateKey>? _read;
-    private Action<StateKey>? _write;
+    private IStateOwner? _owner;
 
-    public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
+    // Whether the solve that attached this container is done: a read records nothing, a change throws.
+    private bool _frozen;
+
+    public void Attach(StateKey key, IStateOwner owner)
     {
         if (Key is not null)
             return;
         Key = key;
-        _read = read;
-        _write = write;
-        AttachContents(read, write);
+        _owner = owner;
+        owner.Attached(this);
+        AttachContents(owner);
     }
 
-    protected virtual void AttachContents(Action<StateKey> read, Action<StateKey> write) { }
+    /// <summary>Ends the tracking of an attached container once its solve is done: it lets go of its key and of every key it made for
+    /// its entries and items, so that a read, from any thread, writes nothing at all, and a change of it afterwards throws, as a
+    /// query's write into the solved heap did through the solve's write record. Its owner freezes every container it heard of; one
+    /// never attached is left as it is.</summary>
+    public void Freeze()
+    {
+        if (Key is null)
+            return;
+        Key = null;
+        _owner = null;
+        _frozen = true;
+        FreezeContents();
+    }
+
+    protected virtual void AttachContents(IStateOwner owner) { }
+
+    /// <summary>Lets go of the keys a container made for what it holds.</summary>
+    protected virtual void FreezeContents() { }
     protected void Read(StateKey? key = null)
     {
         if (Key is not null)
-            _read!(key ?? Key);
+            _owner!.ReadKey(key ?? Key);
     }
+
+    /// <summary>Records a change for the readers of the given key, or of the whole container; after <see cref="Freeze"/> a change
+    /// throws instead.</summary>
+    /// <param name="key">The key the change is to, or null for the whole container.</param>
     protected void Write(StateKey? key = null)
     {
         if (Key is not null)
-            _write!(key ?? Key);
+            _owner!.WroteKey(key ?? Key);
+        else if (_frozen)
+            throw new InvalidOperationException("A query of the solved heap changed one of its containers: the heap is frozen after its solve.");
     }
     protected void AttachValue(object? value, StateKey? key)
     {
         WorkCancellation.Check();
         if (key is not null)
-            AttachValue(value, key, _read!, _write!);
+            AttachValue(value, key, _owner!);
     }
-    internal static void AttachValue(object? value, StateKey key, Action<StateKey> read, Action<StateKey> write)
+    internal static void AttachValue(object? value, StateKey key, IStateOwner owner)
     {
         WorkCancellation.Check();
         if (value is ITrackedState tracked)
-            tracked.Attach(key, read, write);
+            tracked.Attach(key, owner);
         else if (value is ITuple tuple)
             for (var index = 0; index < tuple.Length; index++)
             {
                 WorkCancellation.Check();
-                AttachValue(tuple[index], key.Child(index), read, write);
+                AttachValue(tuple[index], key.Child(index), owner);
             }
     }
 }
@@ -199,7 +243,15 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
             if (_itemsRead) Write(Key.Child(item!));
             Grew(_items.Count - 1);
         }
+        else
+            Write();
         return true;
+    }
+
+    protected override void FreezeContents()
+    {
+        _emptiness = null;
+        _itemsRead = false;
     }
     void ICollection<T>.Add(T item)
     {
@@ -262,7 +314,11 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
                 if (_items.Add(item))
                     Write(Key.Child(item!));
             }
-        if (Key is not null && _items.Count != before) Grew(before);
+        if (_items.Count != before)
+        {
+            if (Key is not null) Grew(before);
+            else Write();
+        }
     }
     public void ExceptWith(IEnumerable<T> other)
     {
@@ -358,12 +414,12 @@ internal sealed class TrackedList<T> : TrackedContainer, IList<T>, IReadOnlyList
             Write();
         }
     }
-    protected override void AttachContents(Action<StateKey> read, Action<StateKey> write)
+    protected override void AttachContents(IStateOwner owner)
     {
         for (var index = 0; index < _items.Count; index++)
         {
             WorkCancellation.Check();
-            AttachValue(_items[index], Key!.Child(index), read, write);
+            AttachValue(_items[index], Key!.Child(index), owner);
         }
     }
     public void Add(T item) { WorkCancellation.Check(); AttachValue(item, Key?.Child(_items.Count)); _items.Add(item); Write(); }
@@ -415,12 +471,18 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     private static StateKey? ValueKey(TValue value, StateKey? entry) =>
         value is TrackedContainer && entry is not null ? entry.Child(StateKey.Contents) : entry;
     private StateKey? EmptinessKey => Key is null ? null : _emptiness ??= Key.Child(StateKey.Emptiness);
-    protected override void AttachContents(Action<StateKey> read, Action<StateKey> write)
+    protected override void AttachContents(IStateOwner owner)
     {
         foreach (var pair in _items) {
             WorkCancellation.Check();
-            AttachValue(pair.Value, ValueKey(pair.Value, Entry(pair.Key))!, read, write);
+            AttachValue(pair.Value, ValueKey(pair.Value, Entry(pair.Key))!, owner);
         }
+    }
+    protected override void FreezeContents()
+    {
+        _keys.Clear();
+        _keys.TrimExcess();
+        _emptiness = null;
     }
     public int Count { get { Read(Key?.All); return _items.Count; } }
 

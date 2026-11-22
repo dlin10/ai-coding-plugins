@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Common.Roslyn;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
@@ -19,6 +20,9 @@ public sealed class WorklistTests
     private const BindingFlags MEMBERS = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private const string SIMPLE = "public class WorkController : ControllerBase { public void Post() { } }";
 
+    /// <summary>What a frozen container keeps for tracking (<see cref="Snapshot"/>): no key, no entry keys, no emptiness key, no item read.</summary>
+    private static readonly (object? Key, int EntryKeys, object? Emptiness, bool ItemsRead) LET_GO = (null, 0, null, false);
+
     [Fact]
     public async Task Demo_skips_are_sound_under_audit() => await AssertSolution(DemoPath());
 
@@ -36,7 +40,7 @@ public sealed class WorklistTests
         Assert.True(actual.Counters[HeapCounters.INSTANCE_PROCESSINGS] <
                     actual.Counters[HeapCounters.PROPAGATE_PASSES] * actual.Instances.Count);
         var solver = NewSolver(SIMPLE + Startup());
-        Invoke(solver, "Run");
+        Invoke(solver, "Converge");
         Invoke(solver, "Propagate");
         var histories = (IDictionary)Field(solver, "_history").GetValue(solver)!;
         var states = (IDictionary)Field(solver, "_instances").GetValue(solver)!;
@@ -149,7 +153,7 @@ public sealed class WorklistTests
     public void Write_through_a_stored_reference_dirties_its_readers()
     {
         var solver = NewSolver(SIMPLE + Startup());
-        var heap = (HeapSolution)Invoke(solver, "Run")!;
+        var heap = (HeapSolution)Invoke(solver, "Converge")!;
         var instances = (IDictionary)Field(solver, "_instances").GetValue(solver)!;
         var callee = instances[heap.Instances.Values.First(instance => instance.BodyId == "body:Fixture:M:WorkController.Post").Id]!;
         var requests = (TrackedSet<string>)callee.GetType().GetProperty("Requests", MEMBERS)!.GetValue(callee)!;
@@ -169,16 +173,16 @@ public sealed class WorklistTests
         var reads = new HashSet<StateKey>();
         var writes = new List<StateKey>();
         var set = new TrackedSet<string>(StringComparer.Ordinal) { "request" };
-        set.Attach(new StateKey("InstanceState.Requests").Child("callee"), key => reads.Add(key), key => writes.Add(key));
+        set.Attach(new StateKey("InstanceState.Requests").Child("callee"), new Recording(key => reads.Add(key), key => writes.Add(key)));
         Assert.False(set.Add("request"));
         set.UnionWith(new[] { "request" });
         var map = new TrackedMap<string, int>(StringComparer.Ordinal) { ["key"] = 1 };
-        map.Attach(new StateKey("_contextCounts"), key => reads.Add(key), key => writes.Add(key));
+        map.Attach(new StateKey("_contextCounts"), new Recording(key => reads.Add(key), key => writes.Add(key)));
         map["key"] = 1;
         Assert.False(map.TryAdd("key", 2));
         Assert.False(map.Remove("absent"));
         var value = new TrackedValue<bool>(true);
-        value.Attach(new StateKey("RegistrationState.Defaulted"), key => reads.Add(key), key => writes.Add(key));
+        value.Attach(new StateKey("RegistrationState.Defaulted"), new Recording(key => reads.Add(key), key => writes.Add(key)));
         value.Value = true;
         Assert.Empty(writes);
         Assert.NotEmpty(reads);
@@ -191,7 +195,7 @@ public sealed class WorklistTests
         var writes = new List<StateKey>();
         var key = new StateKey("_mergedBodies");
         var set = new TrackedSet<string>(StringComparer.Ordinal);
-        set.Attach(key, reads.Add, writes.Add);
+        set.Attach(key, new Recording(reads.Add, writes.Add));
         Assert.True(set.IsEmpty);
         Assert.True(set.Add("first"));
         set.UnionWith(["second"]);
@@ -217,7 +221,7 @@ public sealed class WorklistTests
         var writes = new List<StateKey>();
         var key = new StateKey("_fields");
         var map = new TrackedMap<string, TrackedSet<string>>(StringComparer.Ordinal);
-        map.Attach(key, reads.Add, writes.Add);
+        map.Attach(key, new Recording(reads.Add, writes.Add));
         Assert.True(map.IsEmpty);
         map.Add("slot", new TrackedSet<string>(StringComparer.Ordinal));
         Assert.Equal(new[] { key.Child(StateKey.Emptiness), key.Child("slot") }, reads);
@@ -273,7 +277,7 @@ public sealed class WorklistTests
         Assert.NotEmpty(heap.Holders);
         Assert.NotEmpty(heap.DelegateHandoffs);
         var solver = NewSolver(Holders());
-        Invoke(solver, "Run");
+        Invoke(solver, "Converge");
         Invoke(solver, "Propagate");
         var before = (HeapSolution)Invoke(solver, "Result")!;
         var counters = (Dictionary<string, int>)Field(solver, "_counters").GetValue(solver)!;
@@ -289,7 +293,7 @@ public sealed class WorklistTests
     public void Rebuilt_collections_keep_their_order_when_a_late_instance_reruns()
     {
         var work = NewSolver(Reach(Holders()), new());
-        Invoke(work, "Run");
+        Invoke(work, "Converge");
         var histories = (IDictionary)Field(work, "_history").GetValue(work)!;
         Invoke(work, "Propagate");
         var order = ((IEnumerable<string>)Field(work, "_instanceOrder").GetValue(work)!).ToArray();
@@ -311,7 +315,7 @@ public sealed class WorklistTests
     public void Reach_index_is_built_where_a_full_pass_builds_it()
     {
         var solver = NewSolver(Holders());
-        Invoke(solver, "Run");
+        Invoke(solver, "Converge");
         Invoke(solver, "Propagate");
         var histories = (IDictionary)Field(solver, "_history").GetValue(solver)!;
         var first = ((IEnumerable<string>)Field(solver, "_instanceOrder").GetValue(solver)!).First(id =>
@@ -336,7 +340,7 @@ public sealed class WorklistTests
     public void Captures_grown_after_the_snapshot_are_still_followed()
     {
         var solver = NewSolver(Holders());
-        var heap = (HeapSolution)Invoke(solver, "Run")!;
+        var heap = (HeapSolution)Invoke(solver, "Converge")!;
         var snapshot = Field(solver, "_reachIndex").GetValue(solver);
         var delegates = (IDictionary)Field(solver, "_delegates").GetValue(solver)!;
         var entry = Entries(delegates).First();
@@ -365,7 +369,7 @@ public sealed class WorklistTests
     public void Merged_body_makes_its_readers_dirty()
     {
         var solver = NewSolver(Reach(Recursive()), new(), new(MaxSccIterations: 1));
-        var heap = (HeapSolution)Invoke(solver, "Run")!;
+        var heap = (HeapSolution)Invoke(solver, "Converge")!;
         Assert.True(heap.Counters[HeapCounters.SCC_BUDGET_EXCEEDED] > 0);
         Invoke(solver, "Propagate");
         var histories = (IDictionary)Field(solver, "_history").GetValue(solver)!;
@@ -418,6 +422,8 @@ public sealed class WorklistTests
             // How far a request set went into another, and the edges a binding made: both sets only grow, so neither decides a fact a
             // read of the sets themselves would not.
             "_givenRequests", "_boundEdges",
+            // The containers attached to the solver, which Settle freezes: the attaching itself fills it.
+            "_attached",
             // The instances by body, an index of _instances read only through InstancesOf, which reads the whole map.
             "_instancesByBody",
             // The solve's profile for a diagnostic checkpoint: times and skips, which no heap fact reads.
@@ -476,7 +482,7 @@ public sealed class WorklistTests
         // A load over several regions of a group keeps its union between loads: it still sees an object a field set gained since, a
         // region the group gained since, and reads every set it joins as the union it stands for reads them.
         var solver = NewSolver(SIMPLE + Startup());
-        Invoke(solver, "Run");
+        Invoke(solver, "Converge");
         AddRegion(solver, "load-a", "load-group", open: true);
         AddRegion(solver, "load-b", "load-group");
         AddTo(Slot(solver, "load-a"), Region(solver, "x"));
@@ -509,7 +515,7 @@ public sealed class WorklistTests
     {
         // A copy run again adds what its source's slot gained since it last copied, into each of its targets, and nothing else.
         var solver = NewSolver(SIMPLE + Startup());
-        Invoke(solver, "Run");
+        Invoke(solver, "Converge");
         AddRegion(solver, "copy-source", "copy-source", HeapRegionKind.StructCopy);
         AddRegion(solver, "copy-target", "copy-target", HeapRegionKind.StructCopy);
         AddRegion(solver, "copy-other", "copy-other", HeapRegionKind.StructCopy);
@@ -575,6 +581,158 @@ public sealed class WorklistTests
         Assert.Empty((IDictionary)Field(solver, "_history").GetValue(solver)!);
         // Only the end of the solve itself writes after it lets go of the writes.
         Assert.All(Writes(solver).Keys, key => Assert.Equal("_solvingState", key.State));
+    }
+
+    [Fact]
+    public void A_solved_heap_lets_go_of_its_state_keys_so_reads_from_several_threads_write_nothing()
+    {
+        var solver = NewSolver(Holders());
+        var heap = (HeapSolution)Invoke(solver, "Run")!;
+        var containers = TrackedContainersOf(solver).ToArray();
+        var writes = Writes(solver).Count;
+
+        Assert.True(containers.Length > 100);
+        Assert.All(containers, container => Assert.Equal(LET_GO, Snapshot(container)));
+        foreach (var container in containers)
+            ReadEverything(container);
+        // Queries from several threads at once read every instance's parameters and give what one thread gives.
+        var instances = heap.Instances.Keys.ToArray();
+        var alone = instances.Select(id => heap.Resolve(id, new ParameterValue(0)).ToArray()).ToArray();
+        var together = new string[instances.Length][];
+        Parallel.For(0, instances.Length, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                     index => together[index] = heap.Resolve(instances[index], new ParameterValue(0)).ToArray());
+
+        Assert.Equal(alone, together);
+        Assert.All(containers, container => Assert.Equal(LET_GO, Snapshot(container)));
+        Assert.Equal(writes, Writes(solver).Count);
+        Assert.Null(Field(solver, "_reads").GetValue(solver));
+    }
+
+    [Fact]
+    public void A_change_of_the_solved_heap_throws_and_a_set_made_after_it_does_not()
+    {
+        var solver = NewSolver(SIMPLE + Startup());
+        Invoke(solver, "Run");
+        var order = Field(solver, "_instanceOrder").GetValue(solver)!;
+        var instances = (IDictionary)Field(solver, "_instances").GetValue(solver)!;
+        var instance = instances.Values.Cast<object>().First();
+        var requests = instance.GetType().GetProperty("Requests", MEMBERS)!.GetValue(instance)!;
+
+        var error = Assert.Throws<TargetInvocationException>(() => order.GetType().GetMethod("Add")!.Invoke(order, ["new"]));
+        Assert.IsType<InvalidOperationException>(error.InnerException);
+        Assert.Contains("frozen", error.InnerException!.Message, StringComparison.Ordinal);
+        error = Assert.Throws<TargetInvocationException>(() => requests.GetType().GetMethod("Add")!.Invoke(requests, ["request"]));
+        Assert.IsType<InvalidOperationException>(error.InnerException);
+        Assert.Throws<InvalidOperationException>(() => instances.Remove(instances.Keys.Cast<object>().First()));
+        Assert.DoesNotContain("absent", ((IEnumerable)order).Cast<string>());
+        var fresh = new TrackedSet<string>(StringComparer.Ordinal) { "a" };
+        fresh.Add("b");
+        Assert.Equal(["a", "b"], fresh);
+    }
+
+    [Fact]
+    public void Every_container_with_a_key_is_in_the_solver_registry_and_none_has_one_after_the_solve()
+    {
+        var solver = NewSolver(Holders());
+        Invoke(solver, "Converge");
+        var registry = ((IEnumerable)Field(solver, "_attached").GetValue(solver)!).Cast<TrackedContainer>()
+                                                                               .ToHashSet(ReferenceEqualityComparer.Instance);
+        // The walk reads fields and contents, not the registry, so it finds a container however it was attached.
+        var keyed = TrackedContainersOf(solver).Where(container => container.Key is not null).ToArray();
+
+        Assert.NotEmpty(keyed);
+        Assert.All(keyed, container => Assert.Contains(container, registry));
+        // Nothing attached is dropped during the solve: the registry holds exactly what is still reachable.
+        Assert.Equal(registry.Count, keyed.Length);
+        Invoke(solver, "Settle");
+        Assert.All(TrackedContainersOf(solver), container => Assert.Equal(LET_GO, Snapshot(container)));
+        Assert.Empty((IEnumerable<TrackedContainer>)Field(solver, "_attached").GetValue(solver)!);
+    }
+
+    /// <summary>An owner of tracked state that records reads and writes and keeps no containers.</summary>
+    /// <param name="read">Records a read.</param>
+    /// <param name="write">Records a write.</param>
+    private sealed class Recording(Action<StateKey> read, Action<StateKey> write) : IStateOwner
+    {
+        public void ReadKey(StateKey key) => read(key);
+        public void WroteKey(StateKey key) => write(key);
+        public void Attached(TrackedContainer container) { }
+    }
+
+    /// <summary>Every tracked container a solver holds, in its fields and in the states and containers they hold.</summary>
+    /// <param name="solver">The solver.</param>
+    private static IEnumerable<TrackedContainer> TrackedContainersOf(object solver)
+    {
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var pending = new Stack<object>();
+        void Push(object? value)
+        {
+            switch (value)
+            {
+                case ITrackedState state:
+                    pending.Push(state);
+                    break;
+                case ITuple tuple:
+                    for (var index = 0; index < tuple.Length; index++)
+                        Push(tuple[index]);
+                    break;
+                case not null when value.GetType() is { IsGenericType: true } type && type.GetGenericTypeDefinition() == typeof(KeyValuePair<,>):
+                    Push(type.GetProperty("Key")!.GetValue(value));
+                    Push(type.GetProperty("Value")!.GetValue(value));
+                    break;
+            }
+        }
+
+        foreach (var field in solver.GetType().GetFields(MEMBERS))
+            Push(field.GetValue(solver));
+        while (pending.TryPop(out var state))
+        {
+            if (!seen.Add(state))
+                continue;
+            if (state is TrackedContainer container)
+            {
+                yield return container;
+                if (container is IEnumerable items)
+                    foreach (var item in items)
+                        Push(item);
+            }
+            else
+                foreach (var field in state.GetType().GetFields(MEMBERS))
+                    Push(field.GetValue(state));
+        }
+    }
+
+    /// <summary>What a container keeps for the solve's tracking: its key, the entry keys of a map, its emptiness key and whether a
+    /// membership test read an item.</summary>
+    /// <param name="container">The container.</param>
+    private static (object? Key, int EntryKeys, object? Emptiness, bool ItemsRead) Snapshot(TrackedContainer container)
+    {
+        var type = container.GetType();
+        object? Value(string name) => type.GetField(name, MEMBERS)?.GetValue(container);
+        return (container.Key, Value("_keys") is ICollection keys ? keys.Count : 0, Value("_emptiness"), Value("_itemsRead") is true);
+    }
+
+    /// <summary>Reads a container every way a query does: its count, its emptiness, its items, and a membership of its first item.</summary>
+    /// <param name="container">The container.</param>
+    private static void ReadEverything(TrackedContainer container)
+    {
+        var type = container.GetType();
+        type.GetProperty("Value", MEMBERS)?.GetValue(container);
+        if (container is not IEnumerable enumerable)
+            return;
+        var items = enumerable.Cast<object?>().ToArray();
+        type.GetProperty("Count")!.GetValue(container);
+        type.GetProperty("IsEmpty", MEMBERS)?.GetValue(container);
+        if (items.Length == 0)
+            return;
+        if (container is IDictionary map)
+        {
+            var key = items[0]!.GetType().GetProperty("Key")!.GetValue(items[0])!;
+            Assert.True(map.Contains(key));
+            _ = map[key];
+        }
+        else if (type.GetMethod("Contains", [type.GetGenericArguments()[0]]) is { } contains)
+            Assert.True((bool)contains.Invoke(container, [items[0]])!);
     }
 
     /// <summary>The items a set holds, as it keeps them.</summary>

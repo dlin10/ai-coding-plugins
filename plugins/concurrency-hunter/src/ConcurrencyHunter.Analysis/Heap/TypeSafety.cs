@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ConcurrencyHunter.CallGraph;
 
 namespace ConcurrencyHunter.Heap;
@@ -12,13 +13,14 @@ namespace ConcurrencyHunter.Heap;
 public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string, IReadOnlySet<string>> metadataSupertypes,
                                IReadOnlySet<string>? openWorldAssemblies = null)
 {
-    /// <summary>The definitions of the supertypes of each type the program index holds, which the index alone decides.</summary>
-    private readonly Dictionary<string, IReadOnlySet<string>> _supertypes = new(StringComparer.Ordinal);
+    /// <summary>The definitions of the supertypes of each type the program index holds, which the index alone decides. These memos
+    /// are concurrent: the stages after the heap solve may ask from several threads, and each answer is the same whoever adds it.</summary>
+    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _supertypes = new(StringComparer.Ordinal);
 
     /// <summary>The <see cref="DefinitionOf"/> of each type key <see cref="CannotBe"/> has met, and the <see cref="NullableValueType"/> of
     /// each declaring type key: a call asks for the same declaring type once per receiver, and the parse depends on the key alone.</summary>
-    private readonly Dictionary<string, string> _definitions = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string?> _nullableValueTypes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _definitions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string?> _nullableValueTypes = new(StringComparer.Ordinal);
 
     public static string DefinitionOf(string typeKey)
     {
@@ -76,8 +78,7 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
 
         // A Nullable is the value it holds, so a member of Nullable<S> runs on a region of S, or of the type a generic instance binds to
         // its T; a T no instance binds yet may be any.
-        if (!_nullableValueTypes.TryGetValue(declaringTypeKey, out var held))
-            _nullableValueTypes.Add(declaringTypeKey, held = NullableValueType(declaringTypeKey));
+        var held = _nullableValueTypes.GetOrAdd(declaringTypeKey, NullableValueType);
         if (held is not null && (held == region.TypeKey || program.IsOpen(held)))
             return false;
 
@@ -92,8 +93,9 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
         IReadOnlySet<string>? supertypes = null;
         if (program.Type(region.TypeKey) is not null)
         {
-            if (!_supertypes.TryGetValue(region.TypeKey, out supertypes))
-                _supertypes.Add(region.TypeKey, supertypes = program.Supertypes(region.TypeKey).Select(DefinitionOf).ToHashSet(StringComparer.Ordinal));
+            supertypes = _supertypes.GetOrAdd(region.TypeKey,
+                                              static (key, index) => index.Supertypes(key).Select(DefinitionOf).ToHashSet(StringComparer.Ordinal),
+                                              program);
         }
         else
             metadataSupertypes.TryGetValue(definition, out supertypes);
@@ -106,12 +108,7 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
 
     /// <summary>The <see cref="DefinitionOf"/> of a type key, worked out once.</summary>
     /// <param name="typeKey">The type key.</param>
-    private string Definition(string typeKey)
-    {
-        if (!_definitions.TryGetValue(typeKey, out var definition))
-            _definitions.Add(typeKey, definition = DefinitionOf(typeKey));
-        return definition;
-    }
+    private string Definition(string typeKey) => _definitions.GetOrAdd(typeKey, DefinitionOf);
 
     /// <summary>The type a <c>Nullable&lt;S&gt;</c> holds, S, or null for any other type. The engine holds a <c>Nullable</c> as the value it
     /// holds, so a region of S is the receiver of a member of <c>Nullable&lt;S&gt;</c> (<see cref="CannotBe"/>), and the instance such a
