@@ -6007,7 +6007,16 @@ public static class InterproceduralPairing
     /// place in the list, and its own view.</summary>
     private sealed class PairingSide
     {
-        private readonly Access?[] _views;
+        /// <summary>The views made so far, by execution; none until the first is asked for.</summary>
+        private Dictionary<int, Access>? _views;
+
+        /// <summary>The executions grouped by variant, the variants one after another (<see cref="_variantStart"/>); null where that is
+        /// execution order itself, every variant's executions standing next to each other.</summary>
+        private readonly int[]? _byVariant;
+
+        /// <summary>Where each variant's executions start in <see cref="_byVariant"/>, and after the last variant where they end; null where
+        /// every variant has one execution, which is then the execution of its own number.</summary>
+        private readonly int[]? _variantStart;
 
         /// <summary>The access as pairing sees it.</summary>
         /// <param name="access">The access.</param>
@@ -6018,26 +6027,41 @@ public static class InterproceduralPairing
             if (access.Executions.Count == 0)
             {
                 Positions = [index];
-                Variants = [[0]];
-            }
-            else
-            {
-                Positions = access.Executions.Select(execution => execution.Position).ToArray();
-                var byVariant = new Dictionary<AccessVariant, List<int>>(ReferenceEqualityComparer.Instance);
-                var variants = new List<List<int>>();
-                for (var execution = 0; execution < access.Executions.Count; execution++)
-                {
-                    if (!byVariant.TryGetValue(access.Executions[execution].Variant, out var executions))
-                    {
-                        byVariant.Add(access.Executions[execution].Variant, executions = []);
-                        variants.Add(executions);
-                    }
-                    executions.Add(execution);
-                }
-                Variants = variants.Select(executions => executions.ToArray()).ToArray();
+                VariantCount = 1;
+                return;
             }
 
-            _views = new Access?[Positions.Length];
+            Positions = access.Executions.Select(execution => execution.Position).ToArray();
+            // A variant is numbered in the order of its first execution, so the variants of executions in execution order never step
+            // back exactly where every variant's executions stand next to each other.
+            var numbers = new Dictionary<AccessVariant, int>(ReferenceEqualityComparer.Instance);
+            var variantOf = new int[access.Executions.Count];
+            var counts = new List<int>();
+            var together = true;
+            for (var execution = 0; execution < access.Executions.Count; execution++)
+            {
+                if (!numbers.TryGetValue(access.Executions[execution].Variant, out var variant))
+                {
+                    numbers.Add(access.Executions[execution].Variant, variant = counts.Count);
+                    counts.Add(0);
+                }
+                together &= execution == 0 || variant >= variantOf[execution - 1];
+                variantOf[execution] = variant;
+                counts[variant]++;
+            }
+
+            VariantCount = counts.Count;
+            if (counts.Count == access.Executions.Count)
+                return;
+            _variantStart = new int[counts.Count + 1];
+            for (var variant = 0; variant < counts.Count; variant++)
+                _variantStart[variant + 1] = _variantStart[variant] + counts[variant];
+            if (together)
+                return;
+            _byVariant = new int[access.Executions.Count];
+            var next = _variantStart[..counts.Count];
+            for (var execution = 0; execution < access.Executions.Count; execution++)
+                _byVariant[next[variantOf[execution]]++] = execution;
         }
 
         internal Access Access { get; }
@@ -6045,11 +6069,53 @@ public static class InterproceduralPairing
         /// <summary>Each execution's position, in execution order, which is collection order.</summary>
         internal int[] Positions { get; }
 
-        /// <summary>The executions of each variant, in collection order; the variants in the order of their first executions.</summary>
-        internal int[][] Variants { get; }
+        /// <summary>How many variants the executions have.</summary>
+        internal int VariantCount { get; }
 
-        internal Access View(int execution) =>
-            Access.Executions.Count == 0 ? Access : _views[execution] ??= Access.View(Access.Executions[execution]);
+        /// <summary>The executions of a variant, in collection order; the variants are numbered in the order of their first executions.</summary>
+        /// <param name="variant">The variant's number.</param>
+        internal VariantExecutions Variant(int variant) =>
+            _variantStart is null
+                ? new VariantExecutions(null, variant, 1)
+                : new VariantExecutions(_byVariant, _variantStart[variant], _variantStart[variant + 1] - _variantStart[variant]);
+
+        /// <summary>The access as one of its executions has it, made the first time it is asked for and the same object afterwards.</summary>
+        /// <param name="execution">The execution.</param>
+        internal Access View(int execution)
+        {
+            if (Access.Executions.Count == 0)
+                return Access;
+            _views ??= [];
+            if (!_views.TryGetValue(execution, out var view))
+                _views.Add(execution, view = Access.View(Access.Executions[execution]));
+            return view;
+        }
+    }
+
+    /// <summary>The executions of one variant of a side, in collection order: a run of a side's executions grouped by variant, or of the
+    /// executions themselves where they stand grouped already.</summary>
+    private readonly struct VariantExecutions
+    {
+        private readonly int[]? _order;
+        private readonly int _start;
+
+        /// <summary>The executions of a variant.</summary>
+        /// <param name="order">The side's executions grouped by variant, or null where execution order groups them.</param>
+        /// <param name="start">Where the variant's executions start in that order.</param>
+        /// <param name="length">How many executions the variant has.</param>
+        internal VariantExecutions(int[]? order, int start, int length)
+        {
+            _order = order;
+            _start = start;
+            Length = length;
+        }
+
+        /// <summary>How many executions the variant has.</summary>
+        internal int Length { get; }
+
+        /// <summary>The variant's execution at a place, in collection order.</summary>
+        /// <param name="index">The place.</param>
+        internal int this[int index] => _order is null ? _start + index : _order[_start + index];
     }
 
     /// <summary>The pairs of executions of two accesses a candidate pair compares, one of them taken from each side; the same access twice
@@ -6087,14 +6153,14 @@ public static class InterproceduralPairing
             Func<(int One, int Other), bool>[] filters = byOrientation
                 ? [executions => !Swapped(executions) && passes(executions), executions => Swapped(executions) && passes(executions)]
                 : [passes];
-            for (var oneVariant = 0; oneVariant < one.Variants.Length; oneVariant++)
+            for (var oneVariant = 0; oneVariant < one.VariantCount; oneVariant++)
             {
-                for (var otherVariant = IsSelf ? oneVariant : 0; otherVariant < other.Variants.Length; otherVariant++)
+                for (var otherVariant = IsSelf ? oneVariant : 0; otherVariant < other.VariantCount; otherVariant++)
                 {
                     foreach (var filter in filters)
                     {
                         WorkCancellation.Check();
-                        var (ones, others) = (one.Variants[oneVariant], other.Variants[otherVariant]);
+                        var (ones, others) = (one.Variant(oneVariant), other.Variant(otherVariant));
                         if (First(ones, others, IsSelf && oneVariant == otherVariant, filter) is not { } witness)
                             continue;
                         witnesses.Add(witness);
@@ -6118,7 +6184,7 @@ public static class InterproceduralPairing
         /// <param name="others">The second side's executions of one variant, in collection order.</param>
         /// <param name="self">Whether the two are one variant of the self-pair, so that <paramref name="ones"/> stands for both.</param>
         /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
-        private ((int One, int Other) Executions, long Order)? First(int[] ones, int[] others, bool self,
+        private ((int One, int Other) Executions, long Order)? First(VariantExecutions ones, VariantExecutions others, bool self,
                                                                      Func<(int One, int Other), bool> passes)
         {
             if (self)

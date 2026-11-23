@@ -19,6 +19,9 @@ public sealed class AccessFoldingTests
 
         """;
 
+    /// <summary>The last member of the path of the request's second variant.</summary>
+    private const string SECOND = "Second.Variant()";
+
     private const string REQUEST_AND_WORKER = Types + """
         public class VisitsController : ControllerBase { public void Post() => Shared.Bump(); }
         public sealed class Worker : BackgroundService
@@ -100,6 +103,37 @@ public sealed class AccessFoldingTests
         Assert.Equal((expected.AccessA.ExecutionId, expected.AccessB.ExecutionId), (finding.AccessA.ExecutionId, finding.AccessB.ExecutionId));
         Assert.Equal(expected.OccurrenceCount, finding.OccurrenceCount);
         Assert.Equal(expected.Fingerprint, finding.Fingerprint);
+    }
+
+    /// <summary>Each pair of a side's variants gives the first pair of their executions in collection order that may overlap, whether every
+    /// variant has one execution, a variant's executions stand next to each other, or the variants alternate: a side keeps the executions
+    /// of each variant in collection order whichever way they stand.</summary>
+    /// <param name="order">The variant of each execution in collection order: the worker's, the request's, or a second variant of the
+    /// request's.</param>
+    /// <param name="expected">The variants of the two sides of each candidate, in the order pairing gives them.</param>
+    [Theory]
+    [InlineData("WRS", "WR WS RR RS SS")]
+    [InlineData("RRW", "RR RW")]
+    [InlineData("RWR", "RR RW")]
+    [InlineData("RWRS", "RR RW RS WS SS")]
+    public void Each_pair_of_variants_gives_its_first_pair_of_executions_in_collection_order(string order, string expected)
+    {
+        var execution = Execute(REQUEST_AND_WORKER + Startup("services.AddHostedService<Worker>();"));
+        var folded = Assert.Single(Collect(execution).Folded, access => access.Resource.Member.Name == "Value");
+        var worker = Assert.Single(folded.Executions, execution => execution.Variant.Root.Symbol.Contains("Worker", StringComparison.Ordinal));
+        var request = Assert.Single(folded.Executions, execution => execution != worker);
+        // Another variant object is another variant, with a path of its own to tell it by.
+        var second = request with { Variant = request.Variant with { CallPath = [.. request.Variant.CallPath, SECOND] } };
+        var executions = order.Select((variant, position) => (variant switch { 'W' => worker, 'R' => request, _ => second }) with { Position = position })
+                              .ToArray();
+
+        var pairs = InterproceduralPairing.Pair([folded with { Executions = executions }], execution.Analysis, execution.Heap.Heap).Pairs;
+
+        // The worker never overlaps itself; the request overlaps itself and the worker, in either variant.
+        Assert.Equal(expected, string.Join(" ", pairs.Select(pair => $"{Variant(pair.First)}{Variant(pair.Second)}")));
+
+        static char Variant(Access view) =>
+            view.Root.Symbol.Contains("Worker", StringComparison.Ordinal) ? 'W' : view.CallPath.LastOrDefault() == SECOND ? 'S' : 'R';
     }
 
     private static (string, string, string, string)[] Executions(PairAnalysis pairs) =>
