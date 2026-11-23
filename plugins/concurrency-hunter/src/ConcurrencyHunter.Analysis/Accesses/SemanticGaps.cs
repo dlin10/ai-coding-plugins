@@ -41,7 +41,7 @@ public static class SemanticGaps
     /// <param name="accesses">The collected accesses, each with the executions that run it, or null before access collection.</param>
     /// <param name="reach">The reach of the scope's unknown effects, which the calls before and after access collection share: the heap
     /// its walks read is frozen (ADR 0016), so what a start reaches is the same in both, and the second call walks nothing the first
-    /// walked; null for a reach of this call's own.</param>
+    /// walked; null for a reach of this call's own. Each call leaves the reach with the answers alone (<c>ReleaseWalks</c>).</param>
     public static IReadOnlyList<SemanticGap> Find(InterproceduralInput input, IReadOnlyList<Access>? accesses = null,
                                                   UnknownCalls.Reach? reach = null)
     {
@@ -102,6 +102,8 @@ public static class SemanticGaps
 
         DiagnosticCheckpoint.Reach($"gaps-reach:{input.Scope.ScopeId}:{(accesses is null ? "before" : "after")}", collect: false,
                                    () => [reach.Counts()]);
+        // The search after collection asks the same calls, so only their answers are kept; the reach lives through the collection.
+        reach.ReleaseWalks();
         var rootsReaching = RootsReaching(heap);
         return gaps.Select(pair => new SemanticGap(pair.Key, pair.Value.Kind,
                                                    pair.Value.Instances.SelectMany(instance => rootsReaching.GetValueOrDefault(instance) ?? [])

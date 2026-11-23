@@ -67,8 +67,9 @@ What they have in common is either read-only or a cache of a pure function of th
     components with what each reaches, and its shared bits (#462, #468). Only its walks (`Of`, `BitsOf`) write them,
     and only `SemanticGaps.Find` asks for them, on the coordinator before and after the walk of the executions.
     `Collect` makes one reach of the scope, which both searches for gaps and every collector share; the second search
-    runs after the workers are joined. A collector asks only for `Starts` and `LibraryFieldsOf`: the first reads the
-    heap and the program, the second a `Lazy<T>`.
+    runs after the workers are joined. Each search ends by letting go of the steps and the components (`ReleaseWalks`),
+    so through the walk of the executions the reach holds its numbering and its answers alone. A collector asks only for
+    `Starts` and `LibraryFieldsOf`: the first reads the heap and the program, the second a `Lazy<T>`.
   - `AsyncSegments._bodies` is a memo of each body's prefix and tail operations. The collector reads it through
     `ExecutionAnalysis.Runs` and `Follow`, and the construction query reads it too.
   - `GapOrigins` fills `_sites` in its constructor and only reads afterwards. The memo of facts by execution in

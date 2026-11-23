@@ -7,7 +7,8 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 /// <summary>The reach of an unknown effect (R1) worked out once per strongly connected component (#468): every start reaches what its
 /// own walk reached, a call what its starts' walks or its one walk reached, the regions are numbered in the order those walks numbered
-/// them, and the search for gaps after access collection walks no start the search before it walked.</summary>
+/// them, as many distinct answers are kept, a component passes over the sets a set it took holds already, a reach that let go of its
+/// walks answers as before, and the search for gaps after access collection walks nothing.</summary>
 public sealed class UnknownReachComponentTests
 {
     [Fact]
@@ -43,49 +44,99 @@ public sealed class UnknownReachComponentTests
     }
 
     [Fact]
-    public async Task The_search_after_collection_walks_no_start_the_search_before_walked_and_finds_the_gaps_a_reach_of_its_own_finds()
+    public void A_reach_that_let_go_of_its_walks_answers_every_start_and_call_as_their_own_walks_did()
     {
-        CompareSharedSearches(Input(Execute(Cycles())));
-        await ParallelCollectionTests.ForEachDemoScope(CompareSharedSearches);
+        var input = Input(Execute(Cycles()));
+        var (scope, heap) = (input.Scope, input.Heap);
+        var calls = UnknownCalls.Of(scope, heap);
+        var starts = calls.SelectMany(new WalkPerStart(scope, heap).StartsOf).Distinct().ToArray();
+
+        // Half the calls or starts asked, the walks let go of, then everything asked: the first half again and the rest anew.
+        CompareInCallOrder(scope, heap, [.. calls.Take(calls.Count / 2), .. calls], releaseAfter: calls.Count / 2);
+        CompareInOrder(scope, heap, [.. starts.Take(starts.Length / 2), .. starts], releaseAfter: starts.Length / 2);
     }
 
-    /// <summary>Asks a reach and the walks per start about each call in turn, then about each of its starts, and compares the answers
-    /// and the numbering.</summary>
+    [Fact]
+    public void A_component_passes_over_the_sets_a_set_it_took_holds_already_and_reaches_the_same()
+    {
+        var input = Input(Execute(Dense()));
+        var calls = UnknownCalls.Of(input.Scope, input.Heap);
+
+        var counts = CompareInCallOrder(input.Scope, input.Heap, calls);
+        Assert.NotEqual(0, counts["unions"]);
+        Assert.NotEqual(0, counts["skippedUnions"]);
+    }
+
+    [Fact]
+    public async Task The_search_after_collection_walks_no_start_the_search_before_walked_and_finds_the_gaps_a_reach_of_its_own_finds()
+    {
+        var input = Input(Execute(Cycles()));
+        var (walked, _) = CompareSharedSearches(input);
+        // Some components of the fixture reach sets no answer is: a reach that asked the search's calls and kept its walks holds more
+        // than the one the search let go of them in.
+        var kept = new UnknownCalls.Reach(input.Scope, input.Heap);
+        foreach (var call in UnknownCalls.Of(input.Scope, input.Heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED))
+            kept.BitsOf(call);
+        Assert.InRange(walked["reachWords"], 0, Counted(kept.Counts())["reachWords"] - 1);
+        await ParallelCollectionTests.ForEachDemoScope(scope => CompareSharedSearches(scope));
+    }
+
+    /// <summary>Asks a reach and the walks per start about each call in turn, then about each of its starts, and compares the answers,
+    /// the numbering and how many distinct answers there are.</summary>
     /// <param name="scope">The scope.</param>
     /// <param name="heap">The solved heap.</param>
     /// <param name="calls">The unknown calls, in the order they are asked about.</param>
-    private static void CompareInCallOrder(ScopeProgram scope, HeapSolution heap, IReadOnlyList<UnknownCall> calls)
+    /// <param name="releaseAfter">How many calls are asked before the reach lets go of its walks, or -1 for never.</param>
+    /// <returns>The reach's counters at the end.</returns>
+    private static Dictionary<string, long> CompareInCallOrder(ScopeProgram scope, HeapSolution heap, IReadOnlyList<UnknownCall> calls,
+                                                               int releaseAfter = -1)
     {
         var reach = new UnknownCalls.Reach(scope, heap);
         var reference = new WalkPerStart(scope, heap);
-        foreach (var call in calls)
+        for (var at = 0; at < calls.Count; at++)
         {
-            Assert.Equal(reference.Of(call), reach.Of(call).Regions.Order(StringComparer.Ordinal));
-            foreach (var (region, declaringTypeKey) in reference.StartsOf(call))
+            if (at == releaseAfter)
+                reach.ReleaseWalks();
+            Assert.Equal(reference.Of(calls[at]), reach.Of(calls[at]).Regions.Order(StringComparer.Ordinal));
+            foreach (var (region, declaringTypeKey) in reference.StartsOf(calls[at]))
                 Assert.Equal(reference.WalkOf(region, declaringTypeKey).Reached.Order(StringComparer.Ordinal),
                              reach.OfStart(region, declaringTypeKey).Order(StringComparer.Ordinal));
         }
         Assert.Equal(reference.Numbered, Enumerable.Range(0, reach.Numbered).Select(reach.RegionId));
+        var counts = Counted(reach.Counts());
+        Assert.Equal(reference.DistinctAnswers, counts["distinctReaches"]);
+        return counts;
     }
 
-    /// <summary>Asks a reach and the walks per start about starts in a given order, and compares the answers and the numbering.</summary>
+    /// <summary>Asks a reach and the walks per start about starts in a given order, and compares the answers, the numbering and how
+    /// many distinct answers there are.</summary>
     /// <param name="scope">The scope.</param>
     /// <param name="heap">The solved heap.</param>
     /// <param name="starts">The starts, in the order they are asked about.</param>
-    private static void CompareInOrder(ScopeProgram scope, HeapSolution heap, IReadOnlyList<(string Region, string? DeclaringTypeKey)> starts)
+    /// <param name="releaseAfter">How many starts are asked before the reach lets go of its walks, or -1 for never.</param>
+    private static void CompareInOrder(ScopeProgram scope, HeapSolution heap, IReadOnlyList<(string Region, string? DeclaringTypeKey)> starts,
+                                       int releaseAfter = -1)
     {
         var reach = new UnknownCalls.Reach(scope, heap);
         var reference = new WalkPerStart(scope, heap);
-        foreach (var (region, declaringTypeKey) in starts)
+        for (var at = 0; at < starts.Count; at++)
+        {
+            if (at == releaseAfter)
+                reach.ReleaseWalks();
+            var (region, declaringTypeKey) = starts[at];
             Assert.Equal(reference.WalkOf(region, declaringTypeKey).Reached.Order(StringComparer.Ordinal),
                          reach.OfStart(region, declaringTypeKey).Order(StringComparer.Ordinal));
+        }
         Assert.Equal(reference.Numbered, Enumerable.Range(0, reach.Numbered).Select(reach.RegionId));
+        Assert.Equal(reference.DistinctAnswers, Counted(reach.Counts())["distinctReaches"]);
     }
 
     /// <summary>Searches a scope for gaps before and after collection over one reach, as the collection does, and compares each search
-    /// with one over a reach of its own; the second search walks no start and makes no component the first did not.</summary>
+    /// with one over a reach of its own; the second search walks nothing, a call walked whole included, and the reach keeps no more
+    /// than after the first.</summary>
     /// <param name="input">The scope's input.</param>
-    private static void CompareSharedSearches(InterproceduralInput input)
+    /// <returns>The reach's counters after the first search and after the second.</returns>
+    private static (Dictionary<string, long> Walked, Dictionary<string, long> Again) CompareSharedSearches(InterproceduralInput input)
     {
         var accesses = InterproceduralAccesses.Collect(input, CancellationToken.None).Folded;
         var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
@@ -97,11 +148,13 @@ public sealed class UnknownReachComponentTests
         Assert.Equal(Describe(SemanticGaps.Find(input)), Describe(before));
         Assert.Equal(Describe(SemanticGaps.Find(input, accesses)), Describe(after));
         Assert.NotEqual(0, walked["calls"]);
-        Assert.Equal(walked["startWalks"], again["startWalks"]);
-        Assert.Equal(walked["components"], again["components"]);
-        Assert.Equal(walked["distinctReaches"], again["distinctReaches"]);
+        foreach (var unchanged in (string[])["startWalks", "components", "distinctReaches", "visits", "edges", "restrictedVisits", "unions",
+                                              "skippedUnions", "unionWords"])
+            Assert.Equal(walked[unchanged], again[unchanged]);
         Assert.Equal(2 * walked["calls"], again["calls"]);
         Assert.Equal(2 * walked["wholeCallWalks"], again["wholeCallWalks"]);
+        Assert.InRange(again["reachWords"], 0, walked["reachWords"]);
+        return (walked, again);
     }
 
     /// <summary>The counters of a reach's <c>Counts</c> line by name.</summary>
@@ -209,6 +262,57 @@ public sealed class UnknownReachComponentTests
         }
         """ + Startup("services.AddSingleton<Ring>(); services.AddSingleton<Side>(); services.AddHostedService<Worker>();");
 
+    /// <summary>A singleton <c>Hub</c> holding four leaves, and two singleton holders that each point to the hub and to the same four
+    /// leaves straight: a holder's component points to five components, and the hub's set holds the other four. A worker hands both
+    /// holders and the hub to unknown code.</summary>
+    private static string Dense() => """
+        public sealed class Leaf
+        {
+            public int Count;
+        }
+
+        public sealed class Hub
+        {
+            public int Mark;
+            public readonly Leaf A = new();
+            public readonly Leaf B = new();
+            public readonly Leaf C = new();
+            public readonly Leaf D = new();
+        }
+
+        public sealed class First(Hub hub)
+        {
+            public int Mark;
+            public readonly Hub Hub = hub;
+            public readonly Leaf A = hub.A;
+            public readonly Leaf B = hub.B;
+            public readonly Leaf C = hub.C;
+            public readonly Leaf D = hub.D;
+        }
+
+        public sealed class Second(Hub hub)
+        {
+            public int Mark;
+            public readonly Leaf D = hub.D;
+            public readonly Leaf C = hub.C;
+            public readonly Hub Hub = hub;
+            public readonly Leaf B = hub.B;
+            public readonly Leaf A = hub.A;
+        }
+
+        public sealed class Worker(First first, Second second, Hub hub) : BackgroundService
+        {
+            protected override Task ExecuteAsync(CancellationToken token)
+            {
+                System.Console.WriteLine(first);
+                System.Console.WriteLine(second);
+                System.Console.WriteLine(hub);
+                return Task.CompletedTask;
+            }
+        }
+        """ + Startup("services.AddSingleton<Hub>(); services.AddSingleton<First>(); services.AddSingleton<Second>(); " +
+                      "services.AddHostedService<Worker>();");
+
     /// <summary>The reach as it was walked before #468: each start on its own with a stack, a region's targets numbered the first time
     /// the region is stepped, a start's walk kept, and a call whose receiver seen through its declaring type meets itself walked whole,
     /// its starts in turn.</summary>
@@ -220,9 +324,13 @@ public sealed class UnknownReachComponentTests
         private readonly Dictionary<string, int> _numbers = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Step> _steps = new(StringComparer.Ordinal);
         private readonly Dictionary<(string, string?), (HashSet<string> Reached, bool MetItself)> _walks = [];
+        private readonly HashSet<string> _answers = new(StringComparer.Ordinal);
 
         /// <summary>The regions in the order they were numbered.</summary>
         public List<string> Numbered { get; } = [];
+
+        /// <summary>How many distinct sets the walks of starts and of calls walked whole reached.</summary>
+        public int DistinctAnswers => _answers.Count;
 
         /// <summary>The starts of a call, as the reach takes them: each value of each start resolved, in order.</summary>
         /// <param name="call">The call.</param>
@@ -366,6 +474,7 @@ public sealed class UnknownReachComponentTests
 
             if (starts.Count == 1)
                 _walks.Add(starts[0], (reached, metItself));
+            _answers.Add(string.Join(",", reached.Order(StringComparer.Ordinal)));
             return (reached, metItself);
         }
 

@@ -515,7 +515,7 @@ public static class UnknownCalls
         /// the unknown effects of many calls, so each start's reach is worked out once and kept, and a call joins its starts' (#462). The
         /// one walk of a call's starts in turn reads alike, but for a receiver seen through its declaring type that its own walk meets
         /// again: that walk stops there, and the receiver stays unseen whole for a later start of the call too. Such a call is walked
-        /// whole, its starts in turn (<see cref="Walk"/>).</summary>
+        /// whole, its starts in turn (<see cref="Walk"/>), once for the same starts in the same order.</summary>
         /// <param name="call">The unknown call whose reach is computed.</param>
         internal (ulong[] Regions, bool TakesDelegate) BitsOf(UnknownCall call)
         {
@@ -543,7 +543,10 @@ public static class UnknownCalls
             if (metItself && starts.Count > 1)
             {
                 _wholeWalks++;
-                reached = Walk(starts).Reached;
+                var key = string.Join(' ', starts.Select(start => $"{start.Region}:{start.DeclaringTypeKey}"));
+                if (!_callWalks.TryGetValue(key, out var whole))
+                    _callWalks.Add(key, whole = Walk(starts));
+                reached = whole.Reached;
             }
 
             return (reached, Delegates(call).Any());
@@ -578,11 +581,12 @@ public static class UnknownCalls
         /// walked whole, the regions numbered, the region visits all walks made, the distinct answers of starts and whole calls, the
         /// strongly connected components worked out, the slots' targets the walks followed, the visits of those walks of receivers seen
         /// through their declaring type that went region by region (<see cref="RestrictedWalk"/>), and the words of every distinct set
-        /// of regions it keeps.</summary>
+        /// of regions it keeps now; then the sets of components added to another, the sets passed over because a region with state of
+        /// their component showed them held already, and the words the added ones went through (<see cref="TakeReach"/>).</summary>
         internal string Counts() =>
             $"calls={_calls} startWalks={_walks.Count} wholeCallWalks={_wholeWalks} regions={_regionIds.Count} visits={_visits} " +
-            $"distinctReaches={_answers.Count} components={_componentReaches.Count} edges={_edges} restrictedVisits={_restrictedVisits} " +
-            $"reachWords={_reaches.Keys.Sum(bits => (long)bits.Length)}";
+            $"distinctReaches={_answers.Count} components={_components} edges={_edges} restrictedVisits={_restrictedVisits} " +
+            $"reachWords={_reaches.Keys.Sum(bits => (long)bits.Length)} unions={_unions} skippedUnions={_skippedUnions} unionWords={_unionWords}";
 
         /// <summary>The reach of one start, worked out the first time it is asked for: a region seen whole reaches what its strongly
         /// connected component reaches, and a receiver seen through its declaring type is walked from the slots that type shows.</summary>
@@ -709,19 +713,28 @@ public static class UnknownCalls
             }
             while (member != root);
 
+            // The components it points to are taken by the one that keeps their array: components that reach the same keep one.
             var reached = Bits.EMPTY;
+            var marked = -1;
             var below = new List<int>();
             foreach (var region in members)
             {
                 WorkCancellation.Check();
                 var step = _steps[region]!;
                 if (!step.IsImmutable && step.Captures is null && (step.IsCollection || step.HasState))
+                {
                     Bits.Add(ref reached, region);
+                    if (marked < 0)
+                        marked = region;
+                }
                 foreach (var successor in step.Captures ?? step.Slots.SelectMany(slot => slot.Targets))
                 {
                     WorkCancellation.Check();
                     var other = _componentOf[successor];
-                    if (other != component && _stamps[other] != component)
+                    if (other == component)
+                        continue;
+                    other = _keepers[other];
+                    if (_stamps[other] != component)
                     {
                         _stamps[other] = component;
                         below.Add(other);
@@ -730,19 +743,113 @@ public static class UnknownCalls
             }
 
             // A component with no state of its own that points to one other component reaches what that one does, in the same array.
-            if (below.Count == 1 && Bits.IsEmpty(reached))
+            if (below.Count == 1 && marked < 0)
                 reached = _componentReaches[below[0]];
             else
             {
+                // A component completes after every component it reaches, so one with a higher number may reach one with a lower,
+                // never the reverse: taken highest first, a set covers the components it reaches before they come, and they are passed
+                // over (Nuutila). What is reached is the same in any order.
+                below.Sort((first, second) => second.CompareTo(first));
                 foreach (var other in below)
                 {
                     WorkCancellation.Check();
-                    Bits.UnionWith(ref reached, _componentReaches[other]);
+                    TakeReach(ref reached, other);
                 }
                 reached = Keep(reached);
             }
+
             _componentReaches.Add(reached);
             _stamps.Add(-1);
+            _firstWords.Add(FirstWord(reached));
+            if (_keeperOf.TryGetValue(reached, out var keeper))
+            {
+                // A region with state of a component reaching the same regions shows that set covered as well as the keeper's does.
+                if (marked >= 0 && _representatives[keeper] < 0)
+                    _representatives[keeper] = marked;
+            }
+            else
+                _keeperOf.Add(reached, keeper = component);
+            _keepers.Add(keeper);
+            _representatives.Add(marked);
+            _components++;
+        }
+
+        /// <summary>
+        /// Adds what a complete component reaches to a set being made of the sets of complete components, unless the set holds it
+        /// already: the component reaches nothing, or the set holds a region with state of the component — a region that only a set of a
+        /// component reaching it holds, and that set holds everything the component reaches. The words before the first that holds a
+        /// region are not read.
+        /// </summary>
+        /// <param name="reached">The set being made, changed in place.</param>
+        /// <param name="component">The number of the component that keeps the array to add (<see cref="_keepers"/>).</param>
+        private void TakeReach(ref ulong[] reached, int component)
+        {
+            var reach = _componentReaches[component];
+            var first = _firstWords[component];
+            if (first >= reach.Length)
+                return;
+            if (_representatives[component] is >= 0 and var shown && Bits.Contains(reached, shown))
+            {
+                _skippedUnions++;
+                return;
+            }
+            Bits.UnionWith(ref reached, reach, first);
+            _unions++;
+            _unionWords += reach.Length - first;
+        }
+
+        /// <summary>The first word of a set that holds a number, or its length when none does.</summary>
+        /// <param name="set">The set.</param>
+        private static int FirstWord(ulong[] set)
+        {
+            var first = 0;
+            // bounded: one pass over the set's words, at most the reach's numbering over 64.
+            while (first < set.Length && set[first] == 0)
+                first++;
+            return first;
+        }
+
+        /// <summary>
+        /// Lets go of what only the walks need — the components, what each reaches, the walk of components and the steps of the regions —
+        /// and keeps the numbering, the answers of the starts and of the calls walked whole and the counters. A later search for gaps over
+        /// the same calls asks only for those answers (<see cref="SemanticGaps.Find"/>), so it walks nothing. A start asked later is walked
+        /// from the heap again, as the first time.
+        /// </summary>
+        internal void ReleaseWalks()
+        {
+            WorkCancellation.Check();
+            _steps.Clear();
+            _steps.TrimExcess();
+            _componentOf.Clear();
+            _componentOf.TrimExcess();
+            _order.Clear();
+            _order.TrimExcess();
+            _low.Clear();
+            _low.TrimExcess();
+            _open.Clear();
+            _open.TrimExcess();
+            _opened = 0;
+            _componentReaches.Clear();
+            _componentReaches.TrimExcess();
+            _stamps.Clear();
+            _stamps.TrimExcess();
+            _firstWords.Clear();
+            _firstWords.TrimExcess();
+            _keepers.Clear();
+            _keepers.TrimExcess();
+            _representatives.Clear();
+            _representatives.TrimExcess();
+            _keeperOf.Clear();
+            _keeperOf.TrimExcess();
+            // The answers stay the one copy of their sets, so an equal set a later walk reaches is the same answer.
+            _reaches.Clear();
+            _reaches.TrimExcess();
+            foreach (var answer in _answers)
+            {
+                WorkCancellation.Check();
+                _reaches.Add(answer, answer);
+            }
         }
 
         /// <summary>
@@ -793,7 +900,7 @@ public static class UnknownCalls
                     continue;
                 if (ComponentOf(region) is >= 0 and var component && component != startComponent)
                 {
-                    Bits.UnionWith(ref reached, _componentReaches[component]);
+                    TakeReach(ref reached, _keepers[component]);
                     continue;
                 }
 
@@ -967,10 +1074,18 @@ public static class UnknownCalls
         private readonly List<int> _low = [];
         private readonly Stack<int> _open = new();
         private int _opened;
-        // By component: what it reaches, and the last component that took it as one it points to.
+        // By component: what it reaches, the last component that took it as one it points to, the first word of what it reaches that
+        // holds a region, the component that keeps that array, and a region with state of it, or -1 when it has none.
         private readonly List<ulong[]> _componentReaches = [];
         private readonly List<int> _stamps = [];
-        private long _calls, _wholeWalks, _visits, _edges, _restrictedVisits;
+        private readonly List<int> _firstWords = [];
+        private readonly List<int> _keepers = [];
+        private readonly List<int> _representatives = [];
+        // The component that keeps each array components reach: the first that reached it.
+        private readonly Dictionary<ulong[], int> _keeperOf = new(ReferenceEqualityComparer.Instance);
+        // The walks of calls walked whole, by their starts in turn.
+        private readonly Dictionary<string, Walked> _callWalks = new(StringComparer.Ordinal);
+        private long _calls, _wholeWalks, _visits, _edges, _restrictedVisits, _components, _unions, _skippedUnions, _unionWords;
 
         /// <summary>A region no walk of components has met.</summary>
         private const int UNSEEN = -1;

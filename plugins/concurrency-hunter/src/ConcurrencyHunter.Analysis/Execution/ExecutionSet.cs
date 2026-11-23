@@ -337,6 +337,20 @@ internal static class Bits
 
         return changed;
     }
+
+    /// <summary>Adds every number of a source to a set, reading the source from a word on: the words before it hold no number. The
+    /// caller checks for cancellation between sets; one pass over the words of a set does not.</summary>
+    /// <param name="set">The set, changed in place.</param>
+    /// <param name="source">The numbers to add.</param>
+    /// <param name="from">The first word of the source that may hold a number.</param>
+    internal static void UnionWith(ref ulong[] set, ulong[] source, int from)
+    {
+        if (set.Length < source.Length)
+            Array.Resize(ref set, source.Length);
+        // bounded: one pass over the source's words, at most its length.
+        for (var index = from; index < source.Length; index++)
+            set[index] |= source[index];
+    }
 }
 
 /// <summary>A list per execution, worked out when an execution is asked for: what one execution's visits, steps or entries are, read
