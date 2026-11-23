@@ -216,5 +216,6 @@ sort in `CodeFlow`).
   share holds over 17,442 executions, the scope makes about two thousand million copies, and one `AccessExecution` is
   24 bytes. This is a projection from two controllers. The `gaps:` counter replaces it with a number, and if the number
   is of that order, option C2 is the next decision, with a new definition of an access's position.
+  [ADR 0042](0042-an-access-keeps-its-executions-as-a-set-and-what-executions-share-is-walked-once.md) decides option C.
 - **#469 and #470.** #470 is on the path that emits, which this decision leaves, and is done beside it. #469 is
   remeasured afterwards: its lookups are made inside the repeated rows.
