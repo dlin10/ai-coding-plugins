@@ -47,8 +47,10 @@ internal sealed record StoragePath(IReadOnlyList<IrFieldRef> Fields, int Cell, s
 }
 
 /// <summary>What an access touches. <see cref="Identity"/> joins the scope, assembly, region identity (<see cref="RegionId"/>, which carries
-/// the region's context), member key and the struct fields below it and is what pairing, grouping and stable ids use; <see cref="Region"/>
-/// and <see cref="AccessPath"/> keep the display format. A wildcard resource has the path <c>*</c> and the member key <c>*</c>.</summary>
+/// the region's context), member key and the struct fields below it, and is what pairing and grouping tell resources apart by: they
+/// compare the numbers of those parts (<see cref="KeyIn"/>, <see cref="SameIdentity"/>) and order by the text without joining it
+/// (<see cref="IDENTITY_ORDER"/>), so that no resource keeps the text (issue 474). <see cref="Region"/> and <see cref="AccessPath"/> keep
+/// the display format. A wildcard resource has the path <c>*</c> and the member key <c>*</c>.</summary>
 /// <param name="Assembly">The assembly that declares the member.</param>
 /// <param name="Scope">The scope the access was collected in.</param>
 /// <param name="Region">The region's display, such as <c>alloc:</c>, <c>static:</c>, <c>di:</c> or <c>closure:</c>.</param>
@@ -83,67 +85,174 @@ public sealed record AccessResource(string Assembly, string Scope, string Region
     public string? CollectionId { get; init; }
 
     /// <summary>The collection itself, without the cell: what the candidate index groups by, so that a cell nothing proves apart
-    /// still meets every cell it may be (TD-075).</summary>
-    public string StructuralIdentity => Identities().Structural;
+    /// still meets every cell it may be (TD-075). It is joined anew on every read, for the report and tests; the analysis compares
+    /// <see cref="ResourceKey.Structural"/> instead.</summary>
+    public string StructuralIdentity =>
+        (CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}") + PathText();
 
-    public string Identity => Identities().Identity;
+    /// <summary>The resource's identity: <see cref="StructuralIdentity"/>, then the cell where there is one. It is joined anew on every
+    /// read, for the report and tests; the analysis compares <see cref="KeyIn"/>'s key or <see cref="SameIdentity"/> and orders by
+    /// <see cref="IDENTITY_ORDER"/>.</summary>
+    public string Identity => Selector is null ? StructuralIdentity : $"{StructuralIdentity}|{Selector.Text}";
 
-    /// <summary>The identities last worked out, with what they were worked out from. A copy <c>with</c> makes shares the cell, and works
-    /// them out again where it differs in any of those; every cell is equal to every other, so the record's equality never reads it.</summary>
-    private readonly IdentityCell _identities = new();
+    /// <summary>How many parts <see cref="Part"/> lists.</summary>
+    private const int PARTS = 7;
 
-    /// <summary>Both identities, worked out once for the values they read and kept with them.</summary>
-    private ResourceIdentities Identities()
+    /// <summary>The struct fields below the member as <see cref="Identity"/> names them; empty where there are none.</summary>
+    private string PathText() => StructPath.Count == 0 ? string.Empty : string.Concat(StructPath.Select(member => $"/{member.Identity}"));
+
+    /// <summary>A part <see cref="Identity"/> is joined from, null where the resource has none: the scope; the collection; for a resource
+    /// of no collection the assembly, the region's identity (its display where it has none) and the member's identity; the struct fields
+    /// below, as the text names them; the cell's text. <see cref="KeyIn"/> numbers these parts and <see cref="SameIdentity"/> compares
+    /// them, so the two read one list.</summary>
+    /// <param name="index">The part's place, from 0 to <see cref="PARTS"/> − 1.</param>
+    private string? Part(int index) => index switch
     {
-        var known = _identities.Known;
-        if (known is not null && known.Reads(this))
-            return known;
-        var structural =
-            (CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}") +
-            string.Concat(StructPath.Select(member => $"/{member.Identity}"));
-        known = new ResourceIdentities(CollectionId, Scope, Assembly, RegionId, Region, Member, StructPath, Selector, structural,
-                                       Selector is null ? structural : $"{structural}|{Selector.Text}");
-        _identities.Known = known;
-        return known;
+        0 => Scope,
+        1 => CollectionId,
+        2 => CollectionId is null ? Assembly : null,
+        3 => CollectionId is null ? RegionId ?? Region : null,
+        4 => CollectionId is null ? Member.Identity : null,
+        5 => StructPath.Count == 0 ? null : PathText(),
+        _ => Selector?.Text
+    };
+
+    /// <summary>The key of <see cref="Identity"/> in a table of numbers: the number of each of its parts, so that a key is made without
+    /// joining the text and compares and hashes without reading a string (<see cref="ResourceKey"/>).</summary>
+    /// <param name="numbers">The table the parts are numbered in; two keys tell resources apart only when made in one table.</param>
+    internal ResourceKey KeyIn(TextNumbers numbers) =>
+        new(NumberOf(numbers, 0), NumberOf(numbers, 1), NumberOf(numbers, 2), NumberOf(numbers, 3), NumberOf(numbers, 4), NumberOf(numbers, 5),
+            NumberOf(numbers, 6));
+
+    /// <summary>The number of one part of the identity, <see cref="ResourceKey.NONE"/> where the resource has none.</summary>
+    /// <param name="numbers">The table the part is numbered in.</param>
+    /// <param name="index">The part's place (<see cref="Part"/>).</param>
+    private int NumberOf(TextNumbers numbers, int index) => Part(index) is { } part ? numbers.Of(part) : ResourceKey.NONE;
+
+    /// <summary>Whether two resources have one identity: their parts compared one by one, as <see cref="KeyIn"/> numbers them, where no
+    /// table of numbers is at hand (the candidate index's rule, the findings and the report). A later part is worked out only where
+    /// every earlier one agrees.</summary>
+    /// <param name="one">One resource.</param>
+    /// <param name="other">The other resource.</param>
+    internal static bool SameIdentity(AccessResource one, AccessResource other)
+    {
+        if (ReferenceEquals(one, other))
+            return true;
+        // bounded: the seven parts of an identity, each worked out once.
+        for (var index = 0; index < PARTS; index++)
+        {
+            if (!string.Equals(one.Part(index), other.Part(index), StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
-    /// <summary>Where a resource keeps its identities; equal to every other cell, so that it is no part of the resource's value.</summary>
-    private sealed class IdentityCell
+    /// <summary>Resources in the ordinal order of their <see cref="Identity"/>, read from the strings the text is joined from without
+    /// joining it: the order the candidate index enumerates its buckets in and the solver spends its budget in (issue 474).</summary>
+    internal static readonly IComparer<AccessResource> IDENTITY_ORDER = Comparer<AccessResource>.Create(CompareIdentities);
+
+    /// <summary>How two identities compare, as <see cref="string.CompareOrdinal(string, string)"/> compares their texts: the strings
+    /// each text is joined from (<see cref="Segment"/>) are read in turn, and each step compares the rest of the current string of one
+    /// side with as much of the other side's.</summary>
+    /// <param name="one">One resource.</param>
+    /// <param name="other">The other resource.</param>
+    private static int CompareIdentities(AccessResource? one, AccessResource? other)
     {
-        /// <summary>The identities last worked out, replaced whole, so that a reader on another thread sees one set or the other.</summary>
-        internal volatile ResourceIdentities? Known;
-
-        public override bool Equals(object? obj) => obj is IdentityCell;
-
-        public override int GetHashCode() => 0;
+        if (ReferenceEquals(one, other))
+            return 0;
+        if (one is null || other is null)
+            return one is null ? -1 : 1;
+        var (oneCount, otherCount) = (one.SegmentCount, other.SegmentCount);
+        var (oneAt, otherAt) = (0, 0);
+        ReadOnlySpan<char> oneRest = default;
+        ReadOnlySpan<char> otherRest = default;
+        // bounded: each step reads at least one character of each text or returns, so it ends within the shorter text.
+        while (true)
+        {
+            // bounded: each turn takes the next of the side's strings, of which there are SegmentCount.
+            while (oneRest.IsEmpty && oneAt < oneCount)
+                oneRest = one.Segment(oneAt++);
+            // bounded: each turn takes the next of the side's strings, of which there are SegmentCount.
+            while (otherRest.IsEmpty && otherAt < otherCount)
+                otherRest = other.Segment(otherAt++);
+            if (oneRest.IsEmpty || otherRest.IsEmpty)
+                return oneRest.IsEmpty ? otherRest.IsEmpty ? 0 : -1 : 1;
+            var length = Math.Min(oneRest.Length, otherRest.Length);
+            var order = oneRest[..length].SequenceCompareTo(otherRest[..length]);
+            if (order != 0)
+                return order;
+            oneRest = oneRest[length..];
+            otherRest = otherRest[length..];
+        }
     }
 
-    /// <summary>The identities of a resource, with the values of it they were worked out from.</summary>
-    /// <param name="CollectionId">The resource's collection.</param>
-    /// <param name="Scope">Its scope.</param>
-    /// <param name="Assembly">Its assembly.</param>
-    /// <param name="RegionId">Its region's identity.</param>
-    /// <param name="Region">Its region's display.</param>
-    /// <param name="Member">Its member.</param>
-    /// <param name="StructPath">The struct fields below its member.</param>
-    /// <param name="Selector">Its cell.</param>
-    /// <param name="Structural">The structural identity those give.</param>
-    /// <param name="Identity">The identity those give.</param>
-    private sealed record ResourceIdentities(string? CollectionId, string Scope, string Assembly, string? RegionId, string Region, MemberKey Member,
-                                             IReadOnlyList<MemberKey> StructPath, ElementSelector? Selector, string Structural, string Identity)
+    /// <summary>How many strings <see cref="Segment"/> lists: the head, six for each struct field below and two for a cell.</summary>
+    private int SegmentCount => (CollectionId is null ? 11 : 3) + 6 * StructPath.Count + (Selector is null ? 0 : 2);
+
+    /// <summary>The strings <see cref="Identity"/> is joined from, in order: the scope, a bar and the collection, or the scope, the
+    /// assembly, the region and the member's five strings (<see cref="MemberSegment"/>) with a bar between each; for each struct field
+    /// below a slash and its five strings; for a cell a bar and its text.</summary>
+    /// <param name="index">The string's place, from 0 to <see cref="SegmentCount"/> − 1.</param>
+    private string Segment(int index)
     {
-        /// <summary>Whether a resource holds the very values these were worked out from; a member key is a record whose identity is
-        /// worked out from its own values, so it is compared by value.</summary>
-        /// <param name="resource">The resource.</param>
-        internal bool Reads(AccessResource resource) =>
-            ReferenceEquals(CollectionId, resource.CollectionId) && ReferenceEquals(Scope, resource.Scope) &&
-            ReferenceEquals(Assembly, resource.Assembly) && ReferenceEquals(RegionId, resource.RegionId) &&
-            ReferenceEquals(Region, resource.Region) && Member == resource.Member && ReferenceEquals(StructPath, resource.StructPath) &&
-            ReferenceEquals(Selector, resource.Selector);
+        var head = CollectionId is null ? 11 : 3;
+        if (index < head)
+        {
+            return CollectionId is { } collection
+                ? index switch { 0 => Scope, 1 => "|", _ => collection }
+                : index switch { 0 => Scope, 1 or 3 or 5 => "|", 2 => Assembly, 4 => RegionId ?? Region, _ => MemberSegment(Member, index - 6) };
+        }
+
+        index -= head;
+        if (index < 6 * StructPath.Count)
+            return index % 6 == 0 ? "/" : MemberSegment(StructPath[index / 6], index % 6 - 1);
+        return index == 6 * StructPath.Count ? "|" : Selector!.Text;
     }
+
+    /// <summary>The strings <see cref="MemberKey.Identity"/> is joined from: the declaring type's identity, a dot, the name, a colon and
+    /// the kind.</summary>
+    /// <param name="member">The member.</param>
+    /// <param name="index">The string's place, from 0 to 4.</param>
+    private static string MemberSegment(MemberKey member, int index) => index switch
+    {
+        0 => member.DeclaringTypeIdentity ?? member.DeclaringType,
+        1 => ".",
+        2 => member.Name,
+        3 => ":",
+        _ => member.Kind switch
+        {
+            IrFieldKind.Field => nameof(IrFieldKind.Field),
+            IrFieldKind.PropertyBackingField => nameof(IrFieldKind.PropertyBackingField),
+            IrFieldKind.PrimaryConstructorParameter => nameof(IrFieldKind.PrimaryConstructorParameter),
+            _ => member.Kind.ToString()
+        }
+    };
 
     /// <summary>The region's context-free identity (R6), which fingerprints hash; the region identity when none was given.</summary>
     public string RegionKey { get => field ?? RegionId ?? Region; init; }
+}
+
+/// <summary>A resource's identity as the numbers of the parts its text is joined from (<see cref="AccessResource.KeyIn"/>, issue 474): the
+/// scope; the collection, or the assembly, the region and the member; the struct fields below; the cell. Equal keys are equal texts. The
+/// converse holds as long as no part, joined to its neighbours, reads as another split of the same text, which
+/// <c>ResourceKeyTests</c> checks on the demo and on a fixture. A number is a <see cref="TextNumbers"/> number, so a key is compared and
+/// hashed and never ordered: <see cref="AccessResource.IDENTITY_ORDER"/> orders resources by their text.</summary>
+/// <param name="Scope">The number of the scope.</param>
+/// <param name="Collection">The number of the collection; <see cref="NONE"/> for a resource of no collection.</param>
+/// <param name="Assembly">The number of the assembly; <see cref="NONE"/> for a collection's resource.</param>
+/// <param name="Region">The number of the region's identity, or of its display where it has none; <see cref="NONE"/> for a collection's
+/// resource.</param>
+/// <param name="Member">The number of the member's identity; <see cref="NONE"/> for a collection's resource.</param>
+/// <param name="StructPath">The number of the struct fields below, as the text names them; <see cref="NONE"/> for none.</param>
+/// <param name="Selector">The number of the cell's text; <see cref="NONE"/> for none.</param>
+internal readonly record struct ResourceKey(int Scope, int Collection, int Assembly, int Region, int Member, int StructPath, int Selector)
+{
+    /// <summary>The number of a part the resource does not have.</summary>
+    internal const int NONE = -1;
+
+    /// <summary>The key of <see cref="AccessResource.StructuralIdentity"/>: the collection itself, without the cell.</summary>
+    internal ResourceKey Structural => this with { Selector = NONE };
 }
 
 /// <summary>The root an access runs under. A construction or type-initializer execution, which has no root, is described as one:

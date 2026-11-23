@@ -108,8 +108,8 @@ internal static class ConflictFindings
                 groupFindings.Add(BuildFinding(item, groupId, $"F{findings.Count + groupFindings.Count + 1}", ordinals) with { GroupFingerprint = groupFingerprint });
             }
             findings.AddRange(groupFindings);
-            var owner = first.AccessB.Resource.Identity == first.Resource.Identity ? first.AccessB : first.AccessA;
-            owner = first.AccessA.Resource.Identity == first.Resource.Identity ? first.AccessA : owner;
+            var owner = AccessResource.SameIdentity(first.AccessB.Resource, first.Resource) ? first.AccessB : first.AccessA;
+            owner = AccessResource.SameIdentity(first.AccessA.Resource, first.Resource) ? first.AccessA : owner;
             findingGroups.Add(new FindingGroup(groupId, groupFingerprint, first.Key.Rule, HighestConfidence(groupFindings),
                                                groupFindings[0].Resource, owner.Ownership, owner.OwnershipEvidence,
                                                groupFindings.Select(finding => finding.FindingId).ToArray())
@@ -421,8 +421,11 @@ internal static class ConflictFindings
 
     /// <summary>The access whose resource is the one the pair is reported on, whose region's ownership the evidence names; an
     /// open-region pair is reported on the closed side's resource.</summary>
+    /// <param name="resource">The resource the pair is reported on.</param>
+    /// <param name="accessA">The pair's first access.</param>
+    /// <param name="accessB">The pair's second access.</param>
     private static Access ResourceAccess(AccessResource resource, Access accessA, Access accessB) =>
-        accessA.Resource.Identity != resource.Identity && accessB.Resource.Identity == resource.Identity ? accessB : accessA;
+        !AccessResource.SameIdentity(accessA.Resource, resource) && AccessResource.SameIdentity(accessB.Resource, resource) ? accessB : accessA;
 
     private static string Ownership(Access access) =>
         access.OwnershipEvidence.Count == 0

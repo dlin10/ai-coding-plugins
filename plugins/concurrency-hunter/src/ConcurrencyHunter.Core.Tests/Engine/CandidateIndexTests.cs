@@ -37,25 +37,34 @@ public sealed class CandidateIndexTests
         Assert.Equal([(0, 0), (1, 1)], Keys(Enumerate(Heap(Static("a")), accesses), accesses));
     }
 
-    /// <summary>A resource keeps its identities once worked out: a copy that changes what they read gives its own, one that changes
-    /// nothing they read gives the same, and a resource whose identities were worked out equals one whose were not.</summary>
+    /// <summary>A resource works its identities and their key out of its values on every read (issue 474): a copy that changes what they
+    /// read gives its own, one that changes nothing they read gives the same, and two resources built from the same values are
+    /// equal.</summary>
     [Fact]
-    public void A_resource_keeps_its_identities_and_a_copy_works_out_its_own()
+    public void A_resource_works_out_its_identities_from_its_values_and_a_copy_gives_its_own()
     {
         var resource = Write("a", "X").Resource;
         var identity = resource.Identity;
+        var numbers = new TextNumbers();
+        var key = resource.KeyIn(numbers);
 
-        Assert.Same(identity, resource.Identity);
-        Assert.Same(resource.StructuralIdentity, resource.StructuralIdentity);
-        Assert.Equal($"{resource.StructuralIdentity}|[3]", (resource with { Selector = ElementSelector.Exact(3) }).Identity);
+        Assert.Equal(identity, resource.Identity);
+        Assert.Equal(identity, resource.StructuralIdentity);
+        var cell = resource with { Selector = ElementSelector.Exact(3) };
+        Assert.Equal($"{resource.StructuralIdentity}|[3]", cell.Identity);
+        Assert.NotEqual(key, cell.KeyIn(numbers));
+        Assert.Equal(key, cell.KeyIn(numbers).Structural);
         Assert.Equal(identity.Replace(SCOPE, "scope:Other", StringComparison.Ordinal), (resource with { Scope = "scope:Other" }).Identity);
+        Assert.NotEqual(key, (resource with { Scope = "scope:Other" }).KeyIn(numbers));
         Assert.Equal(identity + "/Fixture:Inner.Y:Field",
                      (resource with { StructPath = [new MemberKey("Fixture:Inner", "Y", IrFieldKind.Field)] }).Identity);
         Assert.Equal(identity, (resource with { AccessPath = ["Z"] }).Identity);
+        Assert.Equal(key, (resource with { AccessPath = ["Z"] }).KeyIn(numbers));
         // Built from the very values, the lists included, which the record compares by reference.
         var untouched = new AccessResource(resource.Assembly, resource.Scope, resource.Region, resource.AccessPath, resource.Member, resource.RegionId);
         Assert.Equal(untouched, resource);
         Assert.Equal(untouched.GetHashCode(), resource.GetHashCode());
+        Assert.True(AccessResource.SameIdentity(untouched, resource));
     }
 
     [Fact]

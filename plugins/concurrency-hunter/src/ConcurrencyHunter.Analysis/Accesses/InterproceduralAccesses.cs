@@ -1378,7 +1378,7 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The storage each access of an instance reads or writes as a value lives in (<see cref="ValueResources"/>).</summary>
         private readonly ConcurrentDictionary<MethodInstance, ConcurrentDictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources = shares.ValueResources;
-        private readonly Dictionary<AccessResource, NumberedText> _identities = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<AccessResource, ResourceKey> _identities = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
         private readonly Dictionary<MethodInstance, Dictionary<IrCallOperation, string[]>> _liftedCallees = new(ReferenceEqualityComparer.Instance);
@@ -2677,7 +2677,7 @@ public static partial class InterproceduralAccesses
         /// hashes no string (issue 464).</summary>
         /// <param name="Body">The number of the body making the access.</param>
         /// <param name="Operation">The access's operation.</param>
-        /// <param name="Resource">The number of the identity of the resource it touches.</param>
+        /// <param name="Resource">The key of the identity of the resource it touches (<see cref="AccessResource.KeyIn"/>).</param>
         /// <param name="Kind">What it does to the resource.</param>
         /// <param name="Local">Whether it is construction-local.</param>
         /// <param name="Held">The number of the protections it holds, as one key.</param>
@@ -2685,13 +2685,8 @@ public static partial class InterproceduralAccesses
         /// <param name="Term">The number of the expression naming its cell.</param>
         /// <param name="Fresh">Whether this observation reaches a fresh object's own field.</param>
         /// <param name="LibraryInternal">Whether a library body touches a library-internal object.</param>
-        private readonly record struct EmittedKey(int Body, int Operation, int Resource, AccessOperation Kind, bool Local, int Held, int Root,
+        private readonly record struct EmittedKey(int Body, int Operation, ResourceKey Resource, AccessOperation Kind, bool Local, int Held, int Root,
                                                   int Term, bool Fresh, bool LibraryInternal);
-
-        /// <summary>A string and its number (<see cref="TextNumbers"/>).</summary>
-        /// <param name="Text">The string.</param>
-        /// <param name="Number">Its number.</param>
-        private readonly record struct NumberedText(string Text, int Number);
 
         /// <summary>The locks an operation holds, with the number of the key the emission tells their protections apart by.</summary>
         /// <param name="Held">The locks.</param>
@@ -2796,7 +2791,7 @@ public static partial class InterproceduralAccesses
             // one, only the load of the instance that feeds the write, since another instance of that body still reads; and the stores
             // whose compare-and-swap checks the cell against what the value it writes was read from. That, and not the name of the
             // member called, is what makes the sequence around it as atomic as the call itself (R1).
-            var feeds = new Dictionary<(int Instance, int Operation, int Resource), Feed>();
+            var feeds = new Dictionary<(int Instance, int Operation, ResourceKey Resource), Feed>();
             // The reference loads folded into a write: the place nothing proves among theirs is the write's to count, as it is for
             // `r += 1` (R1, R3).
             var foldedReferences = new HashSet<(string Instance, int Operation)>();
@@ -2833,11 +2828,9 @@ public static partial class InterproceduralAccesses
                     foreach (var resource in store.Resources)
                     {
                         CheckCancellation();
-                        var identity = resource.Identity;
-                        var identityNumber = shares.Numbers.Of(identity);
-                        var structuralIdentity = store.IsCompound ? resource.StructuralIdentity : null;
+                        var identity = IdentityOf(resource);
                         if (observed)
-                            FeedOf(instance, store.OperationId, identityNumber).Verified = true;
+                            FeedOf(instance, store.OperationId, identity).Verified = true;
 
                         foreach (var (loadInstanceId, loadOperation) in loads.OrderBy(load => load.Instance, StringComparer.Ordinal).ThenBy(load => load.Operation))
                         {
@@ -2854,21 +2847,21 @@ public static partial class InterproceduralAccesses
                                                     .Where(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
                                                     .SelectMany(load => Resources(loadInstance, load))
                                                     .Concat(loadReferences.SelectMany(load => ReferenceResources(loadInstance, load)))
-                                                    .Where(candidate => candidate.Identity == identity ||
-                                                                        store.IsCompound && candidate.StructuralIdentity == structuralIdentity)
+                                                    .Where(candidate => IdentityOf(candidate) is var key &&
+                                                                        (key == identity || store.IsCompound && key.Structural == identity.Structural))
                                                     .ToArray();
                             if (reads.Length == 0)
                                 continue;
 
-                            var feed = FeedOf(instance, store.OperationId, identityNumber);
+                            var feed = FeedOf(instance, store.OperationId, identity);
                             var list = feed.Sources ??= [];
                             if (!list.Contains((loadInstanceId, loadOperation)))
                                 list.Add((loadInstanceId, loadOperation));
                             // Only a read of the very resource the change is on is folded into it; a check of another resource
                             // stays an access of its own.
-                            if (reads.Any(candidate => candidate.Identity == identity))
+                            if (reads.Any(candidate => IdentityOf(candidate) == identity))
                             {
-                                FeedOf(loadInstance, loadOperation, identityNumber).Dropped = true;
+                                FeedOf(loadInstance, loadOperation, identity).Dropped = true;
                                 if (loadReferences.Length != 0)
                                 {
                                     foldedReferences.Add((loadInstance.Id, loadOperation));
@@ -3119,8 +3112,8 @@ public static partial class InterproceduralAccesses
                     {
                         CheckCancellation();
                         Counters.Rows++;
-                        var (identity, identityNumber) = isStable ? IdentityOf(original) : Numbered(original.Identity);
-                        var feed = feeds.GetValueOrDefault((NumberOf(instance).Id, access.OperationId, identityNumber));
+                        var identity = isStable ? IdentityOf(original) : original.KeyIn(shares.Numbers);
+                        var feed = feeds.GetValueOrDefault((NumberOf(instance).Id, access.OperationId, identity));
                         if (access.Kind == SummaryAccessKind.Load && feed is { Dropped: true })
                             continue;
                         if (access.InterfaceReceiver is { } receiver && original.Storage is { } loaded &&
@@ -3173,7 +3166,7 @@ public static partial class InterproceduralAccesses
                         var isLibraryInternal = input.Scope.Reachable.Admission?.IsLibraryBody(instance.BodyId) == true &&
                                                 touched is not null && libraryInternal?.IsInternal(touched) == true;
                         var ownership = regionFacts.Ownership;
-                        var resourceNumber = ReferenceEquals(resource, original) ? identityNumber : shares.Numbers.Of(resource.Identity);
+                        var resourceKey = ReferenceEquals(resource, original) ? identity : resource.KeyIn(shares.Numbers);
                         var bodyNumber = NumberOf(instance).Body;
                         // An access may be construction-local on one path and not on another (ADR 0018), and a construction triggered by
                         // several roots gives one access per root, so each root pair is an occurrence (R5).
@@ -3181,7 +3174,7 @@ public static partial class InterproceduralAccesses
                                                                           .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
                             CheckCancellation();
-                            var key = new EmittedKey(bodyNumber, access.OperationId, resourceNumber, operation, local, heldNumber, NumberOf(pathRoot),
+                            var key = new EmittedKey(bodyNumber, access.OperationId, resourceKey, operation, local, heldNumber, NumberOf(pathRoot),
                                                      termNumber, isFresh, isLibraryInternal);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
@@ -3325,7 +3318,7 @@ public static partial class InterproceduralAccesses
             return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
 
             // The entry of one access of an instance on one resource, made on its first mention.
-            Feed FeedOf(MethodInstance instance, int operation, int resource)
+            Feed FeedOf(MethodInstance instance, int operation, ResourceKey resource)
             {
                 var key = (NumberOf(instance).Id, operation, resource);
                 if (!feeds.TryGetValue(key, out var feed))
@@ -3367,6 +3360,7 @@ public static partial class InterproceduralAccesses
                     return cached;
 
                 var resources = new List<AccessResource>();
+                var identities = new HashSet<ResourceKey>();
                 foreach (var node in visits[instance.Id].Where(node => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId)))
                 {
                     CheckCancellation();
@@ -3378,7 +3372,8 @@ public static partial class InterproceduralAccesses
                         foreach (var resource in ResourcesOf(target.Instance, ReferenceAccess(access, target)))
                         {
                             CheckCancellation();
-                            if (!resources.Any(candidate => candidate.Identity == resource.Identity))
+                            // Not IdentityOf: a duplicate is dropped here, and that cache would keep it for the whole execution.
+                            if (identities.Add(resource.KeyIn(shares.Numbers)))
                                 resources.Add(resource);
                         }
                     }
@@ -5468,19 +5463,16 @@ public static partial class InterproceduralAccesses
             return resources;
         }
 
-        /// <summary>The identity of a resource <see cref="Resources"/> keeps, with its number, which every visit of its access asks for
-        /// again.</summary>
-        /// <param name="resource">A resource <see cref="Resources"/> or <see cref="EffectResources"/> returned.</param>
-        private NumberedText IdentityOf(AccessResource resource)
+        /// <summary>The key of the identity of a resource a cache keeps (<see cref="AccessResource.KeyIn"/>), which every visit of its
+        /// access asks for again.</summary>
+        /// <param name="resource">A resource <see cref="Resources"/> or <see cref="EffectResources"/> returned, or one the emission keeps
+        /// for the references of an instance.</param>
+        private ResourceKey IdentityOf(AccessResource resource)
         {
             if (!_identities.TryGetValue(resource, out var identity))
-                _identities.Add(resource, identity = Numbered(resource.Identity));
+                _identities.Add(resource, identity = resource.KeyIn(shares.Numbers));
             return identity;
         }
-
-        /// <summary>A string with its number (<see cref="TextNumbers"/>).</summary>
-        /// <param name="text">The string.</param>
-        private NumberedText Numbered(string text) => new(text, shares.Numbers.Of(text));
 
         /// <summary>
         /// The resources an access touches: a static field's storage, or the field of each region its base points to, or the wildcard
@@ -5500,7 +5492,7 @@ public static partial class InterproceduralAccesses
         private IReadOnlyList<AccessResource> ResourcesOf(MethodInstance instance, SummaryAccess access, bool copies = false)
         {
             var resources = new List<AccessResource>();
-            var identities = new HashSet<string>(StringComparer.Ordinal);
+            var identities = new HashSet<ResourceKey>();
             var limit = input.Scope.Summaries.Limits.MaxAccessPathDepth;
 
             void Add(string regionId, bool wildcard)
@@ -5524,7 +5516,7 @@ public static partial class InterproceduralAccesses
                     {
                         WildcardExclusions = access.WildcardExclusions
                     };
-                    if (identities.Add(resource.Identity))
+                    if (identities.Add(resource.KeyIn(shares.Numbers)))
                         resources.Add(resource);
                 }
             }
@@ -6295,7 +6287,10 @@ internal sealed class CandidateIndex
         internal List<Access> Wildcard { get; } = [];
     }
 
-    private readonly SortedDictionary<string, List<Access>> _resources;
+    /// <summary>The resource buckets, one for each resource identity, in the order of their identities: <see cref="Build(IReadOnlyList{Access}, HeapSolution, IComparer{string})"/>
+    /// finds a resource's bucket by the key of its identity (<see cref="AccessResource.KeyIn"/>) and sorts the buckets once at the end, so
+    /// that no bucket keeps the identity's text (issue 474).</summary>
+    private readonly List<List<Access>> _resources = [];
 
     /// <summary>The cell buckets of one collection, by that collection's identity: a cell meets the cells it may be, and no more
     /// (TD-075).</summary>
@@ -6312,14 +6307,13 @@ internal sealed class CandidateIndex
     private CandidateIndex(HeapSolution heap, IComparer<string> bucketOrder)
     {
         _heap = heap;
-        _resources = new SortedDictionary<string, List<Access>>(bucketOrder);
         _cells = new SortedDictionary<string, List<List<Access>>>(bucketOrder);
         _fields = new SortedDictionary<string, List<List<Access>>>(bucketOrder);
     }
 
     public int Buckets => _resources.Count + _regionOrder.Count(region => region.Wildcard.Count != 0);
 
-    public int LargestBucket => _resources.Values.Select(bucket => bucket.Count)
+    public int LargestBucket => _resources.Select(bucket => bucket.Count)
                                           .Concat(_regionOrder.Select(region => region.Wildcard.Count))
                                           .DefaultIfEmpty(0)
                                           .Max();
@@ -6328,13 +6322,17 @@ internal sealed class CandidateIndex
 
     /// <summary>The index of a scope's accesses, its buckets enumerated in the order a comparer gives their keys: the ordinal order of
     /// <see cref="Build(IReadOnlyList{Access}, HeapSolution)"/>, or another one, with which a test shows that no outcome of pairing reads
-    /// that order.</summary>
+    /// that order. The resource buckets are ordered by their identities' texts: in the ordinal order without joining them
+    /// (<see cref="AccessResource.IDENTITY_ORDER"/>), in any other order, which only a test gives, by the joined texts.</summary>
     /// <param name="accesses">The scope's non-construction-local accesses.</param>
     /// <param name="heap">The scope's heap, whose regions say which are open and which group they are of.</param>
     /// <param name="bucketOrder">The order of the buckets' keys: resource identities, collection keys, scope and region.</param>
     internal static CandidateIndex Build(IReadOnlyList<Access> accesses, HeapSolution heap, IComparer<string> bucketOrder)
     {
         var index = new CandidateIndex(heap, bucketOrder);
+        // The numbers of the identities' parts, and the bucket of each identity by its key: what the build alone reads.
+        var numbers = new TextNumbers();
+        var buckets = new Dictionary<ResourceKey, List<Access>>();
         foreach (var access in accesses)
         {
             index._positions.TryAdd(access, index._positions.Count);
@@ -6345,10 +6343,11 @@ internal sealed class CandidateIndex
                 continue;
             }
 
-            var identity = access.Resource.Identity;
-            if (!index._resources.TryGetValue(identity, out var bucket))
+            var identity = access.Resource.KeyIn(numbers);
+            if (!buckets.TryGetValue(identity, out var bucket))
             {
-                index._resources.Add(identity, bucket = []);
+                buckets.Add(identity, bucket = []);
+                index._resources.Add(bucket);
                 region.Resources.Add(bucket);
                 var (family, key) = access.Resource.Selector is not null ? (index._cells, CollectionKey(access.Resource))
                     : IsField(access.Resource) ? (index._fields, $"{access.Resource.Scope}|{access.Resource.RegionId}")
@@ -6364,6 +6363,11 @@ internal sealed class CandidateIndex
             bucket.Add(access);
         }
 
+        // Every access of a bucket has the bucket's identity, so its first access stands for it.
+        var order = ReferenceEquals(bucketOrder, StringComparer.Ordinal)
+            ? AccessResource.IDENTITY_ORDER
+            : Comparer<AccessResource>.Create((one, other) => bucketOrder.Compare(one.Identity, other.Identity));
+        index._resources.Sort((one, other) => order.Compare(one[0].Resource, other[0].Resource));
         return index;
     }
 
@@ -6388,7 +6392,7 @@ internal sealed class CandidateIndex
 
     public IEnumerable<CandidatePair> Pairs()
     {
-        foreach (var bucket in _resources.Values)
+        foreach (var bucket in _resources)
         {
             foreach (var pair in Within(bucket, PairEnumeration.Resource))
                 yield return pair;
@@ -6511,7 +6515,7 @@ internal sealed class CandidateIndex
     {
         if (one.Scope != other.Scope || !WildcardCovers(one, other) || !WildcardCovers(other, one))
             return null;
-        if (one.Identity == other.Identity)
+        if (AccessResource.SameIdentity(one, other))
             return new Meeting(one.IsWildcard ? PairEnumeration.Wildcard : PairEnumeration.Resource, one, other, one);
         // Two cells of one collection meet where their selectors may name one cell, however the collection is reached (TD-075).
         if (one.Selector is { } selector && other.Selector is { } otherSelector && CollectionKey(one) == CollectionKey(other))

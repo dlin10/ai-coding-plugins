@@ -422,8 +422,9 @@ public static class ReportRenderer
     };
 
     /// <summary>The access whose resource is the finding's, whose region's ownership the finding reports.</summary>
+    /// <param name="finding">The finding.</param>
     private static Access ResourceAccess(Finding finding) =>
-        finding.AccessA.Resource.Identity == finding.Resource.Identity || finding.AccessB.Resource.Identity != finding.Resource.Identity
+        AccessResource.SameIdentity(finding.AccessA.Resource, finding.Resource) || !AccessResource.SameIdentity(finding.AccessB.Resource, finding.Resource)
             ? finding.AccessA
             : finding.AccessB;
 

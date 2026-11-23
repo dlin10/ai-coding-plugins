@@ -146,11 +146,13 @@ public static class SolverRefinement
         identity.Length == 0 || identity.StartsWith(PathPredicate.CANONICAL, StringComparison.Ordinal);
 
     /// <summary>The candidates in the order the budget is spent on them: the score each is expected to get, highest first, and
-    /// where that is equal, the resource and the two sites, so that two runs ask the same questions in the same order.</summary>
+    /// where that is equal, the resource and the two sites, so that two runs ask the same questions in the same order. The resource is
+    /// ordered by its identity's text without joining it (<see cref="AccessResource.IDENTITY_ORDER"/>).</summary>
+    /// <param name="pairs">The candidates.</param>
     internal static IReadOnlyList<int> Ordered(IReadOnlyList<AccessPair> pairs) =>
         Enumerable.Range(0, pairs.Count)
                   .OrderByDescending(index => ExpectedScore(pairs[index]))
-                  .ThenBy(index => pairs[index].Resource.Identity, StringComparer.Ordinal)
+                  .ThenBy(index => pairs[index].Resource, AccessResource.IDENTITY_ORDER)
                   .ThenBy(index => Site(pairs[index]), StringComparer.Ordinal)
                   .ThenBy(index => index)
                   .ToArray();
