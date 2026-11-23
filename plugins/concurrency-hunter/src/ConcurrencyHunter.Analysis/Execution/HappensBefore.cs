@@ -158,6 +158,12 @@ internal sealed partial class HappensBefore
         /// <summary>The executions each handle region names (<see cref="_handles"/>).</summary>
         internal Dictionary<string, List<string>> Handles { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>The executions each handle region names, by the instance tree they belong to (<see cref="HandlesInTree"/>).</summary>
+        internal Dictionary<string, Dictionary<string, string[]>> HandlesByTree { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The heap's call edges and the scope's starts, indexed (<see cref="Calls"/>).</summary>
+        internal CallIndex? Calls { get; set; }
+
         /// <summary>The spawn and async call sites (<see cref="SpawnSites"/>), made with the anchors.</summary>
         internal IReadOnlyList<SpawnSiteCoverage>? SpawnSites { get; set; }
 
@@ -552,16 +558,31 @@ internal sealed partial class HappensBefore
     /// <param name="joinOperation">The operation the handle is judged at.</param>
     private string? HandleExecution(string joining, string region, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
-        if (!_handles.TryGetValue(region, out var candidates) || !_executions.TryGetValue(joining, out var execution))
+        if (!_handles.ContainsKey(region) || !_executions.TryGetValue(joining, out var execution))
             return null;
-        var inTree = candidates.Where(candidate => _executions[candidate].TreeRootId == execution.TreeRootId).ToArray();
+        var inTree = HandlesInTree(region, execution.TreeRootId);
         if (inTree.Length == 1)
             return inTree[0];
         if (inTree.Length == 0)
             return null;
-        var starts = _anchorList.Where(anchor => anchor.ExecutionId == joining && anchor.CallerInstance == instance.Id &&
-            inTree.Contains(anchor.ChildId) && OwnStartValue(instance, handle, anchor)).ToArray();
+        var starts = Calls.StartsBy(joining).Where(anchor => anchor.CallerInstance == instance.Id && inTree.Contains(anchor.ChildId) &&
+                                                             OwnStartValue(instance, handle, anchor)).ToArray();
         return starts is [var start] && InSameStretch(instance.BodyId, start.OperationId, joinOperation) ? start.ChildId : null;
+    }
+
+    /// <summary>The executions a handle region names in one instance tree, in the order <see cref="_handles"/> lists them. A region's
+    /// executions are grouped by their tree the first time any tree of it is asked for.</summary>
+    /// <param name="region">The handle region, one <see cref="_handles"/> holds.</param>
+    /// <param name="treeRoot">The root of the instance tree.</param>
+    private string[] HandlesInTree(string region, string treeRoot)
+    {
+        if (!_shared.HandlesByTree.TryGetValue(region, out var byTree))
+        {
+            byTree = _handles[region].GroupBy(candidate => _executions[candidate].TreeRootId, StringComparer.Ordinal)
+                                     .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            _shared.HandlesByTree.Add(region, byTree);
+        }
+        return byTree.GetValueOrDefault(treeRoot) ?? [];
     }
 
     /// <summary>Whether every source of a handle is directly the value of this start, without storage, an incoming value, a return
@@ -1734,13 +1755,13 @@ internal sealed partial class HappensBefore
     /// <param name="joinOperation">The operation the handle is judged at.</param>
     private string? ProveHandleSource(string execution, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
+        Counters.HandleProofs++;
         var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
         var forwarded = Forwarders.Source(execution, instance, handle);
         var source = forwarded is not null && _heap.AsyncSpawns.Any(site => site.CallerInstance == forwarded.CallerInstance &&
             site.OperationId == forwarded.OperationId && regions.Contains(site.Handle)) ? forwarded.ChildId : null;
-        if (source is not null && _handles.TryGetValue(regions[0], out var candidates) &&
-            _executions.TryGetValue(execution, out var joining) &&
-            candidates.Count(candidate => _executions[candidate].TreeRootId == joining.TreeRootId) > 1)
+        if (source is not null && _handles.ContainsKey(regions[0]) && _executions.TryGetValue(execution, out var joining) &&
+            HandlesInTree(regions[0], joining.TreeRootId).Length > 1)
         {
             if (forwarded!.Kind != SpawnAnchorKind.AsyncReturn || forwarded.ExecutionId != execution ||
                 handle.SourceCalls.ToArray() is not [var call] ||
@@ -1760,7 +1781,10 @@ internal sealed partial class HappensBefore
     }
 
     /// <summary>The owner of the proof of a task forwarder's returned async spawn.</summary>
-    private TaskForwarders Forwarders => _forwarders ??= new TaskForwarders(_scope, _heap, _steps, _anchorList, ProveHandleSource, KnownTaskTarget);
+    private TaskForwarders Forwarders => _forwarders ??= new TaskForwarders(_scope, _heap, _steps, Calls, ProveHandleSource, KnownTaskTarget);
+
+    /// <summary>The call edges and the starts of the scope, indexed once for this graph and the graphs it shares its facts with.</summary>
+    private CallIndex Calls => _shared.Calls ??= new CallIndex(_heap.Edges, _anchorList);
 
     private TaskForwarders? _forwarders;
 
@@ -1884,7 +1908,7 @@ internal sealed partial class HappensBefore
     private bool BoundToRegion(string execution, MethodInstance instance, SummaryValue value, string region)
     {
         var parameters = value.Values.OfType<ParameterValue>().ToArray();
-        var bindings = _heap.Edges.Where(edge => edge.CalleeInstance == instance.Id).ToArray();
+        var bindings = Calls.Into(instance.Id);
         return parameters.Length != 0 && bindings.Length != 0 && parameters.All(parameter =>
             instance.Parameters.TryGetValue(parameter.Ordinal, out var bound) && bound.Count == 1 && bound.Contains(region) &&
             bindings.All(edge => _heap.Instances.TryGetValue(edge.CallerInstance, out var caller) &&
@@ -1956,10 +1980,10 @@ internal sealed partial class HappensBefore
 
         try
         {
-            var callees = _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call)
-                                     .Select(edge => _heap.Instances.GetValueOrDefault(edge.CalleeInstance))
-                                     .OfType<MethodInstance>()
-                                     .ToArray();
+            var callees = Calls.Callees(instance.Id, call)
+                               .Select(callee => _heap.Instances.GetValueOrDefault(callee))
+                               .OfType<MethodInstance>()
+                               .ToArray();
             return KnownTaskTarget(execution, instance, call) && callees.Length != 0 &&
                    callees.All(callee => (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) &&
                                           body is { IsAsync: true, IsAsyncIterator: false }) switch

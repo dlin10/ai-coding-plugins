@@ -923,54 +923,113 @@ internal sealed partial class HappensBefore
             joins = [];
             suspended = [];
             WorkCancellation.Check();
+            order.Counters.PassJoins++;
             var execution = anchor.ChildId;
             if (!Start(anchor, overlappingWork, out spawn))
                 return false;
             var parent = order._executions[anchor.ExecutionId];
             // A fault out of the call follows the iterations' completion, as the happens-before graph reads the call's own join.
             if (spawn.ReturnCompletes)
+            {
                 joins.Add((StartPoint(anchor, spawn), true));
-            foreach (var visit in order._visits.GetValueOrDefault(parent.Id) ?? [])
+                return true;
+            }
+            if (anchor.Kind == SpawnAnchorKind.Timer)
+            {
+                foreach (var visit in order._visits.GetValueOrDefault(parent.Id) ?? [])
+                {
+                    WorkCancellation.Check();
+                    if (order._heap.Instances.TryGetValue(visit.InstanceId, out var instance))
+                        TimerJoins(execution, parent.Id, visit, instance, anchor, spawn, joins, suspended, rejected);
+                }
+                return true;
+            }
+            // A diagnostic request reads every join of the parent, the rejected ones too; the analysis reads the record of the joins whose
+            // handle names this start's execution once a start of the parent made it.
+            var candidates = rejected is null && _parentJoins.TryGetValue(parent.Id, out var recorded)
+                ? recorded.GetValueOrDefault(execution) ?? []
+                : ParentJoins(parent.Id);
+            foreach (var candidate in candidates)
             {
                 WorkCancellation.Check();
-                if (spawn.ReturnCompletes || !order._heap.Instances.TryGetValue(visit.InstanceId, out var instance))
-                    continue;
-                if (anchor.Kind == SpawnAnchorKind.Timer)
+                var (instance, join, completedFault) = (candidate.Instance, candidate.Join, candidate.CompletedFault);
+                if (!candidate.OneHandle)
                 {
-                    TimerJoins(execution, parent.Id, visit, instance, anchor, spawn, joins, suspended, rejected);
+                    rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "handles"));
                     continue;
                 }
+                if (candidate.Source != execution)
+                {
+                    rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "source"));
+                    continue;
+                }
+                if (!Fresh(join.Handles[0], instance, anchor, spawn))
+                {
+                    rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "not-this-pass"));
+                    continue;
+                }
+                var point = new PointKey(instance.Id, join.OperationId, false);
+                if (candidate.Suspends)
+                    suspended.Add((point, completedFault, instance));
+                else if (!joins.Contains((point, completedFault)))
+                    joins.Add((point, completedFault));
+            }
+            return true;
+        }
+
+        /// <summary>A join of a visit of a parent, as every start of that parent reads it: nothing of it depends on the start.</summary>
+        /// <param name="Instance">The instance making the join.</param>
+        /// <param name="Join">The join.</param>
+        /// <param name="Suspends">Whether it is an <c>await</c> in the prefix of its body, which suspends the body (<see cref="Climb"/>).</param>
+        /// <param name="CompletedFault">Whether a faulted outcome of it still follows the completion of the work its one handle names; only
+        /// the form and the environment decide it, since that handle is proven.</param>
+        /// <param name="OneHandle">Whether its handles are known and are one.</param>
+        /// <param name="Source">The execution its one handle names with proven identity (<see cref="HappensBefore.ProveHandleSource"/>), or
+        /// null.</param>
+        private sealed record ParentJoin(MethodInstance Instance, SummaryJoin Join, bool Suspends, bool CompletedFault, bool OneHandle, string? Source);
+
+        /// <summary>The joins of each parent's visits whose one handle names a start's execution, by parent and by that execution, in the
+        /// order of <see cref="ParentJoins"/>, recorded when a start of the parent first read them all. What a start reads of a join
+        /// beyond them depends on the start alone: whether the handle is that start's own (<see cref="Fresh"/>).</summary>
+        private readonly Dictionary<string, Dictionary<string, ParentJoin[]>> _parentJoins = new(StringComparer.Ordinal);
+
+        /// <summary>The joins of a parent's visits as they stand — the visits in order, the joins of each in its summary's order, a join
+        /// once for each visit whose segment runs it — with the fault reading and the proof of the one handle's source of each. It yields
+        /// each as it is proven, so a start reading it does what it does with one join before the next is proven, and the proofs and
+        /// what a start does with them come in the order they come in when every start proves every join itself. Read whole, it records
+        /// the proven ones (<see cref="_parentJoins"/>). Neither the fault reading nor the proof depends on the start, its pair or the
+        /// creator whose run the query reads; asked again on the graph, with nothing of a handle proof in progress, as a pass's proof always
+        /// asks, each answers what it answered, and it reaches no cache the first answer left empty.</summary>
+        /// <param name="parent">The parent execution.</param>
+        private IEnumerable<ParentJoin> ParentJoins(string parent)
+        {
+            var proven = new Dictionary<string, List<ParentJoin>>(StringComparer.Ordinal);
+            foreach (var visit in order._visits.GetValueOrDefault(parent) ?? [])
+            {
+                WorkCancellation.Check();
+                if (!order._heap.Instances.TryGetValue(visit.InstanceId, out var instance))
+                    continue;
                 foreach (var join in instance.Summary.Joins)
                 {
                     WorkCancellation.Check();
                     if (!order._segments.Runs(instance.BodyId, visit.Segment, join.OperationId))
                         continue;
                     // The one handle of a frame's join is proven below, so only the form and the environment decide its fault.
-                    var completedFault = order.ThrowsAfterCompletion(parent.Id, instance.Id, join, proven: true);
-                    if (!join.HandlesKnown || join.Handles.Count != 1)
-                    {
-                        rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "handles"));
-                        continue;
-                    }
-                    var handle = join.Handles[0];
-                    if (order.ProveHandleSource(parent.Id, instance, handle, join.OperationId) != execution)
-                    {
-                        rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "source"));
-                        continue;
-                    }
-                    if (!Fresh(handle, instance, anchor, spawn))
-                    {
-                        rejected?.Add(new PassJoinEvidence(instance.Id, join.OperationId, completedFault, "not-this-pass"));
-                        continue;
-                    }
-                    var point = new PointKey(instance.Id, join.OperationId, false);
-                    if (join.Kind == SummaryJoinKind.Await && visit.Segment == BodySegment.Prefix)
-                        suspended.Add((point, completedFault, instance));
-                    else if (!joins.Contains((point, completedFault)))
-                        joins.Add((point, completedFault));
+                    var completedFault = order.ThrowsAfterCompletion(parent, instance.Id, join, proven: true);
+                    var oneHandle = join.HandlesKnown && join.Handles.Count == 1;
+                    var source = oneHandle ? order.ProveHandleSource(parent, instance, join.Handles[0], join.OperationId) : null;
+                    var candidate = new ParentJoin(instance, join, join.Kind == SummaryJoinKind.Await && visit.Segment == BodySegment.Prefix,
+                                                   completedFault, oneHandle, source);
+                    if (source is not null)
+                        Get(proven, source).Add(candidate);
+                    yield return candidate;
                 }
             }
-            return true;
+            if (_parentJoins.TryAdd(parent, proven.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.Ordinal)))
+            {
+                order.Counters.ParentJoins++;
+                order.Counters.ParentJoinEntries += proven.Values.Sum(list => list.Count);
+            }
         }
 
         /// <summary>The joins that end a pass where its parent suspends: an <c>await</c> in the prefix of an async body gives the body's task to
@@ -1268,9 +1327,7 @@ internal sealed partial class HappensBefore
         private bool CallReaches(SpawnAnchor start, string instance)
         {
             WorkCancellation.Check();
-            var callees = order._heap.Edges.Where(edge => edge.CallerInstance == start.CallerInstance && edge.OperationId == start.OperationId)
-                               .Select(edge => edge.CalleeInstance);
-            return Reachable(start.ExecutionId, callees, _ => true).Contains(instance);
+            return Reachable(start.ExecutionId, order.Calls.Callees(start.CallerInstance, start.OperationId), _ => true).Contains(instance);
         }
 
         /// <summary>Whether a step enters a body whose work is complete where its caller waits for its task.</summary>
@@ -1479,8 +1536,7 @@ internal sealed partial class HappensBefore
                     return false;
                 try
                 {
-                    var targets = order._heap.Edges.Where(edge => edge.CallerInstance == caller.Id && edge.OperationId == operation)
-                        .Select(edge => order._heap.Instances.GetValueOrDefault(edge.CalleeInstance)).ToArray();
+                    var targets = order.Calls.Callees(caller.Id, operation).Select(callee => order._heap.Instances.GetValueOrDefault(callee)).ToArray();
                     return targets.Length != 0 && targets.All(target => target is not null && target.Summary.Returns.Count != 0 &&
                         target.Summary.Returns.All(returned => Fresh(new SummaryValue(returned.Values, returned.UnknownSources)
                         {
@@ -1501,7 +1557,7 @@ internal sealed partial class HappensBefore
                     return false;
                 try
                 {
-                    var bindings = order._heap.Edges.Where(edge => edge.CalleeInstance == callee.Id).ToArray();
+                    var bindings = order.Calls.Into(callee.Id);
                     return bindings.Length != 0 && bindings.All(edge =>
                         order._heap.Instances.TryGetValue(edge.CallerInstance, out var caller) &&
                         caller.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId)?.Arguments

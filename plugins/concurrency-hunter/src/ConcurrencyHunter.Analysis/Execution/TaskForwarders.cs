@@ -7,12 +7,12 @@ namespace ConcurrencyHunter.Execution;
 /// <param name="scope">The bodies in the scope.</param>
 /// <param name="heap">Their instances and call targets.</param>
 /// <param name="steps">The call steps of each execution.</param>
-/// <param name="anchors">The starts of the child executions.</param>
+/// <param name="calls">The heap's call edges and the starts of the child executions, indexed.</param>
 /// <param name="proveHandle">The proof of a returned task's identity.</param>
 /// <param name="knownTarget">Whether the call's known targets account for every alternative.</param>
 internal sealed class TaskForwarders(ScopeProgram scope, HeapSolution heap,
                                      IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps,
-                                     IReadOnlyList<SpawnAnchor> anchors,
+                                     CallIndex calls,
                                      Func<string, MethodInstance, SummaryValue, int, string?> proveHandle,
                                      Func<string, MethodInstance, int, bool> knownTarget)
 {
@@ -63,12 +63,10 @@ internal sealed class TaskForwarders(ScopeProgram scope, HeapSolution heap,
                     !knownTarget(execution, instance, call))
                     return null;
                 source = call;
-                var targets = heap.Edges.Where(edge => edge.CallerInstance == instanceId && edge.OperationId == call)
-                                  .Select(edge => edge.CalleeInstance).Distinct(StringComparer.Ordinal).ToArray();
-                if (targets is not [var target] || !heap.Instances.TryGetValue(target, out var callee))
+                if (calls.Callees(instanceId, call) is not [var target] || !heap.Instances.TryGetValue(target, out var callee))
                     return null;
                 var asyncBody = scope.Reachable.Bodies.GetValueOrDefault(callee.BodyId) is { IsAsync: true, IsAsyncIterator: false };
-                var forwarded = asyncBody ? anchors.FirstOrDefault(anchor => anchor.ExecutionId == execution &&
+                var forwarded = asyncBody ? calls.StartsBy(execution).FirstOrDefault(anchor =>
                     anchor.Kind == SpawnAnchorKind.AsyncReturn && anchor.CallerInstance == instanceId && anchor.OperationId == call)
                     : Returned(execution, target);
                 if (forwarded is null || result is not null && result != forwarded ||
@@ -95,9 +93,7 @@ internal sealed class TaskForwarders(ScopeProgram scope, HeapSolution heap,
         if (!heap.Instances[caller].Summary.Calls.Any(call => call.OperationId == operation) ||
             !knownTarget(execution, heap.Instances[caller], operation))
             return null;
-        var targets = heap.Edges.Where(edge => edge.CallerInstance == caller && edge.OperationId == operation)
-                          .Select(edge => edge.CalleeInstance).Distinct(StringComparer.Ordinal).ToArray();
-        return targets is [var target] ? Returned(execution, target) : null;
+        return calls.Callees(caller, operation) is [var target] ? Returned(execution, target) : null;
     }
 
     /// <summary>The async spawn named by a value's one unconsumed source call in this execution, directly or through a forwarder.</summary>
@@ -109,13 +105,11 @@ internal sealed class TaskForwarders(ScopeProgram scope, HeapSolution heap,
         if (value.Completions.Count != 0 || value.CompletedCalls.Count != 0 || value.SourceCalls.ToArray() is not [var operation] ||
             !instance.Summary.Calls.Any(call => call.OperationId == operation) || !knownTarget(execution, instance, operation))
             return null;
-        var targets = heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == operation)
-                          .Select(edge => edge.CalleeInstance).Distinct(StringComparer.Ordinal).ToArray();
-        if (targets is not [var target])
+        if (calls.Callees(instance.Id, operation) is not [var target])
             return null;
         return scope.Reachable.Bodies[heap.Instances[target].BodyId] is { IsAsync: true, IsAsyncIterator: false }
-            ? anchors.FirstOrDefault(anchor => anchor.ExecutionId == execution && anchor.CallerInstance == instance.Id &&
-                anchor.OperationId == operation && anchor.Kind == SpawnAnchorKind.AsyncReturn)
+            ? calls.StartsBy(execution).FirstOrDefault(anchor => anchor.CallerInstance == instance.Id && anchor.OperationId == operation &&
+                                                                 anchor.Kind == SpawnAnchorKind.AsyncReturn)
             : Returned(execution, target);
     }
 

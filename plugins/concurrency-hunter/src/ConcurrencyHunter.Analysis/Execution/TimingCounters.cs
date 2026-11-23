@@ -35,6 +35,18 @@ internal sealed class TimingCounters
     /// <summary>The executions those sets hold.</summary>
     internal long ReachExecutions;
 
+    /// <summary>The joins of a pass's parent read for one start of its work, on the graph and its replays.</summary>
+    internal long PassJoins;
+
+    /// <summary>The proofs of a handle's source asked, on the graph and its replays.</summary>
+    internal long HandleProofs;
+
+    /// <summary>The parents whose joins the completion proof of a pass recorded, once per parent and graph.</summary>
+    internal long ParentJoins;
+
+    /// <summary>The joins those records keep: the joins of a parent's visits whose one handle names a start of the parent.</summary>
+    internal long ParentJoinEntries;
+
     /// <summary>The counts as they stand, for a later report of what happened since.</summary>
     internal TimingCounters Copy() => (TimingCounters)MemberwiseClone();
 
@@ -44,5 +56,7 @@ internal sealed class TimingCounters
         $"orderQueries={OrderQueries - before.OrderQueries} pathSearches={PathSearches - before.PathSearches} " +
         $"pathEvents={PathEvents - before.PathEvents} assumptionQueries={AssumptionQueries - before.AssumptionQueries} " +
         $"replays={Replays - before.Replays} replaysTotal={Replays} flows={Flows - before.Flows} flowNodes={FlowNodes - before.FlowNodes} " +
-        $"flowsTotal={Flows} flowsShared={SharedFlows - before.SharedFlows} reachSets={ReachSets - before.ReachSets} reachExecutions={ReachExecutions - before.ReachExecutions}";
+        $"flowsTotal={Flows} flowsShared={SharedFlows - before.SharedFlows} reachSets={ReachSets - before.ReachSets} reachExecutions={ReachExecutions - before.ReachExecutions} " +
+        $"passJoins={PassJoins - before.PassJoins} handleProofs={HandleProofs - before.HandleProofs} " +
+        $"parentJoins={ParentJoins - before.ParentJoins} parentJoinEntries={ParentJoinEntries - before.ParentJoinEntries}";
 }
