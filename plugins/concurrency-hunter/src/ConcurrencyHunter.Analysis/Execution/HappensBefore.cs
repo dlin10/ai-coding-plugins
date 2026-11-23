@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
@@ -2301,18 +2302,56 @@ internal sealed partial class HappensBefore
         /// <summary>The prefix of the type a conversion to a <c>ReadOnlySpan&lt;T&gt;</c> gives.</summary>
         private const string READ_ONLY_SPAN = "System.ReadOnlySpan<";
 
-        private readonly List<int>[] _plain;
+        /// <summary>Where each body's nodes stand in a visit of it, which every flow visiting the body shares (<see cref="BodyLayout"/>).</summary>
+        private static readonly ConditionalWeakTable<IrBody, BodyLayout> Layouts = new();
+
+        /// <summary>The plain steps of every node, one array for all: those of a node stand from <c>_plainStart[node]</c> up to
+        /// <c>_plainStart[node + 1]</c> in <see cref="_plainTargets"/>, in the order the flow found them.</summary>
+        private readonly int[] _plainStart;
+
+        /// <summary>The targets of the plain steps, by node (<see cref="_plainStart"/>).</summary>
+        private readonly int[] _plainTargets;
         private readonly int[] _pass;
-        private readonly Dictionary<int, int[]> _calls = [];
-        private readonly List<int>[] _callers;
+
+        /// <summary>The nodes of the calls into a visit of the execution, in ascending order: the callees of the one at an index stand
+        /// from <c>_calleeStart[index]</c> up to <c>_calleeStart[index + 1]</c> in <see cref="_callees"/>.</summary>
+        private readonly int[] _callSites;
+
+        /// <summary>Where the callees of each call of <see cref="_callSites"/> start in <see cref="_callees"/>.</summary>
+        private readonly int[] _calleeStart;
+
+        /// <summary>The visits each call runs, by call (<see cref="_callSites"/>).</summary>
+        private readonly int[] _callees;
+
+        /// <summary>The sites calling every visit, one array for all: those of a visit stand from <c>_callerStart[visit]</c> up to
+        /// <c>_callerStart[visit + 1]</c> in <see cref="_callerSites"/>, in node order.</summary>
+        private readonly int[] _callerStart;
+
+        /// <summary>The nodes of the sites calling each visit (<see cref="_callerStart"/>).</summary>
+        private readonly int[] _callerSites;
         private readonly int[] _entry;
         private readonly int[] _exit;
-        private readonly int[] _exitVisit;
         private readonly int[] _visitOf;
-        private readonly Dictionary<(string Instance, int Operation), List<int>> _operationNodes = [];
-        private readonly Dictionary<(string Instance, BodySegment Segment), int> _visitIndex = [];
+
+        /// <summary>The layout of each visit's body, null for a visit with no body.</summary>
+        private readonly BodyLayout?[] _layouts;
+
+        /// <summary>The segment each visit runs.</summary>
+        private readonly BodySegment[] _segmentOf;
+
+        /// <summary>The first visit of each instance; the instance's later visits follow it in <see cref="_nextVisit"/>.</summary>
+        private readonly Dictionary<string, int> _firstVisit = [];
+
+        /// <summary>The next visit of the same instance after each visit, or -1 after its last.</summary>
+        private readonly int[] _nextVisit;
+
+        /// <summary>One bit for every node, set where its visit's segment runs the operation before it: the nodes a point of that
+        /// operation names (<see cref="Nodes"/>).</summary>
+        private readonly ulong[] _runs;
         private readonly HashSet<int> _unresolved = [];
-        private readonly HashSet<int> _escapes = [];
+
+        /// <summary>One bit for every node, set where an exception of its operation leaves the visit.</summary>
+        private readonly ulong[] _escapes;
 
         /// <summary>The escapes of operations computing a handle a wait waits on: an exception there leaves before the wait, and the body
         /// has then not returned either.</summary>
@@ -2352,7 +2391,7 @@ internal sealed partial class HappensBefore
         private readonly Dictionary<string, bool[]> _reach = new(StringComparer.Ordinal);
 
         /// <summary>How many nodes the flow has, for the pairing checkpoints.</summary>
-        internal int NodeCount => _plain.Length;
+        internal int NodeCount => _pass.Length;
 
         /// <summary>Builds the flow of one execution.</summary>
         /// <param name="scope">The process scope whose bodies the visits run.</param>
@@ -2384,41 +2423,33 @@ internal sealed partial class HappensBefore
                                            : null)
                                .ToArray();
             var offsets = new int[visits.Count];
-            var blockStarts = new int[visits.Count][];
+            _layouts = new BodyLayout?[visits.Count];
+            _segmentOf = new BodySegment[visits.Count];
+            _nextVisit = new int[visits.Count];
+            _entry = new int[visits.Count];
+            _exit = new int[visits.Count];
+            var lastVisit = new Dictionary<string, int>();
             var total = 0;
             for (var index = 0; index < visits.Count; index++)
             {
                 CheckCancellation();
                 offsets[index] = total;
-                var blocks = bodies[index]?.Blocks ?? [];
-                blockStarts[index] = new int[blocks.Count];
-                var size = 0;
-                for (var block = 0; block < blocks.Count; block++)
-                {
-                    CheckCancellation();
-                    blockStarts[index][block] = size;
-                    size += blocks[block].Operations.Count + 1;
-                }
-
-                total += size + 2;
-            }
-
-            _plain = Enumerable.Range(0, total).Select(_ => new List<int>()).ToArray();
-            _pass = Enumerable.Repeat(-1, total).ToArray();
-            _exitVisit = Enumerable.Repeat(-1, total).ToArray();
-            _callers = Enumerable.Range(0, visits.Count).Select(_ => new List<int>()).ToArray();
-            _entry = new int[visits.Count];
-            _exit = new int[visits.Count];
-            for (var index = 0; index < visits.Count; index++)
-            {
-                CheckCancellation();
-                _visitIndex[(visits[index].InstanceId, visits[index].Segment)] = index;
-                var size = (bodies[index]?.Blocks ?? []).Sum(block => block.Operations.Count + 1);
-                _entry[index] = offsets[index] + size;
+                var layout = _layouts[index] = bodies[index] is { } body ? Layout(body) : null;
+                _entry[index] = offsets[index] + (layout?.Size ?? 0);
                 _exit[index] = _entry[index] + 1;
-                _exitVisit[_exit[index]] = index;
+                total = _exit[index] + 1;
+                _segmentOf[index] = visits[index].Segment;
+                _nextVisit[index] = -1;
+                if (lastVisit.TryGetValue(visits[index].InstanceId, out var previous))
+                    _nextVisit[previous] = index;
+                else
+                    _firstVisit.Add(visits[index].InstanceId, index);
+                lastVisit[visits[index].InstanceId] = index;
             }
 
+            _pass = Enumerable.Repeat(-1, total).ToArray();
+            _runs = new ulong[Words(total)];
+            _escapes = new ulong[Words(total)];
             _visitOf = new int[total];
             for (var index = 0; index < visits.Count; index++)
             {
@@ -2428,8 +2459,15 @@ internal sealed partial class HappensBefore
 
             var callees = steps.GroupBy(step => (step.Caller, step.CallerSegment, step.OperationId))
                           .ToDictionary(group => group.Key,
-                                        group => group.Select(step => _visitIndex.TryGetValue((step.Callee, step.CalleeSegment), out var callee) ? callee : -1)
+                                        group => group.Select(step => VisitIndex(step.Callee, step.CalleeSegment))
                                                       .Where(callee => callee >= 0).Distinct().ToArray());
+            var plainSources = new List<int>();
+            var plainTargets = new List<int>();
+            var callerVisits = new List<int>();
+            var callerSites = new List<int>();
+            var callSites = new List<int>();
+            var calleeStart = new List<int> { 0 };
+            var calledVisits = new List<int>();
             var calleesAt = steps.ToLookup(step => (step.Caller, step.OperationId), step => step.Callee);
             var repeated = steps.Where(step => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee)))
                                 .Select(step => (step.Caller, step.CallerSegment, step.OperationId))
@@ -2443,11 +2481,12 @@ internal sealed partial class HappensBefore
                 var body = bodies[index];
                 if (body is null || body.Blocks.Count == 0)
                 {
-                    _plain[_entry[index]].Add(_exit[index]);
+                    AddPlain(_entry[index], _exit[index]);
                     continue;
                 }
 
-                int Node(int block, int position) => offsets[index] + blockStarts[index][block] + position;
+                var layout = _layouts[index]!;
+                int Node(int block, int position) => offsets[index] + layout.BlockStarts[block] + position;
 
                 var normal = new List<int>[body.Blocks.Count];
                 var exceptional = new List<int>[body.Blocks.Count];
@@ -2477,19 +2516,8 @@ internal sealed partial class HappensBefore
                           .Select(join => join.CallOperationId)
                           .ToHashSet()
                     : [];
-                var nodeOf = new Dictionary<int, int>();
-                for (var block = 0; block < body.Blocks.Count; block++)
-                {
-                    CheckCancellation();
-                    var operations = body.Blocks[block].Operations;
-                    for (var position = 0; position < operations.Count; position++)
-                    {
-                        CheckCancellation();
-                        nodeOf[operations[position].Id] = Node(block, position);
-                    }
-                }
                 var marks = body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>()
-                                .ToLookup(join => join.CallOperationId, join => nodeOf[join.Id]);
+                                .ToLookup(join => join.CallOperationId, join => offsets[index] + layout.Position(join.Id));
                 for (var block = 0; block < body.Blocks.Count; block++)
                 {
                     CheckCancellation();
@@ -2501,11 +2529,14 @@ internal sealed partial class HappensBefore
                         var node = Node(block, position);
                         if (callees.TryGetValue((visit.InstanceId, visit.Segment, operation.Id), out var called) && called.Length != 0)
                         {
-                            _calls[node] = called;
+                            callSites.Add(node);
+                            calledVisits.AddRange(called);
+                            calleeStart.Add(calledVisits.Count);
                             foreach (var callee in called)
                             {
                                 CheckCancellation();
-                                _callers[callee].Add(node);
+                                callerVisits.Add(callee);
+                                callerSites.Add(node);
                             }
                             // A dispatch whose receiver the heap could not follow may run a body it does not have, which returns
                             // without passing anything the called bodies pass.
@@ -2528,11 +2559,7 @@ internal sealed partial class HappensBefore
                         }
 
                         if (segments.Runs(instanceBody, visit.Segment, operation.Id))
-                        {
-                            if (!_operationNodes.TryGetValue((visit.InstanceId, operation.Id), out var nodes))
-                                _operationNodes.Add((visit.InstanceId, operation.Id), nodes = []);
-                            nodes.Add(node);
-                        }
+                            Set(_runs, node);
 
                         var afterWait = throwsAfter.TryGetValue((visit.InstanceId, operation.Id), out var waited);
                         if (afterWait && operation is IrAwaitOperation && MayThrow(operation))
@@ -2563,7 +2590,10 @@ internal sealed partial class HappensBefore
                                 foreach (var handler in exceptional[block])
                                 {
                                     CheckCancellation();
-                                    (afterWait ? exit!.Handlers : _plain[node]).Add(Node(handler, 0));
+                                    if (afterWait)
+                                        exit!.Handlers.Add(Node(handler, 0));
+                                    else
+                                        AddPlain(node, Node(handler, 0));
                                 }
                             }
                             // With no handler in this body the exception leaves it here, unless the operation is part of a wait; that of
@@ -2574,7 +2604,7 @@ internal sealed partial class HappensBefore
                             }
                             else if (exceptional[block].Count == 0 && (!waits.Parts.Contains(operation.Id) || waits.Calls.Contains(operation.Id)))
                             {
-                                _escapes.Add(node);
+                                Set(_escapes, node);
                                 if (waits.Producers.Contains(operation.Id) || waits.Calls.Contains(operation.Id))
                                     _producing.Add(node);
                             }
@@ -2585,10 +2615,10 @@ internal sealed partial class HappensBefore
                     foreach (var successor in normal[block])
                     {
                         CheckCancellation();
-                        _plain[end].Add(Node(successor, 0));
+                        AddPlain(end, Node(successor, 0));
                     }
                     if (body.Blocks[block].Kind == IrBlockKind.Exit)
-                        _plain[end].Add(_exit[index]);
+                        AddPlain(end, _exit[index]);
                 }
 
                 if (visit.Segment == BodySegment.Tail)
@@ -2601,20 +2631,23 @@ internal sealed partial class HappensBefore
                         {
                             CheckCancellation();
                             if (operations[position] is IrAwaitOperation && segments.Runs(instanceBody, BodySegment.Prefix, operations[position].Id))
-                                _plain[_entry[index]].Add(Node(block, position + 1));
+                                AddPlain(_entry[index], Node(block, position + 1));
                         }
                     }
                 }
                 else
                 {
-                    _plain[_entry[index]].Add(Node(0, 0));
+                    AddPlain(_entry[index], Node(0, 0));
                 }
             }
 
+            (_plainStart, _plainTargets) = BySource(plainSources, plainTargets, total);
+            (_callerStart, _callerSites) = BySource(callerVisits, callerSites, visits.Count);
+            (_callSites, _calleeStart, _callees) = (callSites.ToArray(), calleeStart.ToArray(), calledVisits.ToArray());
             foreach (var entry in entries)
             {
                 CheckCancellation();
-                if (_visitIndex.TryGetValue((entry.InstanceId, entry.Segment), out var index))
+                if (VisitIndex(entry.InstanceId, entry.Segment) is >= 0 and var index)
                     _starts.Add(_entry[index]);
             }
 
@@ -2623,6 +2656,159 @@ internal sealed partial class HappensBefore
                 CheckCancellation();
                 exit.Gates = [.. exit.Gates.Concat(waited.SelectMany(Nodes)).Distinct().Order()];
             }
+
+
+            void AddPlain(int source, int target)
+            {
+                plainSources.Add(source);
+                plainTargets.Add(target);
+            }
+        }
+
+        /// <summary>Where a body's nodes stand in a visit of it: its blocks one after another, a node before each operation and one at the
+        /// block's end, then the visit's entry and exit. It is the body's alone, so every visit of the body in every flow shares one,
+        /// kept as long as the body is.</summary>
+        /// <param name="body">The body.</param>
+        private BodyLayout Layout(IrBody body)
+        {
+            if (Layouts.TryGetValue(body, out var known))
+                return known;
+            var built = new BodyLayout(body);
+            return Layouts.GetValue(body, _ => built);
+        }
+
+        /// <summary>The visit of an instance's segment, the last one when the execution visits it twice, or -1 when it visits none.</summary>
+        /// <param name="instance">The instance.</param>
+        /// <param name="segment">The segment.</param>
+        private int VisitIndex(string instance, BodySegment segment)
+        {
+            var found = -1;
+            for (var visit = _firstVisit.GetValueOrDefault(instance, -1); visit >= 0; visit = _nextVisit[visit])
+            {
+                CheckCancellation();
+                if (_segmentOf[visit] == segment)
+                    found = visit;
+            }
+
+            return found;
+        }
+
+        /// <summary>Edges laid out by source, each source's in the order they were added: those of a source stand from
+        /// <c>Start[source]</c> up to <c>Start[source + 1]</c> in <c>Targets</c>.</summary>
+        /// <param name="sources">The source of each edge, in the order the edges were added.</param>
+        /// <param name="targets">The target of each edge, in the same order.</param>
+        /// <param name="count">How many sources there are.</param>
+        private (int[] Start, int[] Targets) BySource(List<int> sources, List<int> targets, int count)
+        {
+            var start = new int[count + 1];
+            foreach (var source in sources)
+            {
+                CheckCancellation();
+                start[source + 1]++;
+            }
+            for (var source = 0; source < count; source++)
+            {
+                CheckCancellation();
+                start[source + 1] += start[source];
+            }
+            var next = start[..count];
+            var laid = new int[targets.Count];
+            for (var edge = 0; edge < sources.Count; edge++)
+            {
+                CheckCancellation();
+                laid[next[sources[edge]]++] = targets[edge];
+            }
+
+            return (start, laid);
+        }
+
+        /// <summary>How many words a set of one bit per node takes.</summary>
+        /// <param name="count">How many nodes there are.</param>
+        private static int Words(int count) => (count + 63) >> 6;
+
+        /// <summary>Sets a node's bit.</summary>
+        /// <param name="bits">The bits, one per node.</param>
+        /// <param name="node">The node.</param>
+        private static void Set(ulong[] bits, int node) => bits[node >> 6] |= 1UL << node;
+
+        /// <summary>Whether a node's bit is set.</summary>
+        /// <param name="bits">The bits, one per node.</param>
+        /// <param name="node">The node.</param>
+        private static bool Has(ulong[] bits, int node) => (bits[node >> 6] & 1UL << node) != 0;
+
+        /// <summary>The targets of a node's plain steps.</summary>
+        /// <param name="node">The node.</param>
+        private ArraySegment<int> Plain(int node) => new(_plainTargets, _plainStart[node], _plainStart[node + 1] - _plainStart[node]);
+
+        /// <summary>The nodes of the sites calling a visit.</summary>
+        /// <param name="visit">The visit.</param>
+        private ArraySegment<int> Callers(int visit) => new(_callerSites, _callerStart[visit], _callerStart[visit + 1] - _callerStart[visit]);
+
+        /// <summary>The index of a node among the calls (<see cref="_callSites"/>), negative when it is no call.</summary>
+        /// <param name="node">The node.</param>
+        private int CallIndex(int node) => Array.BinarySearch(_callSites, node);
+
+        /// <summary>The visits a call runs.</summary>
+        /// <param name="call">The call's index (<see cref="CallIndex"/>).</param>
+        private ArraySegment<int> Callees(int call) => new(_callees, _calleeStart[call], _calleeStart[call + 1] - _calleeStart[call]);
+
+        /// <summary>Whether one of a call's callees completes.</summary>
+        /// <param name="call">The call's index (<see cref="CallIndex"/>).</param>
+        /// <param name="completing">The visits whose exit their entry reaches.</param>
+        private bool AnyCompletes(int call, HashSet<int> completing)
+        {
+            foreach (var callee in Callees(call))
+            {
+                CheckCancellation();
+                if (completing.Contains(callee))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>The first node of a visit.</summary>
+        /// <param name="visit">The visit.</param>
+        private int FirstNode(int visit) => visit == 0 ? 0 : _exit[visit - 1] + 1;
+
+        /// <summary>The positions of a body's nodes in a visit of it, which are the body's alone (<see cref="Layout"/>): the node before an
+        /// operation, at its block's start plus its place in the block, and after the blocks the entry and the exit.</summary>
+        private sealed class BodyLayout
+        {
+            /// <summary>The position of the node before each operation, by operation id.</summary>
+            private readonly Dictionary<int, int> _positions = [];
+
+            /// <summary>Lays a body's nodes out.</summary>
+            /// <param name="body">The body.</param>
+            internal BodyLayout(IrBody body)
+            {
+                BlockStarts = new int[body.Blocks.Count];
+                var size = 0;
+                for (var block = 0; block < body.Blocks.Count; block++)
+                {
+                    WorkCancellation.Check();
+                    BlockStarts[block] = size;
+                    var operations = body.Blocks[block].Operations;
+                    for (var position = 0; position < operations.Count; position++)
+                    {
+                        WorkCancellation.Check();
+                        _positions[operations[position].Id] = size + position;
+                    }
+                    size += operations.Count + 1;
+                }
+
+                Size = size;
+            }
+
+            /// <summary>The position of each block's first node.</summary>
+            internal int[] BlockStarts { get; }
+
+            /// <summary>How many nodes the blocks take: the visit's entry stands at this position and its exit after it.</summary>
+            internal int Size { get; }
+
+            /// <summary>The position of the node before an operation, or -1 when the body has none.</summary>
+            /// <param name="operation">The operation's id.</param>
+            internal int Position(int operation) => _positions.GetValueOrDefault(operation, -1);
         }
 
         /// <summary>The operations of a body that belong to its waits, which throw only as the wait does: the call each join marks; the
@@ -3137,11 +3323,11 @@ internal sealed partial class HappensBefore
                 CheckCancellation();
                 if (!seen.Add(visit))
                     continue;
-                foreach (var site in _callers[visit])
+                foreach (var site in Callers(visit))
                 {
                     CheckCancellation();
                     if (_repeating.Contains(site) && !_sequential.Contains(site))
-                        runs.AddRange(_calls[site].Select(callee => _entry[callee]));
+                        runs.AddRange(Callees(CallIndex(site)).Select(callee => _entry[callee]));
                     pending.Push(_visitOf[site]);
                 }
             }
@@ -3149,12 +3335,23 @@ internal sealed partial class HappensBefore
             return runs.Distinct().ToList();
         }
 
+        /// <summary>The nodes of a point: the execution's starts for its entry, and otherwise the node before the operation, or the one after
+        /// it for a point after a call, in every visit of the instance whose segment runs the operation, in visit order.</summary>
+        /// <param name="point">The point.</param>
         private List<int> Nodes(PointKey point)
         {
             if (point.Operation < 0)
                 return _starts;
-            var nodes = _operationNodes.GetValueOrDefault((point.Instance, point.Operation)) ?? [];
-            return point.AfterCall ? nodes.Select(node => node + 1).ToList() : nodes;
+            var nodes = new List<int>();
+            for (var visit = _firstVisit.GetValueOrDefault(point.Instance, -1); visit >= 0; visit = _nextVisit[visit])
+            {
+                CheckCancellation();
+                if (_layouts[visit]?.Position(point.Operation) is not (>= 0 and var position) || !Has(_runs, FirstNode(visit) + position))
+                    continue;
+                nodes.Add(FirstNode(visit) + position + (point.AfterCall ? 1 : 0));
+            }
+
+            return nodes;
         }
 
         /// <summary>Whether every path of one visit, from its entry to its exit or out of it with an exception, passes one of the points:
@@ -3170,7 +3367,8 @@ internal sealed partial class HappensBefore
         /// visit's exception to come only after the work completed.</param>
         internal bool AlwaysWaits(string instance, BodySegment segment, IReadOnlyCollection<PointKey> points, bool exceptional)
         {
-            if (!_visitIndex.TryGetValue((instance, segment), out var visit))
+            var visit = VisitIndex(instance, segment);
+            if (visit < 0)
                 return false;
             var cut = points.SelectMany(Nodes).ToHashSet();
             if (cut.Count == 0)
@@ -3184,7 +3382,7 @@ internal sealed partial class HappensBefore
                 if (cut.Contains(node))
                     continue;
                 var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
-                if (node == _exit[visit] || _escapes.Contains(node) && (exceptional || !_producing.Contains(node)) ||
+                if (node == _exit[visit] || Has(_escapes, node) && (exceptional || !_producing.Contains(node)) ||
                     exceptional && exit is { Escapes: true })
                 {
                     return false;
@@ -3193,12 +3391,17 @@ internal sealed partial class HappensBefore
                     continue;
                 if (_pass[node] >= 0)
                     pending.Push(_pass[node]);
-                foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
+                foreach (var next in Plain(node))
                 {
                     CheckCancellation();
                     pending.Push(next);
                 }
-                if (_calls.ContainsKey(node))
+                foreach (var next in exit?.Handlers ?? [])
+                {
+                    CheckCancellation();
+                    pending.Push(next);
+                }
+                if (CallIndex(node) >= 0)
                     pending.Push(node + 1);
             }
 
@@ -3267,19 +3470,24 @@ internal sealed partial class HappensBefore
                 pending.Push((_pass[node], up));
             var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
             var awaitExit = exceptionalExits && _awaitExits.GetValueOrDefault(node) is { } awaited && Open(awaited.Gates, cut) ? awaited : null;
-            foreach (var next in _plain[node].Concat(exit?.Handlers ?? []).Concat(awaitExit?.Handlers ?? []))
+            foreach (var next in Plain(node))
             {
                 CheckCancellation();
                 pending.Push((next, up));
             }
-            if (_calls.TryGetValue(node, out var called))
+            foreach (var next in (exit?.Handlers ?? []).Concat(awaitExit?.Handlers ?? []))
             {
-                foreach (var callee in called)
+                CheckCancellation();
+                pending.Push((next, up));
+            }
+            if (CallIndex(node) is >= 0 and var call)
+            {
+                foreach (var callee in Callees(call))
                 {
                     CheckCancellation();
                     pending.Push((_entry[callee], false));
                 }
-                if (!cut.Contains(node) && (_unresolved.Contains(node) || called.Any(completing.Contains)))
+                if (!cut.Contains(node) && (_unresolved.Contains(node) || AnyCompletes(call, completing)))
                     pending.Push((node + 1, up));
                 if (_repeating.Contains(node))
                     pending.Push((node, up));
@@ -3287,9 +3495,9 @@ internal sealed partial class HappensBefore
 
             if (!up)
                 return;
-            if (_exitVisit[node] is var visit and >= 0)
+            if (_visitOf[node] is var visit && _exit[visit] == node)
             {
-                foreach (var site in _callers[visit])
+                foreach (var site in Callers(visit))
                 {
                     CheckCancellation();
                     pending.Push((site + 1, true));
@@ -3297,7 +3505,7 @@ internal sealed partial class HappensBefore
                         pending.Push((site, true));
                 }
             }
-            if (_escapes.Contains(node) || exit is { Escapes: true } || awaitExit is { Escapes: true })
+            if (Has(_escapes, node) || exit is { Escapes: true } || awaitExit is { Escapes: true })
             {
                 foreach (var (next, ascend, gates) in Thrown(_visitOf[node], exceptionalExits))
                 {
@@ -3328,12 +3536,12 @@ internal sealed partial class HappensBefore
                 CheckCancellation();
                 if (exceptionalExits && _starts.Contains(_entry[current.Visit]))
                     targets.Add((_exit[current.Visit], true, current.Gates));
-                foreach (var site in _callers[current.Visit])
+                foreach (var site in Callers(current.Visit))
                 {
                     CheckCancellation();
                     var wait = _waitExits.GetValueOrDefault(site);
                     int[] past = wait is null ? current.Gates : [.. current.Gates.Union(wait.Gates).Order()];
-                    foreach (var handler in _plain[site])
+                    foreach (var handler in Plain(site))
                     {
                         CheckCancellation();
                         targets.Add((handler, true, current.Gates));
@@ -3345,7 +3553,7 @@ internal sealed partial class HappensBefore
                     }
                     if (_repeating.Contains(site))
                         targets.Add((site, true, current.Gates));
-                    var gates = _escapes.Contains(site) ? current.Gates : wait is { Escapes: true } ? past : null;
+                    var gates = Has(_escapes, site) ? current.Gates : wait is { Escapes: true } ? past : null;
                     if (gates is not null && left.Add((_visitOf[site], string.Join(",", gates))))
                         pending.Push((_visitOf[site], gates));
                 }
@@ -3400,12 +3608,17 @@ internal sealed partial class HappensBefore
                 if (_pass[node] >= 0 && !cut.Contains(node))
                     pending.Push(_pass[node]);
                 var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
-                foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
+                foreach (var next in Plain(node))
                 {
                     CheckCancellation();
                     pending.Push(next);
                 }
-                if (_calls.TryGetValue(node, out var called) && !cut.Contains(node) && called.Any(completing.Contains))
+                foreach (var next in exit?.Handlers ?? [])
+                {
+                    CheckCancellation();
+                    pending.Push(next);
+                }
+                if (CallIndex(node) is >= 0 and var call && !cut.Contains(node) && AnyCompletes(call, completing))
                     pending.Push(node + 1);
             }
 
