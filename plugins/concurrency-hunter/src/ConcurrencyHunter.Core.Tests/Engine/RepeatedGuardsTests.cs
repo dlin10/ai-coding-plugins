@@ -337,7 +337,7 @@ public sealed class RepeatedGuardsTests
     /// and variant. A list the collectors pool, or share between the accesses of one visit, is named by its content and by which object
     /// it is, numbered in order of first use: the fold tells variants and code flows apart by reference.</summary>
     /// <param name="collection">The collection.</param>
-    private static string[] Describe(InterproceduralCollection collection)
+    internal static string[] Describe(InterproceduralCollection collection)
     {
         var objects = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
         string Shared<T>(IReadOnlyCollection<T> list, Func<T, string> item)

@@ -229,6 +229,15 @@ public sealed class ExecutionAnalysis
 
     public IReadOnlyList<ExecutionInstance> Executions { get; }
 
+    /// <summary>Works out the census of the executions' entries (ADR 0042, step 1); null where the analysis was not built from entry
+    /// lists.</summary>
+    internal Func<IReadOnlyList<ExecutionModel.EntryCensusRow>>? Census { private get; init; }
+
+    /// <summary>The census of every execution's entries, in the order of <see cref="Executions"/>: its own entries, its construction
+    /// entries and the class of its list (<see cref="ExecutionModel.EntryCensus"/>). Worked out on each call and kept nowhere; a
+    /// diagnostic run and the tests read it.</summary>
+    internal IReadOnlyList<ExecutionModel.EntryCensusRow> EntryCensus() => Census?.Invoke() ?? [];
+
     /// <summary>Whether an execution is an inert type initializer.</summary>
     /// <param name="executionId">The execution's id.</param>
     public bool IsInert(string executionId) => _executions.GetValueOrDefault(executionId)?.IsInert == true;
@@ -772,6 +781,142 @@ public static class ExecutionModel
         }, keep: false);
     }
 
+    /// <summary>What the census of a diagnostic run says of one execution's entries (ADR 0042, step 1).</summary>
+    /// <param name="Execution">The execution's id.</param>
+    /// <param name="Kind">Its kind.</param>
+    /// <param name="Own">How many entries it has of its own: every entry but the construction entries.</param>
+    /// <param name="Constructions">How many construction entries list it among their executions.</param>
+    /// <param name="Class">The number of its class: executions with the same list of entries share one, numbered in the order of the
+    /// first execution of each.</param>
+    internal sealed record EntryCensusRow(string Execution, ExecutionKind Kind, int Own, int Constructions, int Class);
+
+    /// <summary>The census of the executions' entries, in the order of the executions given: each execution's own entries, its
+    /// construction entries and the class of its list of entries. Two lists are equal when the own entries are and the construction
+    /// entries are the same set, since <see cref="EntryLists"/> gives both in canonical order, and the classes are exact: an
+    /// execution joins a class only when its own entries are those of the class's first execution, entry for entry, and the
+    /// construction entries that list it are those that list that execution. Hashes only find the candidates: how many construction
+    /// entries list an execution and two 64-bit hashes of their places in <paramref name="constructions"/>, worked out over the bits
+    /// of the construction entries once rather than over the executions' lists, and how many own entries it has and a hash of them.
+    /// The exact comparison of construction entries passes over them once at most, and only for a candidate whose hashes agree.</summary>
+    /// <param name="executions">The executions, in the order their classes are numbered.</param>
+    /// <param name="own">Each execution's own entries; no construction entry among them.</param>
+    /// <param name="constructions">The construction entries, in canonical order.</param>
+    /// <param name="ids">The numbering of the execution ids the construction entries' bits are over.</param>
+    /// <param name="hashes">Whether the candidates are told apart by the hashes of their entries as well as by how many entries they
+    /// have. A test turns the hashes off, so that executions with as many construction entries and as many own entries, but other
+    /// ones, meet as candidates and only the exact comparison tells them apart.</param>
+    internal static IReadOnlyList<EntryCensusRow> EntryCensus(IEnumerable<ExecutionInstance> executions, IReadOnlyDictionary<string, List<ExecutionEntry>> own,
+                                                              IReadOnlyList<ConstructionEntry> constructions, ExecutionIds ids, bool hashes = true)
+    {
+        var listed = executions.ToArray();
+        var length = 0;
+        foreach (var execution in listed)
+        {
+            WorkCancellation.Check();
+            if (ids.TryGetNumber(execution.Id, out var number))
+                length = Math.Max(length, number + 1);
+        }
+
+        var counts = new int[length];
+        var first = new ulong[length];
+        var second = new ulong[length];
+        Array.Fill(first, CENSUS_HASH_OFFSET);
+        for (var at = 0; at < constructions.Count; at++)
+        {
+            WorkCancellation.Check();
+            var place = (ulong)at + 1;
+            // bounded: the numbers of one region's executions, the bits of one set.
+            foreach (var number in Bits.Numbers(constructions[at].Executions))
+            {
+                if (number >= length)
+                    continue;
+                counts[number]++;
+                first[number] = (first[number] ^ place) * CENSUS_HASH_PRIME;
+                second[number] = second[number] * CENSUS_HASH_MULTIPLIER + place;
+            }
+        }
+
+        // Each bucket holds the classes whose entries hash alike, with the own entries and the number of the first execution of each,
+        // which an execution is compared with exactly before it joins.
+        var buckets = new Dictionary<CensusBucket, List<(List<ExecutionEntry> Own, int First, int Class)>>();
+        var classCount = 0;
+        var rows = new List<EntryCensusRow>(listed.Length);
+        foreach (var execution in listed)
+        {
+            WorkCancellation.Check();
+            var mine = own.GetValueOrDefault(execution.Id) ?? [];
+            var numbered = ids.TryGetNumber(execution.Id, out var number) && number < length;
+            var (count, hashed, multiplied) = numbered ? (counts[number], first[number], second[number]) : (0, CENSUS_HASH_OFFSET, 0UL);
+            var bucket = hashes
+                ? new CensusBucket(count, hashed, multiplied, mine.Count, HashOfOwn(mine))
+                : new CensusBucket(count, CENSUS_HASH_OFFSET, 0UL, mine.Count, 0);
+            if (!buckets.TryGetValue(bucket, out var classes))
+                buckets.Add(bucket, classes = []);
+            // Without construction entries both executions have none; with them both are numbered.
+            var found = classes.FindIndex(item => item.Own.SequenceEqual(mine) &&
+                                                  (count == 0 || SameConstructions(constructions, item.First, number, count)));
+            var @class = found >= 0 ? classes[found].Class : classCount++;
+            if (found < 0)
+                classes.Add((mine, numbered ? number : -1, @class));
+            rows.Add(new EntryCensusRow(execution.Id, execution.Kind, mine.Count, count, @class));
+        }
+
+        return rows;
+    }
+
+    /// <summary>Whether the same construction entries list two executions that as many construction entries list: the pass over the
+    /// construction entries stops at the first that lists the first execution and not the second, or once every construction entry
+    /// of the first lists the second as well, since the second then has no other.</summary>
+    /// <param name="constructions">The construction entries, in canonical order.</param>
+    /// <param name="first">The number of the first execution.</param>
+    /// <param name="second">The number of the second execution.</param>
+    /// <param name="count">How many construction entries list each of the two.</param>
+    private static bool SameConstructions(IReadOnlyList<ConstructionEntry> constructions, int first, int second, int count)
+    {
+        WorkCancellation.Check();
+        var found = 0;
+        // bounded: one pass over the construction entries at most, for one candidate whose hashes agree.
+        for (var at = 0; at < constructions.Count && found < count; at++)
+        {
+            if (!Bits.Contains(constructions[at].Executions, first))
+                continue;
+            if (!Bits.Contains(constructions[at].Executions, second))
+                return false;
+            found++;
+        }
+
+        return true;
+    }
+
+    /// <summary>A hash of an execution's own entries, so that lists of one length but other entries meet as candidates only when
+    /// their hashes agree.</summary>
+    /// <param name="own">The execution's own entries.</param>
+    private static int HashOfOwn(List<ExecutionEntry> own)
+    {
+        var hash = new HashCode();
+        // bounded: one execution's own entries.
+        foreach (var entry in own)
+            hash.Add(entry);
+        return hash.ToHashCode();
+    }
+
+    /// <summary>What the census finds the candidates of a class by before it compares them exactly (<see cref="EntryCensus"/>).</summary>
+    /// <param name="Constructions">How many construction entries the class's executions have.</param>
+    /// <param name="First">The first 64-bit hash of the places of those construction entries.</param>
+    /// <param name="Second">The second, independent of the first.</param>
+    /// <param name="Own">How many entries of their own the class's executions have.</param>
+    /// <param name="OwnHash">A hash of those entries (<see cref="HashOfOwn"/>).</param>
+    private readonly record struct CensusBucket(int Constructions, ulong First, ulong Second, int Own, int OwnHash);
+
+    /// <summary>The start of the census's first hash of an execution's construction entries (FNV-1a's offset basis).</summary>
+    private const ulong CENSUS_HASH_OFFSET = 0xcbf29ce484222325;
+
+    /// <summary>The prime the census's first hash multiplies by (FNV-1a's 64-bit prime).</summary>
+    private const ulong CENSUS_HASH_PRIME = 0x100000001b3;
+
+    /// <summary>The odd multiplier of the census's second hash, independent of the first.</summary>
+    private const ulong CENSUS_HASH_MULTIPLIER = 0x9e3779b97f4a7c15;
+
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
         internal int WalkVisits { get; private set; }
@@ -1051,7 +1196,7 @@ public static class ExecutionModel
             var counters = OrderingCounters.TIMER_KINDS.ToDictionary(counter => counter,
                                                                      counter => timerSites.Count(site => site.Counter == counter),
                                                                      StringComparer.Ordinal);
-            return new ExecutionAnalysis(
+            var analysis = new ExecutionAnalysis(
                 executions,
                 accesses,
                 ownership,
@@ -1073,8 +1218,36 @@ public static class ExecutionModel
                 SpawnSiteLocations = _spawnSites,
                 TimerSites = timerSites,
                 TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal),
-                WorkSites = _workSites.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<(string, int)>)pair.Value, StringComparer.Ordinal)
+                WorkSites = _workSites.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<(string, int)>)pair.Value, StringComparer.Ordinal),
+                Census = CensusOf(executions, _entries, _constructionEntries, _ids)
             };
+            // The census of ADR 0042 is taken here, where every execution and its entry list are final, before any collection.
+            DiagnosticCheckpoint.Reach($"census:{scope.ScopeId}", collect: false, () => CensusLines(analysis.EntryCensus()));
+            return analysis;
+        }
+
+        /// <summary>How the analysis works its census out when a reader asks (<see cref="EntryCensus"/>): from what the entry lists are
+        /// made of, which the lists keep alive anyway, and nothing else of the builder.</summary>
+        /// <param name="executions">The scope's executions, in the analysis's order.</param>
+        /// <param name="own">Each execution's own entries.</param>
+        /// <param name="constructions">The construction entries.</param>
+        /// <param name="ids">The numbering the construction entries' bits are over.</param>
+        private static Func<IReadOnlyList<EntryCensusRow>> CensusOf(ExecutionInstance[] executions, Dictionary<string, List<ExecutionEntry>> own,
+                                                                    List<ConstructionEntry> constructions, ExecutionIds ids) =>
+            () => EntryCensus(executions, own, constructions, ids);
+
+        /// <summary>The lines of the <c>census:</c> checkpoint: a summary of the classes, then one line per execution.</summary>
+        /// <param name="census">The census of the scope's executions (<see cref="EntryCensus"/>).</param>
+        private static IEnumerable<string> CensusLines(IReadOnlyList<EntryCensusRow> census)
+        {
+            var sizes = census.GroupBy(row => row.Class).Select(group => group.Count()).ToArray();
+            yield return $"executions={census.Count} classes={sizes.Length} inSharedClasses={sizes.Where(size => size > 1).Sum()} " +
+                         $"largestClass={(sizes.Length == 0 ? 0 : sizes.Max())}";
+            foreach (var row in census)
+            {
+                WorkCancellation.Check();
+                yield return $"execution={row.Execution} kind={row.Kind} own={row.Own} constructions={row.Constructions} class={row.Class}";
+            }
         }
 
         /// <summary>The counter a timer creation site of one kind is counted in.</summary>

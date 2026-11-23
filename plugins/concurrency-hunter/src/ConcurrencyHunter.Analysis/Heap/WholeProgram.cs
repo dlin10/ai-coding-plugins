@@ -796,6 +796,10 @@ public static partial class WholeProgram
 
     private const string SERVICE_COLLECTION_TYPE = ":Microsoft.Extensions.DependencyInjection.IServiceCollection";
 
+    /// <summary>How the context of a region resolved inside one HTTP invocation of a root starts, the root's id following: a scoped
+    /// service is one object per invocation, and every region named after one carries the text in its identity.</summary>
+    internal const string INVOCATION_SCOPE = "invocation:root:";
+
     /// <summary>Where a DI resolution happens: inside one HTTP invocation, in the root scope, or in the scope object a
     /// <c>CreateScope</c> call created.</summary>
     /// <param name="InvocationRootId">The root of the HTTP invocation the resolution happens in, if any.</param>
@@ -803,7 +807,7 @@ public static partial class WholeProgram
     private sealed record ResolutionScope(string? InvocationRootId, string? CreatedScope = null)
     {
         internal string Context => CreatedScope is { } created ? $"scope:{created}"
-            : InvocationRootId is { } rootId ? $"invocation:root:{rootId}"
+            : InvocationRootId is { } rootId ? $"{INVOCATION_SCOPE}{rootId}"
             : "root-scope";
     }
 

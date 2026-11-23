@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Heap;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
@@ -13,11 +14,132 @@ public sealed class CollectionCountersTests
         var counters = new CollectionCounters
         {
             Entries = 1, Visits = 2, States = 3, Rows = 4, Keys = 5, Hits = 6, Emitted = 7, Replaced = 8, Skipped = 9, SkippedKeys = 10,
-            SkippedVisits = 11, SkippedWhole = 12, WalkMs = 13, LocksMs = 14, DependenciesMs = 15, EmitMs = 16
+            SkippedVisits = 11, SkippedWhole = 12, WalkMs = 13, LocksMs = 14, DependenciesMs = 15, EmitMs = 16, OtherInstanceHits = 17,
+            ConstructionCopies = 18, Firsts = 19, FirstsFromConstructions = 20, NewInstance = 21, NewRegion = 22, NewSite = 23,
+            NewOperation = 24, NewGuards = 25, NewHeld = 26, NewLocal = 27, NewOther = 28, NewRootScoped = 29, ModelAccesses = 30
         };
 
         Assert.Equal("entries=1 visits=2 states=3 rows=4 keys=5 hits=6 emitted=7 replaced=8 skipped=9 skippedKeys=10 " +
-                     "skippedVisits=11 skippedWhole=12 walkMs=13 locksMs=14 dependenciesMs=15 emitMs=16", counters.Line());
+                     "skippedVisits=11 skippedWhole=12 walkMs=13 locksMs=14 dependenciesMs=15 emitMs=16 otherInstanceHits=17 " +
+                     "constructionCopies=18 firsts=19 firstsFromConstructions=20 newInstance=21 newRegion=22 newSite=23 newOperation=24 " +
+                     "newGuards=25 newHeld=26 newLocal=27 newOther=28 newRootScoped=29 modelAccesses=30", counters.Line());
+    }
+
+    /// <summary>The census of ADR 0042: every folded access is one execution's first, under one reason; a copy made on a visit from a
+    /// construction entry is counted as such, and so is a first among them; the model's accesses are the execution's.</summary>
+    [Fact]
+    public void The_fold_counts_every_folded_access_once_as_the_first_of_one_execution_with_one_reason()
+    {
+        // The root's walk makes more copies than the constructions' walks, so the two are not counted alike by chance.
+        var (collection, counted) = Collect("_state.Touch(); _ = _state.Value;");
+
+        Assert.Equal(collection.Folded.Count, counted.Sum(item => item.Counters.Firsts));
+        Assert.All(counted, item =>
+        {
+            var counters = item.Counters;
+            Assert.Equal(counters.Firsts, counters.NewInstance + counters.NewRegion + counters.NewSite + counters.NewOperation +
+                                          counters.NewGuards + counters.NewHeld + counters.NewLocal + counters.NewOther);
+            Assert.InRange(counters.FirstsFromConstructions, 0, Math.Min(counters.Firsts, counters.ConstructionCopies));
+            Assert.InRange(counters.NewRootScoped, 0, counters.Firsts);
+        });
+        // A copy whose code flow starts at its execution's construction entry, and no other, is a construction copy.
+        var fromConstructions = collection.Accesses.Count(access => access.CodeFlow is [_, { Kind: "construction" } step, ..] &&
+                                                                     !step.Text.Contains(" in ", StringComparison.Ordinal));
+        Assert.True(fromConstructions > 0);
+        Assert.NotEqual(fromConstructions, collection.Accesses.Count - fromConstructions);
+        Assert.Equal(fromConstructions, counted.Sum(item => item.Counters.ConstructionCopies));
+        Assert.Contains(counted, item => item.Counters.FirstsFromConstructions > 0);
+        var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
+        Assert.True(worker.ModelAccesses > 0);
+    }
+
+    /// <summary>The emission's key names the body, not the instance: the second instance of a generic body writing the field the first
+    /// wrote finds the key taken, and that lookup is counted.</summary>
+    [Fact]
+    public void A_key_another_instance_of_the_body_holds_is_an_other_instance_hit()
+    {
+        var (collection, counted) = CollectSource("""
+            public static class Counter { public static int Value; }
+            public static class Bumps { public static void Bump<T>() => Counter.Value = 1; }
+            public sealed class FirstWorker : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    Bumps.Bump<int>();
+                    Bumps.Bump<string>();
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddHostedService<FirstWorker>();"));
+
+        var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0);
+        Assert.Equal(1, worker.Counters.OtherInstanceHits);
+        Assert.Single(collection.Accesses, access => access.ExecutionId == worker.Execution && access.Symbol.Contains("Bump", StringComparison.Ordinal));
+    }
+
+    /// <summary>A scoped service resolved for a request is one object per invocation of its root: an access to it is new on a region of
+    /// that invocation.</summary>
+    [Fact]
+    public void An_access_to_a_scoped_service_of_a_request_is_new_on_a_region_of_the_invocation()
+    {
+        var (collection, counted) = CollectSource("""
+            public sealed class Counter { public int Value; }
+            public class GateController(Counter counter) : ControllerBase
+            {
+                public void Get() { counter.Value = 2; }
+            }
+            """ + Startup("services.AddScoped<Counter>();"));
+
+        var scoped = collection.Folded.Count(access => (access.Resource.CollectionId ?? access.Resource.RegionId ?? access.Resource.Region)
+                                                           .Contains(WholeProgram.INVOCATION_SCOPE, StringComparison.Ordinal));
+        Assert.True(scoped > 0);
+        Assert.Equal(scoped, counted.Sum(item => item.Counters.NewRootScoped));
+    }
+
+    /// <summary>Every counter of every execution but the times is the same whether one worker collects the demo's scopes or four: the
+    /// census counts in the fold, in collection order, and a collector counts its own execution alone.</summary>
+    [Fact]
+    public async Task Every_counter_but_the_times_is_the_same_at_one_worker_and_at_four()
+    {
+        var executions = 0;
+        await ParallelCollectionTests.ForEachDemoScope(input =>
+        {
+            var one = Untimed(input with { Workers = 1 });
+            Assert.Equal(one, Untimed(input with { Workers = 4 }));
+            executions += one.Count;
+        });
+
+        Assert.True(executions > 1);
+    }
+
+    /// <summary>Each walked execution with its counters but the milliseconds, in the fold's order.</summary>
+    /// <param name="input">The collection's input.</param>
+    private static List<string> Untimed(InterproceduralInput input)
+    {
+        var lines = new List<string>();
+        InterproceduralAccesses.Collect(input with { Counted = (id, counters) => lines.Add($"{id} {TIMES.Replace(counters.Line(), string.Empty)}") },
+                                        CancellationToken.None);
+        return lines;
+    }
+
+    /// <summary>The fields of the <c>execution:</c> line that are times.</summary>
+    private static readonly System.Text.RegularExpressions.Regex TIMES = new(@"\w+Ms=\d+ ?");
+
+    /// <summary>The census reads what the collection makes and writes only counters: the demo's scopes collected with it and without it
+    /// give the same accesses, field for field and pooled object for pooled object.</summary>
+    [Fact]
+    public async Task Demo_accesses_are_the_same_with_the_census_and_without_it()
+    {
+        long firsts = 0;
+        await ParallelCollectionTests.ForEachDemoScope(input =>
+        {
+            var expected = RepeatedGuardsTests.Describe(InterproceduralAccesses.Collect(input with { Counted = null }, CancellationToken.None));
+            Assert.NotEmpty(expected);
+            var counted = InterproceduralAccesses.Collect(input with { Counted = (_, counters) => firsts += counters.Firsts }, CancellationToken.None);
+            Assert.Equal(expected, RepeatedGuardsTests.Describe(counted));
+        });
+
+        Assert.True(firsts > 0);
     }
 
     [Fact]
@@ -62,6 +184,8 @@ public sealed class CollectionCountersTests
         Assert.Equal(0, worker.Hits);
         Assert.Equal(0, repeating.Skipped);
         Assert.True(repeating.Hits >= 1);
+        // Both paths reach one instance of the helper: no hit is another instance's.
+        Assert.Equal(0, repeating.OtherInstanceHits);
         Assert.Equal(repeating.Hits, worker.SkippedKeys);
         Assert.Equal(repeating.Keys, worker.Keys + worker.SkippedKeys);
         Assert.Equal(repeating.Emitted, worker.Emitted);
@@ -87,6 +211,15 @@ public sealed class CollectionCountersTests
     {
         var counted = new List<(string Execution, CollectionCounters Counters)>();
         var input = Input(Execute(Source(first))) with { Counted = (id, counters) => counted.Add((id, counters)), EmitsUnderRepeatedGuards = repeats };
+        return (InterproceduralAccesses.Collect(input, CancellationToken.None), counted);
+    }
+
+    /// <summary>Collects a case's scope, with the counters of each walked execution in the fold's order.</summary>
+    /// <param name="source">The case's source.</param>
+    private static (InterproceduralCollection Collection, List<(string Execution, CollectionCounters Counters)> Counted) CollectSource(string source)
+    {
+        var counted = new List<(string Execution, CollectionCounters Counters)>();
+        var input = Input(Execute(source)) with { Counted = (id, counters) => counted.Add((id, counters)) };
         return (InterproceduralAccesses.Collect(input, CancellationToken.None), counted);
     }
 

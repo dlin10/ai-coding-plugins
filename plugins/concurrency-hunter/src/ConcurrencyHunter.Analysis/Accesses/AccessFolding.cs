@@ -36,7 +36,9 @@ internal sealed class AccessFolding
 
     /// <summary>Adds the accesses one execution made, in the order it made them.</summary>
     /// <param name="accesses">The execution's accesses.</param>
-    internal void Add(IReadOnlyList<Access> accesses)
+    /// <param name="firsts">Given each access that starts a folded access of its own, in order: the execution is the first to make
+    /// it; null for no one.</param>
+    internal void Add(IReadOnlyList<Access> accesses, List<Access>? firsts = null)
     {
         WorkCancellation.Check();
         foreach (var access in accesses)
@@ -52,6 +54,7 @@ internal sealed class AccessFolding
             _index.Add(access, _firsts.Count);
             _firsts.Add(access);
             _executions.Add([execution]);
+            firsts?.Add(access);
         }
 
         _met.Clear();
@@ -146,8 +149,7 @@ internal sealed class AccessFolding
                    x.UnseenWriteOperation == y.UnseenWriteOperation && x.Ownership == y.Ownership &&
                    string.Equals(x.BodyId, y.BodyId, StringComparison.Ordinal) && string.Equals(x.InstanceId, y.InstanceId, StringComparison.Ordinal) &&
                    string.Equals(x.Symbol, y.Symbol, StringComparison.Ordinal) && x.Source == y.Source && SameResource(x.Resource, y.Resource) &&
-                   Same(x.HeldProtection, y.HeldProtection) && Same(x.HeldProtectionIds, y.HeldProtectionIds) &&
-                   SameHeld(x.HeldProtections, y.HeldProtections) && Same(x.BindingEvidence, y.BindingEvidence) &&
+                   SameProtections(x, y) && Same(x.BindingEvidence, y.BindingEvidence) &&
                    Same(x.Uncertainties, y.Uncertainties) && Same(x.OwnershipEvidence, y.OwnershipEvidence) && Same(x.Conditions, y.Conditions) &&
                    x.SelectorTerm == y.SelectorTerm && Same(x.GapChecks, y.GapChecks) && Same(x.DecidingCalls, y.DecidingCalls);
         }
@@ -155,6 +157,13 @@ internal sealed class AccessFolding
         public int GetHashCode(Access obj) =>
             HashCode.Combine(obj.BodyId, obj.OperationId, obj.InstanceId, obj.Operation, obj.Resource.RegionId, obj.Resource.Member.Name,
                              obj.HeldProtectionIds.Count, obj.IsConstructionLocal);
+
+        /// <summary>Whether two accesses hold the same protections, as the fold tells them apart: the displays, the objects' ids, and
+        /// what each object is held by and how (mechanism, mode, exclusivity).</summary>
+        /// <param name="x">One access.</param>
+        /// <param name="y">The other.</param>
+        internal static bool SameProtections(Access x, Access y) =>
+            Same(x.HeldProtection, y.HeldProtection) && Same(x.HeldProtectionIds, y.HeldProtectionIds) && SameHeld(x.HeldProtections, y.HeldProtections);
 
         private static bool SameResource(AccessResource x, AccessResource y) =>
             ReferenceEquals(x, y) ||

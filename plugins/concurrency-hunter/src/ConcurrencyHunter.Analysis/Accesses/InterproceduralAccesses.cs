@@ -202,11 +202,65 @@ internal sealed class CollectionCounters
     /// <summary>The milliseconds of the emission.</summary>
     internal long EmitMs { get; set; }
 
+    /// <summary>The lookups among <see cref="Hits"/> whose key held an access another instance of the same body made: the key names
+    /// the body, so that instance names the access (ADR 0042, step 1). Counted only where the counters are read.</summary>
+    internal long OtherInstanceHits { get; set; }
+
+    /// <summary>The execution's accesses made on visits whose entry is a construction entry, counted only where the counters are
+    /// read.</summary>
+    internal long ConstructionCopies { get; set; }
+
+    /// <summary>The folded accesses this execution was the first to make, counted by the fold where the counters are read.</summary>
+    internal long Firsts { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> made on visits whose entry is a construction entry.</summary>
+    internal long FirstsFromConstructions { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> made by an instance no folded access had before.</summary>
+    internal long NewInstance { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> by a known instance on a region (the collection, or else the resource's region) no folded
+    /// access touched before.</summary>
+    internal long NewRegion { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> by a known instance on a known region, where that instance had no access at that
+    /// operation on that resource before.</summary>
+    internal long NewSite { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> where the instance had accesses at the operation on the resource before, of other
+    /// kinds only.</summary>
+    internal long NewOperation { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> whose guards differ from the first folded access of the same instance, operation,
+    /// resource and kind.</summary>
+    internal long NewGuards { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> with the first such access's guards and another held protection.</summary>
+    internal long NewHeld { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> with its guards and held protection and the other construction-locality.</summary>
+    internal long NewLocal { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> that differ from the first such access in something else: freshness, labels, the term.</summary>
+    internal long NewOther { get; set; }
+
+    /// <summary>Those of <see cref="Firsts"/> on a region of one invocation of a root (<see cref="WholeProgram.INVOCATION_SCOPE"/>),
+    /// whatever made them new.</summary>
+    internal long NewRootScoped { get; set; }
+
+    /// <summary>How many accesses of the execution model (<see cref="ExecutionAnalysis.Accesses"/>) the execution runs, where the
+    /// counters are read.</summary>
+    internal long ModelAccesses { get; set; }
+
     /// <summary>The counters as the tail of the <c>execution:</c> report line.</summary>
     internal string Line() =>
         $"entries={Entries} visits={Visits} states={States} rows={Rows} keys={Keys} hits={Hits} emitted={Emitted} replaced={Replaced} " +
         $"skipped={Skipped} skippedKeys={SkippedKeys} skippedVisits={SkippedVisits} skippedWhole={SkippedWhole} " +
-        $"walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs}";
+        $"walkMs={WalkMs} locksMs={LocksMs} dependenciesMs={DependenciesMs} emitMs={EmitMs} " +
+        $"otherInstanceHits={OtherInstanceHits} constructionCopies={ConstructionCopies} firsts={Firsts} " +
+        $"firstsFromConstructions={FirstsFromConstructions} newInstance={NewInstance} newRegion={NewRegion} newSite={NewSite} " +
+        $"newOperation={NewOperation} newGuards={NewGuards} newHeld={NewHeld} newLocal={NewLocal} newOther={NewOther} " +
+        $"newRootScoped={NewRootScoped} modelAccesses={ModelAccesses}";
 }
 
 /// <summary>
@@ -256,12 +310,15 @@ public static partial class InterproceduralAccesses
             var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
             // The gaps come first: a lock whose identity is a gap's result is a check that gap decides on every access holding it (R6).
             var gaps = SemanticGaps.Find(input, reach: reach);
+            // The census of ADR 0042 is counted only where the counters are read.
+            var modelAccesses = DiagnosticCheckpoint.IsOn || input.Counted is not null ? ModelAccesses(input.Executions) : null;
             DiagnosticCheckpoint.Reach($"gaps:{input.Scope.ScopeId}", collect: true,
                                        () => [$"gaps={gaps.Count} regions={gaps.Sum(gap => (long)gap.Regions)} callSites={gaps.Sum(gap => (long)gap.CallSites)} " +
                                               $"executionAccesses={input.Executions.Accesses.Count} " +
                                               // Each access of the execution model with each execution that runs it: what the collection
                                               // will fold at the least, known before it starts (ADR 0041).
-                                              $"executionAccessExecutions={input.Executions.Accesses.Sum(access => (long)access.Executions.Count)}"]);
+                                              $"executionAccessExecutions={input.Executions.Accesses.Sum(access => (long)access.Executions.Count)}",
+                                              ModelAccessBuckets(input.Executions.Executions, modelAccesses!)]);
             var origins = new GapOrigins(input.Heap, gaps);
             // What an unresolved call may do is made where it stands, as its unknown effect (R1); a locator has none.
             var unknownCalls = UnknownCalls.Of(input.Scope, input.Heap).Where(call => !call.IsLocator)
@@ -277,6 +334,7 @@ public static partial class InterproceduralAccesses
             var bindingEvidence = new ConcurrentDictionary<HeapRegion, IReadOnlyList<BindingEvidence>>(ReferenceEqualityComparer.Instance);
             // So are the resources an access names and the steps, labels and checks of its accesses (issue 454).
             var shares = new CollectorShares();
+            var census = modelAccesses is null ? null : new FoldCensus(shares.Numbers, modelAccesses);
             var executionCheckpoint = $"execution:{input.Scope.ScopeId}";
             var executions = input.Executions.Executions;
 
@@ -296,11 +354,12 @@ public static partial class InterproceduralAccesses
             // The fold takes the executions in their order whatever walked them, so every access keeps its executions and positions.
             void Fold(int at, ExecutionCollector collector, IReadOnlyList<Access> accesses, long milliseconds)
             {
-                folding.Add(accesses);
+                folding.Add(accesses, census?.Firsts);
                 unproven.UnionWith(collector.UnprovenReferences);
                 folded.UnionWith(collector.FoldedReferences);
                 unresolved.UnionWith(collector.UnresolvedBases);
                 filled.UnionWith(collector.UnseenFilled);
+                census?.Count(executions[at].Id, collector.Counters, collector.MadeFromConstructions);
                 input.Counted?.Invoke(executions[at].Id, collector.Counters);
                 DiagnosticCheckpoint.Reach(executionCheckpoint, collect: false,
                                            () => [$"n={at + 1}/{executions.Count} execution={executions[at].Id} accesses={accesses.Count} ms={milliseconds} " +
@@ -355,6 +414,124 @@ public static partial class InterproceduralAccesses
                 ["accesses"] = folding.Count,
                 ["accessExecutions"] = folding.ExecutionCount
             }, cancellationToken, error);
+        }
+    }
+
+    /// <summary>The lower bounds of the buckets the census counts executions in by their accesses of the execution model.</summary>
+    private static readonly long[] MODEL_ACCESS_BUCKETS = [0, 1, 1_000, 10_000, 100_000, 1_000_000];
+
+    /// <summary>How many accesses of the execution model each execution runs, by execution id (ADR 0042, step 1): the model gives
+    /// equal sets one object, so each distinct set is counted once with how many accesses have it.</summary>
+    /// <param name="executions">The scope's execution model.</param>
+    private static Dictionary<string, long> ModelAccesses(ExecutionAnalysis executions)
+    {
+        var accessesBySet = new Dictionary<ExecutionSet, long>(ReferenceEqualityComparer.Instance);
+        foreach (var access in executions.Accesses)
+        {
+            WorkCancellation.Check();
+            accessesBySet[access.Executions] = accessesBySet.GetValueOrDefault(access.Executions) + 1;
+        }
+
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (set, accesses) in accessesBySet)
+        {
+            WorkCancellation.Check();
+            foreach (var execution in set.Unordered())
+            {
+                WorkCancellation.Check();
+                counts[execution] = counts.GetValueOrDefault(execution) + accesses;
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>How many of the scope's executions run how many accesses of the execution model, by <see cref="MODEL_ACCESS_BUCKETS"/>:
+    /// the line of the <c>gaps:</c> checkpoint that says, before collection, how many executions are heavy.</summary>
+    /// <param name="executions">The scope's executions.</param>
+    /// <param name="modelAccesses">The accesses of the model each execution runs (<see cref="ModelAccesses"/>).</param>
+    private static string ModelAccessBuckets(IReadOnlyList<ExecutionInstance> executions, IReadOnlyDictionary<string, long> modelAccesses)
+    {
+        var counts = new long[MODEL_ACCESS_BUCKETS.Length];
+        foreach (var execution in executions)
+        {
+            WorkCancellation.Check();
+            var accesses = modelAccesses.GetValueOrDefault(execution.Id);
+            counts[Array.FindLastIndex(MODEL_ACCESS_BUCKETS, bound => bound <= accesses)]++;
+        }
+
+        return $"modelAccessBuckets={string.Join(",", MODEL_ACCESS_BUCKETS.Select((bound, at) => $"{bound}:{counts[at]}"))}";
+    }
+
+    /// <summary>What the fold counts of each execution's new accesses for the census of ADR 0042, step 1: the folded accesses the
+    /// execution is the first to make, and what made each of them new, against every access folded before it. Kept by the coordinator
+    /// alone and only where the counters are read; nothing it holds reaches the collection.</summary>
+    /// <param name="numbers">The scope's numbers, for an access's instance and resource key.</param>
+    /// <param name="modelAccesses">The accesses of the execution model each execution runs (<see cref="ModelAccesses"/>).</param>
+    internal sealed class FoldCensus(TextNumbers numbers, IReadOnlyDictionary<string, long> modelAccesses)
+    {
+        private readonly HashSet<string> _instances = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _regions = new(StringComparer.Ordinal);
+        private readonly HashSet<(int Instance, int Operation, ResourceKey Resource)> _sites = [];
+        private readonly Dictionary<SiteKind, Access> _firstOfKind = [];
+
+        /// <summary>An instance's operation on a resource with what it does there: the first folded access of each is what a later new
+        /// one is compared with.</summary>
+        /// <param name="Instance">The number of the instance.</param>
+        /// <param name="Operation">The operation.</param>
+        /// <param name="Resource">The key of the resource (<see cref="AccessResource.KeyIn"/>).</param>
+        /// <param name="Kind">What the access does to the resource.</param>
+        private readonly record struct SiteKind(int Instance, int Operation, ResourceKey Resource, AccessOperation Kind);
+
+        /// <summary>The accesses the fold of the current execution found new, in order; <see cref="Count"/> empties it.</summary>
+        internal List<Access> Firsts { get; } = [];
+
+        /// <summary>Counts the current execution's new accesses into its counters, each against every access the fold met before it,
+        /// and the execution's accesses of the model.</summary>
+        /// <param name="execution">The execution's id.</param>
+        /// <param name="counters">The counters of its collection, which get the census.</param>
+        /// <param name="fromConstructions">The accesses of the execution that visits from a construction entry made, by reference; null
+        /// where they were not told apart.</param>
+        internal void Count(string execution, CollectionCounters counters, IReadOnlySet<Access>? fromConstructions)
+        {
+            counters.Firsts = Firsts.Count;
+            counters.ModelAccesses = modelAccesses.GetValueOrDefault(execution);
+            foreach (var access in Firsts)
+            {
+                WorkCancellation.Check();
+                if (fromConstructions?.Contains(access) == true)
+                    counters.FirstsFromConstructions++;
+                var resource = access.Resource;
+                var region = resource.CollectionId ?? resource.RegionId ?? resource.Region;
+                if (region.Contains(WholeProgram.INVOCATION_SCOPE, StringComparison.Ordinal))
+                    counters.NewRootScoped++;
+                var instance = numbers.Of(access.InstanceId);
+                var key = resource.KeyIn(numbers);
+                var site = (instance, access.OperationId, key);
+                var kind = new SiteKind(instance, access.OperationId, key, access.Operation);
+                if (!_instances.Contains(access.InstanceId))
+                    counters.NewInstance++;
+                else if (!_regions.Contains(region))
+                    counters.NewRegion++;
+                else if (!_sites.Contains(site))
+                    counters.NewSite++;
+                else if (!_firstOfKind.TryGetValue(kind, out var first))
+                    counters.NewOperation++;
+                else if (!first.Conditions.SequenceEqual(access.Conditions))
+                    counters.NewGuards++;
+                else if (!AccessFolding.AccessKey.SameProtections(first, access))
+                    counters.NewHeld++;
+                else if (first.IsConstructionLocal != access.IsConstructionLocal)
+                    counters.NewLocal++;
+                else
+                    counters.NewOther++;
+                _instances.Add(access.InstanceId);
+                _regions.Add(region);
+                _sites.Add(site);
+                _firstOfKind.TryAdd(kind, access);
+            }
+
+            Firsts.Clear();
         }
     }
 
@@ -1412,6 +1589,10 @@ public static partial class InterproceduralAccesses
 
         /// <summary>What this collection counted, for the <c>execution:</c> checkpoint (ADR 0041).</summary>
         internal CollectionCounters Counters { get; } = new();
+
+        /// <summary>The accesses <see cref="Collect"/> returned that visits from a construction entry made, by reference, where the
+        /// counters are read; null otherwise. The fold's census reads it (ADR 0042).</summary>
+        internal IReadOnlySet<Access>? MadeFromConstructions { get; private set; }
 
         /// <summary>Whether anyone reads <see cref="Counters"/>: a diagnostic run or a test. What costs more than adding one is counted
         /// only then.</summary>
@@ -2877,6 +3058,8 @@ public static partial class InterproceduralAccesses
             // An access that a path under fewer guards replaces leaves the list at the end, in one pass, keeping the order of the rest:
             // finding and removing each one as it is replaced would cost the whole list every time.
             var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
+            // The accesses made on visits from a construction entry, for the census where the counters are read (ADR 0042).
+            var fromConstructions = _countsAll ? new HashSet<Access>(ReferenceEqualityComparer.Instance) : null;
             var seen = new Dictionary<EmittedKey, List<KeptAccess>>();
             // The guards the accesses of an instance were emitted under on the visits whose path the emission read for those guards
             // alone: a later such visit whose guards include them finds every key of those accesses taken, and skips them before it
@@ -3180,9 +3363,13 @@ public static partial class InterproceduralAccesses
                                 seen[key] = kept = [];
                             Counters.Keys++;
                             accessKeys++;
-                            if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
+                            if (kept.Find(other => Bits.Covers(conditionKeys, other.Conditions)) is { } covering)
                             {
                                 Counters.Hits++;
+                                // The key names the body, so an access another instance of it made stands for this one (ADR 0042);
+                                // only a run whose counters are read compares the instances.
+                                if (_countsAll && !string.Equals(covering.Access.InstanceId, instance.Id, StringComparison.Ordinal))
+                                    Counters.OtherInstanceHits++;
                                 continue;
                             }
 
@@ -3264,6 +3451,8 @@ public static partial class InterproceduralAccesses
                             };
                             kept.Add(new KeptAccess(conditionKeys, emitted));
                             accesses.Add(emitted);
+                            if (fromConstructions is not null && entry.Kind == ExecutionEntryKind.Construction)
+                                fromConstructions.Add(emitted);
                         }
                     }
 
@@ -3315,7 +3504,15 @@ public static partial class InterproceduralAccesses
             }
 
             Counters.Replaced = replaced.Count;
-            return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
+            var result = replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
+            if (fromConstructions is not null)
+            {
+                fromConstructions.ExceptWith(replaced);
+                Counters.ConstructionCopies = fromConstructions.Count;
+                MadeFromConstructions = fromConstructions;
+            }
+
+            return result;
 
             // The entry of one access of an instance on one resource, made on its first mention.
             Feed FeedOf(MethodInstance instance, int operation, ResourceKey resource)

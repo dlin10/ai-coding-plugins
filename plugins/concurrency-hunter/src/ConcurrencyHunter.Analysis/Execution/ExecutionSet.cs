@@ -105,6 +105,10 @@ public sealed class ExecutionSet : IReadOnlySet<string>
 
     private string[] Ordered() => _ordered ??= Bits.Numbers(_bits).Select(_ids.Id).Order(StringComparer.Ordinal).ToArray();
 
+    /// <summary>The ids of the set in the order of their numbers, without the ordinal order the set enumerates in and keeps: for a
+    /// reader that counts over every set once and needs no order.</summary>
+    internal IEnumerable<string> Unordered() => Bits.Numbers(_bits).Select(_ids.Id);
+
     private HashSet<string> Copy() => new(this, StringComparer.Ordinal);
 }
 
