@@ -366,6 +366,27 @@ public sealed class ConflictRuleTests
                    finding => Assert.DoesNotContain(finding.Uncertainty, item => item.StartsWith("Ordering", StringComparison.Ordinal)));
     }
 
+    /// <summary>A controller and the lifecycle methods of one hosted service reach one helper site: the finding shows a pair the
+    /// controller runs in, and the lifecycle pair is another of its witnesses, whose uncertainty the finding still names, once
+    /// (ADR 0042).</summary>
+    [Fact]
+    public async Task A_lifecycle_pair_the_finding_does_not_show_still_names_the_lifecycle_uncertainty_once()
+    {
+        var result = await Analyze(Shared + """
+            public static class Progress { public static string? Last; public static void Mark() => Last = "item"; }
+            public sealed class ProgressWorker : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken stoppingToken) { Progress.Mark(); return Task.CompletedTask; }
+                public override Task StopAsync(CancellationToken cancellationToken) { Progress.Mark(); return Task.CompletedTask; }
+            }
+            public class ProgressController : ControllerBase { public void Post() => Progress.Mark(); }
+            """ + Startup("services.AddHostedService<ProgressWorker>();"));
+
+        var finding = Assert.Single(result.Findings, finding => finding.Resource.Member.Name == "Last");
+        Assert.Contains("aspnetcore", new[] { finding.AccessA.PathRoot.ProviderId, finding.AccessB.PathRoot.ProviderId });
+        Assert.Single(finding.Uncertainty, item => item == "Ordering between lifecycle methods of one hosted service is not analyzed in this version.");
+    }
+
     [Fact]
     public async Task Unresolved_registration_uncertainty_reaches_the_finding()
     {
@@ -538,10 +559,22 @@ public sealed class ConflictRuleTests
             public class GrowController : ControllerBase { public void Post() => Grow.F<int>(new object(), 3); }
             """ + Startup());
 
-        var merged = result.Findings.Where(finding => finding.Uncertainty.Contains("Contexts of Grow.F<T>(object, int) were merged; the objects involved may be more than one."))
-                           .ToArray();
-        Assert.NotEmpty(merged);
-        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 15, 5)), finding.Confidence));
+        // One finding per cell of Cache<T>.Last: the merged context's Cache<T>, the root's Cache<int>, and Cache<List<…>> for each of
+        // the fifteen recursions. Merging takes nothing off any component: a recursion's cell is written under its guard, which the
+        // solver proves satisfiable (path feasibility 15), and the other two cells have nothing to ask (5).
+        var unasked = new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 15, 5));
+        var proven = new FindingConfidence("High", 95, new ConfidenceComponents(25, 20, 20, 15, 15));
+        var expected = new Dictionary<string, FindingConfidence>(StringComparer.Ordinal) { ["static:Cache<T>"] = unasked, ["static:Cache<int>"] = unasked };
+        foreach (var depth in Enumerable.Range(1, 15))
+            expected[$"static:Cache<{string.Concat(Enumerable.Repeat("System.Collections.Generic.List<", depth))}int{new string('>', depth)}>"] = proven;
+        var findings = result.Findings.Where(finding => finding.Resource.Member.Name == "Last").ToArray();
+        Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), findings.Select(finding => finding.Resource.Region).Order(StringComparer.Ordinal));
+        Assert.All(findings, finding =>
+        {
+            // Each has a witness in the merged context of Grow.F, and a finding names what any witness carries (ADR 0042).
+            Assert.Contains("Contexts of Grow.F<T>(object, int) were merged; the objects involved may be more than one.", finding.Uncertainty);
+            Assert.Equal(expected[finding.Resource.Region], finding.Confidence);
+        });
     }
 
     [Fact]

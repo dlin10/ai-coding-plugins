@@ -121,30 +121,35 @@ internal static class ConflictFindings
         return (findings, findingGroups);
     }
 
-    /// <summary>The pairs of one finding folded into occurrences: one per pair of roots and call paths, whose pair is the least
-    /// protected, then the one with the smallest contexts; the evidence is the first occurrence with the finding's protection.</summary>
+    /// <summary>The witnesses of one finding folded into occurrences, one per pair of roots (TD-076, ADR 0042). An occurrence shows the
+    /// least protected witness, then the one with the smallest contexts, then the best scored, then the first in candidate order, which is
+    /// collection order. The finding is scored, labelled and given its uncertainty and gap evidence over every witness
+    /// (<see cref="FoldedFinding.Witnesses"/>); the evidence is the first occurrence with the finding's protection.</summary>
+    /// <param name="candidates">The witnesses of one finding, in candidate order.</param>
     private static FoldedFinding Fold(IEnumerable<Candidate> candidates)
     {
-        var occurrences = candidates.GroupBy(candidate => (candidate.AccessA.PathRoot.RootId, candidate.AccessB.PathRoot.RootId,
-                                                           PathText(candidate.AccessA), PathText(candidate.AccessB)))
-                                    .Select(group => group.OrderBy(candidate => ProtectionRank(candidate.Protection))
-                                                          .ThenBy(candidate => candidate.AccessA.InstanceId, StringComparer.Ordinal)
-                                                          .ThenBy(candidate => candidate.AccessB.InstanceId, StringComparer.Ordinal)
-                                                          .First())
-                                    .OrderBy(candidate => candidate.AccessA.PathRoot.RootId, StringComparer.Ordinal)
-                                    .ThenBy(candidate => candidate.AccessB.PathRoot.RootId, StringComparer.Ordinal)
-                                    .ThenBy(PathText, StringComparer.Ordinal)
-                                    .ThenBy(candidate => PathText(candidate.AccessB), StringComparer.Ordinal)
-                                    .ToArray();
+        var all = candidates.ToArray();
+        // Witnesses that score alike give the finding the components of the first in this order, the order its occurrences were
+        // taken in when an occurrence stood for a pair of roots and call paths.
+        var witnesses = all.OrderBy(candidate => candidate.AccessA.PathRoot.RootId, StringComparer.Ordinal)
+                           .ThenBy(candidate => candidate.AccessB.PathRoot.RootId, StringComparer.Ordinal)
+                           .ThenBy(candidate => PathText(candidate.AccessA), StringComparer.Ordinal)
+                           .ThenBy(candidate => PathText(candidate.AccessB), StringComparer.Ordinal)
+                           .ThenBy(candidate => ProtectionRank(candidate.Protection))
+                           .ThenBy(candidate => candidate.AccessA.InstanceId, StringComparer.Ordinal)
+                           .ThenBy(candidate => candidate.AccessB.InstanceId, StringComparer.Ordinal)
+                           .ToArray();
+        var occurrences = all.GroupBy(candidate => (candidate.AccessA.PathRoot.RootId, candidate.AccessB.PathRoot.RootId))
+                             .Select(group => group.OrderBy(candidate => ProtectionRank(candidate.Protection))
+                                                   .ThenBy(candidate => candidate.AccessA.InstanceId, StringComparer.Ordinal)
+                                                   .ThenBy(candidate => candidate.AccessB.InstanceId, StringComparer.Ordinal)
+                                                   .ThenByDescending(Score)
+                                                   .First())
+                             .OrderBy(candidate => candidate.AccessA.PathRoot.RootId, StringComparer.Ordinal)
+                             .ThenBy(candidate => candidate.AccessB.PathRoot.RootId, StringComparer.Ordinal)
+                             .ToArray();
         var protection = occurrences.Min(candidate => ProtectionRank(candidate.Protection));
-        return new FoldedFinding(occurrences.First(candidate => ProtectionRank(candidate.Protection) == protection), occurrences,
-                                 occurrences.Max(Score));
-    }
-
-    private static string PathText(Candidate candidate)
-    {
-        WorkCancellation.Check();
-        return PathText(candidate.AccessA);
+        return new FoldedFinding(occurrences.First(candidate => ProtectionRank(candidate.Protection) == protection), occurrences, witnesses);
     }
 
     private static string PathText(Access access) => string.Join(" → ", access.CallPath);
@@ -288,19 +293,20 @@ internal static class ConflictFindings
             : $"The roots {accessA.PathRoot.Display} and {accessB.PathRoot.Display} may run concurrently in scope {candidate.Resource.Scope}.";
         var scenario = Scenario(candidate.Resource, accessA, accessB);
         var uncertainty = new List<string>();
-        if (IsLifecyclePair(accessA.PathRoot, accessB.PathRoot))
+        // Once, where any witness is a pair of lifecycle methods of one hosted service, shown or not (ADR 0042).
+        if (folded.Witnesses.Any(witness => IsLifecyclePair(witness.AccessA.PathRoot, witness.AccessB.PathRoot)))
             uncertainty.Add(LIFECYCLE_UNCERTAINTY);
         if (candidate.Resource.IsWildcard)
             uncertainty.Add(WILDCARD_UNCERTAINTY);
-        uncertainty.AddRange(folded.Occurrences.SelectMany(occurrence => occurrence.AccessA.Uncertainties.Concat(occurrence.AccessB.Uncertainties)
-                                                                                    .Concat(occurrence.Uncertainties)
-                                                                                    .Concat(occurrence.GapChecks.Select(check => check.Uncertainty)))
+        uncertainty.AddRange(folded.Witnesses.SelectMany(witness => witness.AccessA.Uncertainties.Concat(witness.AccessB.Uncertainties)
+                                                                           .Concat(witness.Uncertainties)
+                                                                           .Concat(witness.GapChecks.Select(check => check.Uncertainty)))
                                    .Except(uncertainty, StringComparer.Ordinal)
                                    .Distinct(StringComparer.Ordinal)
                                    .Order(StringComparer.Ordinal));
-        // Each occurrence is scored with the checks a gap decides for it, and the finding takes the best one, its components and label
-        // with it: an occurrence no gap decides can keep a finding High although another one is capped (TD-039).
-        var best = folded.Occurrences.MaxBy(Score)!;
+        // Each witness is scored with the checks a gap decides for it, and the finding takes the best one, its components and label
+        // with it: a witness no gap decides can keep a finding High although another one is capped (TD-039).
+        var best = folded.Witnesses.MaxBy(Score)!;
         var components = Components(best);
         var confidence = new FindingConfidence(Label(Score(best)), Score(best), components);
         var listed = folded.Occurrences.Take(LISTED_OCCURRENCES)
@@ -324,9 +330,9 @@ internal static class ConflictFindings
             OccurrenceCount = folded.Occurrences.Count,
             Occurrences = listed,
             PathFeasibility = candidate.Feasibility,
-            GapCallees = folded.Occurrences.SelectMany(occurrence => occurrence.GapChecks).Select(check => check.Callee)
+            GapCallees = folded.Witnesses.SelectMany(witness => witness.GapChecks).Select(check => check.Callee)
                                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
-            GapChecks = folded.Occurrences.SelectMany(occurrence => occurrence.GapChecks)
+            GapChecks = folded.Witnesses.SelectMany(witness => witness.GapChecks)
                               .GroupBy(check => check.Callee, StringComparer.Ordinal).OrderBy(group => group.Key, StringComparer.Ordinal)
                               .ToDictionary(group => group.Key,
                                             group => (IReadOnlyList<string>)group.Select(check => check.Component).Distinct(StringComparer.Ordinal)
@@ -591,7 +597,17 @@ internal static class ConflictFindings
         public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
     }
 
-    private sealed record FoldedFinding(Candidate Evidence, IReadOnlyList<Candidate> Occurrences, int Score);
+    /// <summary>The candidates of one finding folded: the occurrence it shows, one per pair of path roots, and the witnesses its
+    /// score, labels and gap callees are taken from (ADR 0042).</summary>
+    /// <param name="Evidence">The occurrence the finding shows.</param>
+    /// <param name="Occurrences">One shown candidate per pair of path roots, in the order of the roots.</param>
+    /// <param name="Witnesses">Every candidate of the finding, by roots, call paths, protection and instances: what the finding's score,
+    /// uncertainty and gap checks are taken from.</param>
+    private sealed record FoldedFinding(Candidate Evidence, IReadOnlyList<Candidate> Occurrences, IReadOnlyList<Candidate> Witnesses)
+    {
+        /// <summary>The best score among the witnesses, which the finding's confidence is and its group is ordered by.</summary>
+        internal int Score => Witnesses.Max(ConflictFindings.Score);
+    }
 
     /// <summary>Each site's 1-based position among its body's accesses on the same resource with the same operation, in source order:
     /// start, end, then operation id, so two accesses starting at one position keep two ordinals. An access paired on another

@@ -309,6 +309,20 @@ public sealed class DecidingGapTests
         AssertDecides(Assert.Single(result.Coverage), GATE, finding.Fingerprint, ["protection"]);
     }
 
+    /// <summary>A gap check that only a witness the occurrence does not show carries, of the same roots and call paths as the one it
+    /// shows, still reaches the finding and the deciding gaps of coverage: a finding reads every witness (ADR 0042).</summary>
+    [Fact]
+    public void Gap_deciding_a_witness_its_occurrence_does_not_show_is_listed()
+    {
+        var finding = Assert.Single(Fold(Pair("a", []), Pair("a", [Check(TOUCH, "protection")]) with { Protection = PairProtection.PARTIAL }));
+        var coverage = Build([Gap(TOUCH)], [finding]);
+
+        Assert.Equal(1, finding.OccurrenceCount);
+        Assert.Equal(PairProtection.UNPROTECTED, finding.ProtectionResult);
+        Assert.Equal([TOUCH], finding.GapCallees);
+        AssertDecides(coverage, TOUCH, finding.Fingerprint, ["protection"]);
+    }
+
     [Fact]
     public void Checks_of_one_callee_from_different_occurrences_are_united()
     {

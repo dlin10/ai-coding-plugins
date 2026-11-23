@@ -103,13 +103,20 @@ occurrences pass through.
   shared state meets other roots. Say that the library may invoke the delegate concurrently, not that it
   does.
 - **A semantic gap in the uncertainty.** An item reading `The unresolved call <callee> (<kind>) decides
-  the <component> check: ...` means that call decides whether the finding holds: its unknown effect is
-  one side (the operation check), the delegate it was handed runs one side or a task, timer or lock it
-  returns orders or protects the pair (the overlap or protection check). That component costs confidence and the occurrence
-  it decides is at most Medium; a finding keeps the label of its best occurrence, so one reached another
-  way that no gap decides may still be High, and the uncertainty lists the gaps of every occurrence. Take the
-  label as the evidence gives it, never lower it yourself. Put it in the uncertainty section and tell the reader what to check in that
-  library's documentation. You may name the call in backticks by its type and member without type
+  the <component> check: <reason>.` means that what the analysis cannot tell about that call leaves one
+  check open for at least one pair of accesses that reaches the finding: its unknown effect may be one side
+  (the operation check), the delegate it was handed may run one side, or a task, timer or lock it may
+  return is one that a wait, a continuation, a timer callback or a lock of that pair uses (the overlap or
+  protection check). State that open fact in the words of the reason, such as that a timer's periodicity
+  is unknown or that one side's lock identity depends on the call, and say that something is ordered or
+  protected only where the evidence establishes it: an unresolved gap orders and protects nothing. That
+  pair need not be the one the evidence shows, nor the one that gives the confidence, so do not write
+  that the call decides whether the conflict shown holds. A pair a gap decides loses confidence on that
+  component and is at most Medium; a finding takes the label of its best pair, so another pair that no gap
+  decides may keep it High, and the uncertainty lists the gaps of every pair. A label in a `get_groups`
+  digest is its group's, the highest of its findings. Take a label as the evidence gives it, never lower it
+  yourself. Put the gap in the uncertainty section and tell the reader what to check in that library's
+  documentation. You may name the call in backticks by its type and member without type
   arguments or parameters, such as `CollectionsMarshal.SetCount`.
 - **Collections.** `HashSet`, `Queue`, `Stack` and `LinkedList` are modelled as `List` and `Dictionary`
   are: a structure resource (the collection itself) and a cell resource (`Items[?]`), none of them

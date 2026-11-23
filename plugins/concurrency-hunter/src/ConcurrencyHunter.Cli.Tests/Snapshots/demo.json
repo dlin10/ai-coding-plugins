@@ -15,7 +15,7 @@
     "accesses": 2228,
     "accessExecutions": 2335,
     "pairs": {
-      "comparisons": 3036,
+      "comparisons": 3029,
       "cartesianBound": 1316254,
       "largestBucket": 19,
       "buckets": 988,
@@ -36,10 +36,10 @@
         "thread-pool-entry": 0
       },
       "suppressed": 17,
-      "candidates": 304
+      "candidates": 297
     },
     "findings": 278,
-    "occurrences": 301,
+    "occurrences": 297,
     "groups": 223,
     "fingerprints": [
       "006126d59d446beb",

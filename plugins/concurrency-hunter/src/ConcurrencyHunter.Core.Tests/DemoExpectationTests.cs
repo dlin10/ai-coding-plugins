@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Collections.Concurrent;
+using System.Text.Json;
 using Common.Roslyn;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
@@ -8,6 +9,8 @@ using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Providers.LibraryModels;
+using ConcurrencyHunter.Solving;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -126,11 +129,16 @@ public sealed class DemoExpectationTests(ITestOutputHelper output)
         Assert.Equal(6, group.OccurrenceCount);
     }
 
+    /// <summary>The candidate index gives the findings the reference pairing gives, and the same candidates (ADR 0042): normalized to the
+    /// candidate each stands for (<see cref="CandidateKey"/>), the index's witnesses and the reference's pairs of copies give the same keys
+    /// with the same first witness, before the solver and after it, and each of the index's candidates is one key.</summary>
     [Fact]
     public async Task Demo_findings_are_identical_with_and_without_the_candidate_index()
     {
-        var indexedTask = AnalyzeDemoAsync();
-        var referenceTask = AnalyzeDemoAsync(EngineFixture.ReferencePair);
+        var (indexedPairings, referencePairings) = (new ConcurrentQueue<PairAnalysis>(), new ConcurrentQueue<PairAnalysis>());
+        var (indexedScopes, referenceScopes) = (new ConcurrentQueue<PairAnalysis>(), new ConcurrentQueue<PairAnalysis>());
+        var indexedTask = AnalyzeDemoAsync(Captured(InterproceduralPairing.Pair, indexedPairings), (_, pairs) => indexedScopes.Enqueue(pairs));
+        var referenceTask = AnalyzeDemoAsync(Captured(EngineFixture.ReferencePair, referencePairings), (_, pairs) => referenceScopes.Enqueue(pairs));
         await Task.WhenAll(indexedTask, referenceTask);
         var indexed = await indexedTask;
         var reference = await referenceTask;
@@ -146,9 +154,75 @@ public sealed class DemoExpectationTests(ITestOutputHelper output)
         var savedTo = SaveRunsIfTheyDiffer(serialized, scratchRoot);
         Assert.True(savedTo is null,
                     $"The reference pairing (run-0) and the candidate index (run-1) gave different findings, saved in {savedTo}; {solver}");
-        Assert.Equal(reference.Pairs.Candidates, indexed.Pairs.Candidates);
+        // The reference gives a candidate for each pair of copies that may overlap, the index one for each pair of path roots and
+        // orientation of a pair of accesses, with a witness for each pair of their variants.
+        var accesses = new Dictionary<Access, int>(AccessFolding.AccessKey.INSTANCE);
+        Assert.Equal(Candidates(referencePairings, accesses), Candidates(indexedPairings, accesses));
+        Assert.Equal(Candidates(referenceScopes, accesses), Candidates(indexedScopes, accesses));
+        Assert.All(indexedPairings.Concat(indexedScopes), pairing => Assert.Equal(pairing.Candidates, pairing.Pairs.Select(pair => CandidateKey(pair, accesses))
+                                                                                                                  .Distinct(StringComparer.Ordinal).Count()));
+        Assert.Equal(indexedScopes.Sum(pairing => pairing.Candidates), indexed.Pairs.Candidates);
         Assert.True(indexed.Pairs.Comparisons <= reference.Pairs.Comparisons);
     }
+
+    /// <summary>A pairing that hands each analysis's pairs to a queue as well.</summary>
+    /// <param name="pairing">The pairing.</param>
+    /// <param name="pairings">Receives what each call of the pairing gave.</param>
+    private static Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> Captured(Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                                                                      ConcurrentQueue<PairAnalysis> pairings) =>
+        (accesses, executions, heap) =>
+        {
+            var pairs = pairing(accesses, executions, heap);
+            pairings.Enqueue(pairs);
+            return pairs;
+        };
+
+    /// <summary>Each pairing's candidates, one line per candidate key with the executions of its first witness, the lines and the pairings
+    /// in text order. Every witness of one of the index's candidates has the candidate's key.</summary>
+    /// <param name="pairings">What the pairings gave.</param>
+    /// <param name="accesses">The number of each access, shared by the runs compared.</param>
+    internal static string[] Candidates(IEnumerable<PairAnalysis> pairings, Dictionary<Access, int> accesses) =>
+        pairings.Select(pairing =>
+                {
+                    var keyed = pairing.Pairs.Select(pair => (Pair: pair, Key: CandidateKey(pair, accesses))).ToArray();
+                    Assert.All(keyed.Where(item => item.Pair.Candidate is not null).GroupBy(item => item.Pair.Candidate),
+                               witnesses => Assert.Single(witnesses.Select(item => item.Key).Distinct(StringComparer.Ordinal)));
+                    return string.Join(Environment.NewLine, keyed.GroupBy(item => item.Key, StringComparer.Ordinal)
+                                                                 .Select(group => $"{group.Key} <- {Executions(group.First().Pair)}")
+                                                                 .Order(StringComparer.Ordinal));
+                })
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+    /// <summary>The candidate a pair stands for, as text: its two sides in text order, each as its access's number and its execution's
+    /// path root; the side whose resource object the pair is reported on, else the reported resource's identity; and its protection. Which
+    /// side runs first tells two candidates apart only where it changes the resource object reported, as a pair reported on its earlier
+    /// execution's resource does when its two sides hold different objects; a whole struct and a field below it are reported on the field
+    /// whichever runs first.</summary>
+    /// <param name="pair">The pair.</param>
+    /// <param name="accesses">The number of each access, shared by the runs compared.</param>
+    internal static string CandidateKey(AccessPair pair, Dictionary<Access, int> accesses)
+    {
+        var (first, second) = (Side(pair.First), Side(pair.Second));
+        var reported = ReferenceEquals(pair.Resource, pair.First.Resource) ? first
+            : ReferenceEquals(pair.Resource, pair.Second.Resource) ? second
+            : pair.Resource.Identity;
+        if (ReferenceEquals(pair.Resource, pair.First.Resource) && ReferenceEquals(pair.Resource, pair.Second.Resource))
+            reported = string.CompareOrdinal(first, second) <= 0 ? first : second;
+        return $"{string.Join(" | ", new[] { first, second }.Order(StringComparer.Ordinal))} | reported on {reported} | {pair.Protection}";
+
+        string Side(Access side)
+        {
+            if (!accesses.TryGetValue(side, out var number))
+                accesses.Add(side, number = accesses.Count);
+            return $"{number}@{side.PathRoot.RootId}";
+        }
+    }
+
+    /// <summary>The executions of a pair's two sides, in text order.</summary>
+    /// <param name="pair">The pair.</param>
+    private static string Executions(AccessPair pair) =>
+        string.Join(" ", new[] { pair.First.ExecutionId, pair.Second.ExecutionId }.Order(StringComparer.Ordinal));
 
     /// <summary>The candidate index enumerates its buckets in the order of their keys, and no outcome of pairing reads that order (issue
     /// 465): with every bucket enumerated in reverse the demo gives the same findings, the same pair counters and the same skips of every
@@ -197,8 +271,12 @@ public sealed class DemoExpectationTests(ITestOutputHelper output)
         return folder;
     }
 
+    /// <summary>One analysis of the demo, reading the generated models.</summary>
+    /// <param name="pairing">The pairing of each scope's accesses; the product's by default.</param>
+    /// <param name="inspectScope">Receives each scope's final run and its pairs after the solver.</param>
     private static async Task<AnalysisResult> AnalyzeDemoAsync(
-        Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis>? pairing = null)
+        Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis>? pairing = null,
+        Action<ScopeRun, PairAnalysis>? inspectScope = null)
     {
         await DemoWorkspace.EnsureRestoredAsync();
         var solutionPath = RepositoryFiles.FindRepositoryFile(
@@ -206,9 +284,17 @@ public sealed class DemoExpectationTests(ITestOutputHelper output)
         using var loaded = await new MsBuildSolutionLoader().LoadAsync(solutionPath);
         Assert.True(loaded.Coverage.LoadComplete,
             $"Missing demo projects: {string.Join(", ", loaded.Coverage.MissingProjects)}");
+        var rootDirectory = Path.GetDirectoryName(solutionPath)!;
+        if (inspectScope is not null)
+        {
+            return await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, RepositoryRoot.Find(rootDirectory), ProviderRegistry.BuiltIn,
+                                                       pairing ?? InterproceduralPairing.Pair, PhaseOneAnalyzer.EnvironmentLimits(), Z3ConstraintSolver.Create,
+                                                       new GenerationSetup(ModelGeneration.ReadOnly), CancellationToken.None, inspectScope: inspectScope);
+        }
+
         return await PhaseOneAnalyzer.AnalyzeAsync(
             loaded.Solution,
-            Path.GetDirectoryName(solutionPath)!,
+            rootDirectory,
             ProviderRegistry.BuiltIn,
             pairing ?? InterproceduralPairing.Pair,
             CancellationToken.None,

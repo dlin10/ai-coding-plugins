@@ -49,7 +49,9 @@ Everything that depends on the execution sits in a few fields. The code reads th
 - **Findings group by rule, resource and the unordered pair of sites.** Occurrences are one per pair of roots and call
   paths. Inside an occurrence the kept pair is the least protected, then the smallest instance ids (`ConflictFindings.Fold`).
   Copies from two executions of one root with one call path already fall into one occurrence. No finding counts
-  executions.
+  executions. [ADR 0042](0042-an-access-keeps-its-executions-as-a-set-and-what-executions-share-is-walked-once.md)
+  makes occurrences one per pair of roots, as SPEC TD-076 says, and scores a finding over every pair that reaches it, not
+  over the least protected of each pair of roots and call paths alone, which it corrects on purpose.
 - **The report reads one representative access per side.** It shows its `PathRoot`, `CallPath`, `CodeFlow`, held
   protection, ownership and binding evidence.
 
@@ -89,10 +91,14 @@ An access is recorded once, in the collector, with each execution that makes it 
     first pair of executions in collection order that passes, ordered by the earlier position, then the later one. A pair
     within a bucket is reported on its earlier execution's resource, so there each orientation gives its own candidate.
   - Candidates are kept in that order.
+  - [ADR 0042](0042-an-access-keeps-its-executions-as-a-set-and-what-executions-share-is-walked-once.md) makes these
+    the witnesses of a candidate, one candidate per pair of path roots and orientation, which the solver asks once.
 - **Why this keeps every finding.** A finding keeps, per occurrence, the least protected pair with the smallest instances,
   and the first of them in pair order. Within one pair of variants, every pair of executions has the same protection,
   instances, roots, call paths and code flow. So the first that passes is the pair the finding kept when every execution
-  had its own copy. The solver's query reads only the conditions and selector terms, which are the pair's.
+  had its own copy. The solver's query reads only the conditions and selector terms, which are the pair's. Under
+  ADR 0042 an occurrence is one per pair of roots, and a finding is scored over every pair this keeps, its witnesses,
+  where it read only the least protected of each pair of roots and call paths before.
 - **Counters.** `accesses`, comparisons, the n(n+1)/2 bound, buckets and the largest bucket count folded accesses.
   - Candidates are the candidates above.
   - A skipped pair counts once, under the reason of its first pair of executions, with that pair's assumptions. A pair

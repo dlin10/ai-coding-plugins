@@ -6027,10 +6027,11 @@ public static class InterproceduralPairing
     /// The candidate pairs of a scope's accesses (ADR 0038). An access recorded once with its executions is compared once with each
     /// access it meets: what the pair filters read of the two accesses is decided for the pair, and only whether two executions may run
     /// at once, whether a hosted transient is one object and whether two iterations are disjoint is asked of pairs of executions. The pair
-    /// stands when some pair of executions passes, and gives one candidate per pair of the two sides' variants: the first pair of
-    /// executions, in collection order, that passes. So a finding keeps the occurrence, code flow and held protection the pairs of
-    /// executions gave. The counters count pairs of accesses: a skipped pair once, under the reason of its first pair of executions, and a
-    /// pair that stands once for each candidate it gives.
+    /// stands when some pair of executions passes. Each pair of the two sides' variants gives a witness, the first pair of its executions
+    /// in collection order that passes, and the witnesses of one pair of path roots and one orientation are one candidate, which keeps
+    /// every one of them (ADR 0042): what a gap decides, the solver's one query and the finding's score read them all. The counters count
+    /// pairs of accesses: a skipped pair once, under the reason of its first pair of executions, and a pair that stands once for each
+    /// candidate it gives.
     /// </summary>
     /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
     /// <param name="executions">The scope's executions, which decide the timing.</param>
@@ -6053,6 +6054,8 @@ public static class InterproceduralPairing
         var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var counted = 0;
         var suppressed = 0;
+        // The candidates numbered so far: every witness of one carries its number (ADR 0042).
+        var numbered = 0;
         var sides = new Dictionary<Access, PairingSide>(ReferenceEqualityComparer.Instance);
         for (var at = 0; at < candidates.Length; at++)
             sides.TryAdd(candidates[at], new PairingSide(candidates[at], at));
@@ -6128,18 +6131,25 @@ public static class InterproceduralPairing
                 return;
             }
 
-            // A pair that stands is counted once for each candidate it gives, so every comparison is still a skip, a suppression or a
+            // The witnesses of one pair of path roots and one orientation are one candidate, which keeps every one of them (ADR 0042). A
+            // pair that stands is counted once for each candidate it gives, so every comparison is still a skip, a suppression or a
             // candidate.
-            counted += witnesses.Count - 1;
-            foreach (var (taken, order) in witnesses)
+            var numbers = new Dictionary<CandidateKey, int>();
+            foreach (var (taken, order, key) in witnesses)
             {
+                WorkCancellation.Check();
+                if (!numbers.TryGetValue(key, out var number))
+                    numbers.Add(key, number = numbered++);
                 var (first, second) = pair.Oriented(taken.One, taken.Other);
                 found.Add((new AccessPair(first, second, protection)
                            {
                                Resource = candidate.ReportsFirst ? first.Resource : candidate.Reported,
-                               Uncertainties = candidate.Uncertainties
+                               Uncertainties = candidate.Uncertainties,
+                               Candidate = number
                            }, order));
             }
+
+            counted += numbers.Count - 1;
         }
 
         // What a pair of executions alone decides, in the order of the filters around it: the hosted transient and the timing before
@@ -6179,7 +6189,7 @@ public static class InterproceduralPairing
         // first of two pairs with one identity, so this order makes them what the plain loop gives.
         var pairs = found.OrderBy(item => item.Order).Select(item => item.Pair).ToArray();
         DiagnosticCheckpoint.Reach($"pairing-end:{scope}", collect: true,
-                                   () => [$"comparisons={counted} executionPairs={executionPairs} candidates={pairs.Length} suppressed={suppressed} " +
+                                   () => [$"comparisons={counted} executionPairs={executionPairs} candidates={numbered} witnesses={pairs.Length} suppressed={suppressed} " +
                                           $"buckets={index.Buckets} largestBucket={index.LargestBucket}",
                                           $"timing {(timingCounters is null ? "none" : timingCounters.Since(timingBefore!))}"]);
         return new PairAnalysis(pairs, counted, suppressed, skips)
@@ -6261,6 +6271,12 @@ public static class InterproceduralPairing
         /// <summary>How many variants the executions have.</summary>
         internal int VariantCount { get; }
 
+        /// <summary>The id of a variant's path root, read from its first execution and kept nowhere (ADR 0042): path roots are told apart
+        /// by id, as occurrences are.</summary>
+        /// <param name="variant">The variant's number.</param>
+        internal string RootOf(int variant) =>
+            Access.Executions.Count == 0 ? Access.PathRoot.RootId : Access.Executions[Variant(variant)[0]].Variant.PathRoot.RootId;
+
         /// <summary>The executions of a variant, in collection order; the variants are numbered in the order of their first executions.</summary>
         /// <param name="variant">The variant's number.</param>
         internal VariantExecutions Variant(int variant) =>
@@ -6307,6 +6323,21 @@ public static class InterproceduralPairing
         internal int this[int index] => _order is null ? _start + index : _order[_start + index];
     }
 
+    /// <summary>Which candidate of a pair of accesses a witness is of (ADR 0042): the ids of the path roots of its two variants (in text
+    /// order for the self-pair, whose two sides are one access) and the orientation it was found in.</summary>
+    /// <param name="OneRoot">The path root of the first side's variant.</param>
+    /// <param name="OtherRoot">The path root of the second side's variant.</param>
+    /// <param name="Orientation">The orientation: 0, or 1 for the pairs that put the second side's execution first where each orientation
+    /// gives its own witness.</param>
+    private readonly record struct CandidateKey(string OneRoot, string OtherRoot, int Orientation);
+
+    /// <summary>The first pair of executions of one pair of variants that passes, with its place in collection order and the candidate it
+    /// is a witness of.</summary>
+    /// <param name="Executions">The execution of each side.</param>
+    /// <param name="Order">Its order: the earlier execution's position, then the later's.</param>
+    /// <param name="Candidate">The candidate it is a witness of.</param>
+    private readonly record struct Witness((int One, int Other) Executions, long Order, CandidateKey Candidate);
+
     /// <summary>The pairs of executions of two accesses a candidate pair compares, one of them taken from each side; the same access twice
     /// is the self-pair of a bucket, whose executions pair with themselves and with each other once.</summary>
     /// <param name="one">The candidate's first side.</param>
@@ -6330,15 +6361,15 @@ public static class InterproceduralPairing
                 : (one.View(oneExecution), other.View(otherExecution));
 
         /// <summary>For each pair of the two sides' variants, the first pair of executions in collection order that passes, with its
-        /// order: the earlier execution's position, then the later's.</summary>
+        /// order (the earlier execution's position, then the later's) and the candidate it is a witness of: its two variants' path roots,
+        /// an unordered pair for the self-pair, and the orientation it was found in (ADR 0042).</summary>
         /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
         /// <param name="once">Whether one witness is enough.</param>
         /// <param name="byOrientation">Whether each orientation of a pair of variants gives its own witness: a pair reported on its
         /// earlier execution's resource names another resource when the earlier execution is the other side's.</param>
-        internal List<((int One, int Other) Executions, long Order)> Witnesses(Func<(int One, int Other), bool> passes, bool once,
-                                                                               bool byOrientation)
+        internal List<Witness> Witnesses(Func<(int One, int Other), bool> passes, bool once, bool byOrientation)
         {
-            var witnesses = new List<((int One, int Other) Executions, long Order)>();
+            var witnesses = new List<Witness>();
             Func<(int One, int Other), bool>[] filters = byOrientation
                 ? [executions => !Swapped(executions) && passes(executions), executions => Swapped(executions) && passes(executions)]
                 : [passes];
@@ -6346,13 +6377,17 @@ public static class InterproceduralPairing
             {
                 for (var otherVariant = IsSelf ? oneVariant : 0; otherVariant < other.VariantCount; otherVariant++)
                 {
-                    foreach (var filter in filters)
+                    for (var orientation = 0; orientation < filters.Length; orientation++)
                     {
                         WorkCancellation.Check();
                         var (ones, others) = (one.Variant(oneVariant), other.Variant(otherVariant));
-                        if (First(ones, others, IsSelf && oneVariant == otherVariant, filter) is not { } witness)
+                        if (First(ones, others, IsSelf && oneVariant == otherVariant, filters[orientation]) is not { } found)
                             continue;
-                        witnesses.Add(witness);
+                        var (oneRoot, otherRoot) = (one.RootOf(oneVariant), other.RootOf(otherVariant));
+                        var candidate = IsSelf && string.CompareOrdinal(otherRoot, oneRoot) < 0
+                            ? new CandidateKey(otherRoot, oneRoot, orientation)
+                            : new CandidateKey(oneRoot, otherRoot, orientation);
+                        witnesses.Add(new Witness(found.Executions, found.Order, candidate));
                         if (once)
                             return witnesses;
                     }

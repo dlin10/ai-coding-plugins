@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
@@ -126,6 +127,39 @@ public sealed class ReportRendererTests
         Assert.Equal("element", rendered.GetProperty("resource").GetProperty("kind").GetString());
         Assert.Equal("sat", rendered.GetProperty("pathFeasibility").GetProperty("result").GetString());
         Assert.Contains("verify manually", rendered.GetProperty("remediation").GetString()!, StringComparison.Ordinal);
+    }
+
+    /// <summary>A finding whose shown witness was never asked, while another witness of it, its first side under a lock of its own
+    /// at the same sites and roots, asked and satisfiable, gives the confidence: the report shows the shown witness's accesses,
+    /// holdings, protection and path feasibility beside the other witness's whole confidence, as SPEC 8.1 says each field reads
+    /// (ADR 0042). This pins today's report; it does not name the witness that gave the confidence.</summary>
+    [Fact]
+    public void Report_shows_the_shown_witness_s_feasibility_beside_the_best_witness_s_confidence()
+    {
+        var resource = FindingTestData.Resource("static:Counters", "Hits");
+        var (place, other) = (new SourceSpan("Accesses.cs", 10, 1, 10, 20), new SourceSpan("Accesses.cs", 20, 1, 20, 20));
+        var first = FindingTestData.Access(resource, AccessOperation.Write, "root-a", "One.Post()", place);
+        var locked = FindingTestData.Access(resource, AccessOperation.Write, "root-a", "One.Post()", place, ["Gates.G"], ["lock:Gates.G"]);
+        var second = FindingTestData.Access(resource, AccessOperation.Write, "root-b", "Two.Post()", other);
+        var shown = new AccessPair(first, second, PairProtection.UNPROTECTED);
+        var asked = new AccessPair(locked, second, PairProtection.PARTIAL) { Feasibility = SolverAnswer.Sat };
+        var (findings, groups) = ConflictFindings.Create([shown, asked], CancellationToken.None);
+
+        var rendered = ReportRenderer.Render(ReportingTestData.CreateReport(FindingTestData.Result(findings, groups)));
+
+        using var json = JsonDocument.Parse(rendered.FindingsJson);
+        var finding = json.RootElement.GetProperty("findings")[0];
+        Assert.All(finding.GetProperty("accesses").EnumerateArray(), access => Assert.Equal(0, access.GetProperty("heldProtection").GetArrayLength()));
+        Assert.Equal("unprotected", finding.GetProperty("protectionAnalysis").GetProperty("result").GetString());
+        Assert.Equal("not-analyzed", finding.GetProperty("pathFeasibility").GetProperty("result").GetString());
+        var confidence = finding.GetProperty("confidence");
+        var components = confidence.GetProperty("components");
+        Assert.Equal((100, 25, 20, 20, 20, 15), (confidence.GetProperty("score").GetInt32(), components.GetProperty("resourceIdentity").GetInt32(),
+                                                 components.GetProperty("executionOverlap").GetInt32(), components.GetProperty("operation").GetInt32(),
+                                                 components.GetProperty("protection").GetInt32(), components.GetProperty("pathFeasibility").GetInt32()));
+        Assert.Contains("- Protection: unprotected; A holds no protection; B holds no protection", rendered.ReportMarkdown);
+        Assert.Contains("- Path feasibility: not analyzed: the candidate carried nothing for the solver to decide\n", rendered.ReportMarkdown);
+        Assert.Contains("- Confidence: High (100)\n", rendered.ReportMarkdown);
     }
 
     [Fact]

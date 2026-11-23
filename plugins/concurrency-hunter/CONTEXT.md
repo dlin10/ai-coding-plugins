@@ -335,8 +335,13 @@ _Avoid_: race, bug, warning, diagnostic (a diagnostic is what a provider reports
 
 **Occurrence**:
 One way a finding's pair of access sites is reached: a pair of execution roots with the call path by
-which the analysis first reached each site from its root. A finding has one or more, at most one per
-pair of roots; the report shows a few as representative locations and counts the rest.
+which the analysis reached each site from its root in the pair of **Execution instances** it shows.
+A finding has one or more, at most one per pair of roots. Where one pair of roots reaches the sites
+by several pairs of instances, in other instances of the objects, under other held protection or by
+other call paths, the occurrence shows the least protected, then the one with the smallest instances,
+then the best scored, then the first the analysis collected; the finding's confidence, uncertainty
+and gap evidence read every such pair, not only the one shown. The report shows a few occurrences as
+representative locations and counts the rest.
 _Avoid_: instance, duplicate, hit
 
 **Fingerprint**:
@@ -839,16 +844,16 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Semantic gap** makes a **Finding** uncertain only when it decides one of the finding's checks:
   one of its accesses is the gap's unknown effect, or its resource, its ordering or its protection
   came through the gap's call. A gap that merely lies on a call path before an access leaves the
-  finding as it is. An **Occurrence** an unresolved gap decides loses score on the check the gap
-  decides and is never above Medium; a finding still takes its best occurrence, so one occurrence no
-  gap decides can keep it High.
+  finding as it is. A pair of accesses that reaches a finding and that an unresolved gap decides loses
+  score on the check the gap decides and is never above Medium; a finding takes the best of all the
+  pairs that reach it, so one pair no gap decides can keep it High, and the gap is still named.
 - A delegate handed to an **Opaque call** runs in an **Unknown execution**; nothing orders it with
   the execution that made the call. What it captures of that execution's own objects it touches as
   that execution does, so they stay confined; on a shared object it overlaps everything.
 - An **Opaque call** changes no object's **Ownership**: an object of one execution it receives is
   only read, and a shared object it reaches gets the whole **Unknown effect**. A **Construction**
   that hands a shared object it produces to one has published it.
-- Two **Accesses** on one **Resource** form a **Candidate** when two **Execution instances**, one running each, may overlap; they form one per pair of the instances' roots and paths, and a **Candidate** becomes at most one **Finding**.
+- Two **Accesses** on one **Resource** form a **Candidate** when two **Execution instances**, one running each, may overlap; they form one per pair of the instances' roots, and per which of the two runs first where each is reported on its own resource object; each pair of the ways the two are reached, by root, call path and code flow, gives it a witness, the first pair of instances reaching them so that may overlap, and a **Candidate** becomes at most one **Finding**.
 - Two **Accesses** are compared only inside one **Bucket** or across the wildcard and open-region joins the bucket's definition names; an access in no bucket is compared with nothing.
 - A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
 - A file **Suppression** names a **Fingerprint** and nothing else.

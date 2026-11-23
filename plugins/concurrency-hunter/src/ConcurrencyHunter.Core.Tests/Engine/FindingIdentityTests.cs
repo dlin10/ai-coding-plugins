@@ -279,6 +279,9 @@ public sealed class FindingIdentityTests
         Assert.Equal(PairProtection.UNPROTECTED, finding.ProtectionResult);
         Assert.Empty(finding.AccessA.HeldProtection);
         Assert.Empty(finding.AccessB.HeldProtection);
+        // The occurrence shows the least protected pair, and the finding is scored over every pair: the one under the lock, on the
+        // same call path, scores 90 to the unprotected one's 85 (ADR 0042).
+        Assert.Equal(90, finding.Confidence.Score);
     }
 
     [Fact]

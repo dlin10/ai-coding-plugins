@@ -489,11 +489,17 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
 
     /// <summary>The calls of every occurrence deciding a check of this pair.</summary>
     public IReadOnlyList<DecidingCall> DecidingCalls { get; init; } = [];
+
+    /// <summary>The candidate this pair is a witness of, by its number among its scope's candidates (ADR 0042): the witnesses of one pair
+    /// of accesses, one pair of path roots and one orientation are one candidate, which the solver asks once. Null for a pair that is a
+    /// candidate of its own.</summary>
+    internal int? Candidate { get; init; }
 }
 
 /// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the
-/// scope's non-construction-local accesses; <see cref="Candidates"/> are the compared pairs that survived the filters.</summary>
-/// <param name="Pairs">The candidate pairs.</param>
+/// scope's non-construction-local accesses; <see cref="Candidates"/> counts the candidates the compared pairs that survived the filters
+/// gave, each with one or more witnesses in <see cref="Pairs"/> (ADR 0042).</summary>
+/// <param name="Pairs">The witnesses of the candidates.</param>
 /// <param name="Comparisons">How many pairs were compared.</param>
 /// <param name="Suppressed">The compared pairs a sufficient protection suppressed.</param>
 /// <param name="Skips">The compared pairs a filter skipped, by the filter.</param>
@@ -503,7 +509,9 @@ public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int Compariso
     public int CartesianBound { get; init; }
     public int Buckets { get; init; }
     public int LargestBucket { get; init; }
-    public int Candidates => Pairs.Count;
+    /// <summary>How many candidates the pairs are witnesses of: a pair with no candidate's number is one of its own.</summary>
+    public int Candidates =>
+        Pairs.Count(pair => pair.Candidate is null) + Pairs.Where(pair => pair.Candidate is not null).Select(pair => pair.Candidate).Distinct().Count();
 
     /// <summary>The ordered pairs, by each assumption (<see cref="OrderingAssumptions"/>) their ordering rests on alone (R5): a pair is
     /// counted once under every assumption it rests on, and is among the <c>ordered</c> skips as well. Empty unless given.</summary>

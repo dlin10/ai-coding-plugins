@@ -127,10 +127,30 @@ numbers. C1a after C2 leaves OrchardCore's time to the third step and takes its 
 - **One occurrence per pair of roots.** CONTEXT **Occurrence** and SPEC TD-076 allow at most one occurrence per pair of
   roots, with "the call path by which the analysis first reached each site from its root". `ConflictFindings.Fold` groups
   by the pair of roots and the pair of call paths, so it makes more where one root reaches a site by two paths: 4 of the
-  demo's 301 occurrences, in 3 pairs of roots. The code follows SPEC: an access shows one variant per path root, its
-  first execution of that root in collection order; a pair of accesses gives one candidate per pair of path roots; and
-  a finding folds its candidates by the pair of roots. The timing of a pair is still asked of the pairs of executions
-  themselves.
+  demo's 301 occurrences, in 3 pairs of roots. The code follows SPEC and keeps every witness, as the owner decided on
+  2026-11-23. Each pair of the two accesses' variants still gives its witness, the first pair of its executions in
+  collection order that passes, and the timing is still asked of the pairs of executions themselves. The witnesses of
+  one pair of path roots and one orientation are one candidate: a pair reported on its earlier execution's resource,
+  where the two accesses hold different resource objects, gives one for each side that runs first. What a gap decides
+  is marked on every witness, so the library calls a gap admits are the ones each witness asks for; the solver asks a
+  candidate once, since its query is made of the two accesses' conditions and terms, and its answer is every
+  witness's. A finding folds its candidates into one occurrence per pair of roots, which shows the least protected
+  witness, then the one with the smallest instances, then the best scored, then the first in collection order; where a
+  pair of roots reaches the sites by several pairs of accesses, other instances or other held protection, that is the
+  pair it shows.
+- **A finding reads every witness.** Its score is the highest of its witnesses' scores, its label follows from that
+  score, and its uncertainty and gap callees are the union over all its witnesses, as the owner decided on 2026-11-23;
+  the line that the ordering of lifecycle methods of one hosted service is not analysed is named once where any witness
+  is such a pair. The witness the finding shows gives `accesses[]`, the protection, the path feasibility, the scenario
+  and the six base evidence items; the `SPn` evidence items collect the distinct spawn and timer sites of the listed
+  occurrences. So a finding's confidence may come from another witness than the one it shows; SPEC section 8.1 says
+  which field reads which.
+  Before this, and before this decision's first step, a finding read one witness per pair of roots and pair of call
+  paths, the least protected: where one root reached a site by one path both under a lock and outside it, the pair
+  under the lock and what a gap decided for it were dropped, so the finding scored lower than with two paths, and a gap
+  check that only the dropped pair carried left the finding and the deciding gaps of coverage although the admission
+  of library bodies had seen it. That behaviour is corrected on purpose. Which witness an occurrence shows does not
+  change.
 - **The collector folds the key, not the copy.** Every part of the key is a number or a pooled object: the resource key
   (#474), the instance and body, the operation, the held protection's key, the guards as one pooled list, locality,
   freshness, the term and the flags. Uncertainties, gap checks and deciding calls, binding and ownership evidence, the
@@ -189,24 +209,45 @@ share work between executions.
 
 ### What changes in the output
 
-- **Byte for byte, by construction:** every finding, pair of sites, fingerprint, gap and coverage counter, `accesses` and
-  `accessExecutions`, and the skips, suppressions and assumptions, which are counted per pair of accesses under its first
-  pair of executions: each side's first execution, the same under either position.
+- **Byte for byte, by construction, up to the solver:** every pair of sites and fingerprint the pairing gives,
+  `accesses` and `accessExecutions`, the skips, suppressions and assumptions of the filters before the solver, which are
+  counted per pair of accesses under its first pair of executions (each side's first execution, the same under either
+  position), every check a gap decides for a witness, and every library call a gap admits.
 - **Diagnostic lines only:** the witness search may ask the pairs of executions inside one pair of executions in another
   order, so `executionPairs` and the timing line of the `pairing-end` checkpoint may move.
-- **Moves, with one occurrence per pair of roots:** the demo's occurrences, 301 to 297; its candidates, 304 to between
-  297 and 304, and its comparisons with them, since a pair that stands counts one comparison per candidate; and the call
-  path the merged occurrences show, which becomes their root's first. The demo's snapshot is re-recorded in those
-  counters in step C2, each shift accounted for. eShop does not move: its two occurrences have two pairs of roots. Pairs
-  of sites, roots and fingerprints stay, as TD-076 makes an occurrence a way a finding is reached and not part of it.
-- **May move where candidates tie:** within one occurrence, the representative is the least protected pair, then the one
-  with the smallest instances, then the first in candidate order. Candidate order follows positions, so two candidates of
-  one occurrence that tie on protection and instances, with their first witnesses in one pair of executions, may swap.
-  The code flow and read sources the report shows for that occurrence would then be the other candidate's. A differential
-  test of each step shows whether that happens on the demo, eShop or the fixtures; a shift is explained or the step is
-  wrong.
-- **Never moves:** which pairs of sites pair. A pair of accesses still stands when some pair of their executions passes,
-  and every filter reads what it reads today.
+- **Moves, with one occurrence per pair of roots:** the demo's occurrences, 301 to 297; its candidates, 304 to 297, and
+  its comparisons with them, since a pair that stands counts one comparison per candidate, while the witnesses stay
+  304; and the witness the merged occurrences show, which is chosen as above. The demo's snapshot is re-recorded in
+  those counters in step C2, each shift accounted for. eShop does not move: its two occurrences have two pairs of roots.
+  TD-076 makes an occurrence a way a finding is reached and not part of it.
+- **Moves, with every witness read by its finding:** a finding's score and label, its uncertainty and gap callees, and
+  the deciding gaps of coverage, wherever one pair of roots and call paths has witnesses that differ in protection,
+  instances or what a gap decides. On the demo and eShop nothing moves: every finding's score, label, uncertainty and gap
+  callees and every deciding gap of coverage are what they were, compared field by field, and the demo's expectations
+  still match.
+- **Moves, with one query per candidate:** the solver's counters (`solver-queries`, `solver-sat`, `solver-unsat`,
+  `solver-unknown`, `solver-safeguard-timeout`, `solver-budget-exhausted`) and the `unsatisfiable-query` skips count
+  candidates, so they move wherever a candidate has two witnesses with a query, whatever the budget; and the run's
+  budget (TD-094) is spent per candidate, so it lasts longer, and a candidate it reaches now that it did not reach before
+  is decided instead of left standing. A candidate's one answer is the answer each witness would have had only where the
+  solver's answer repeats: a work-limited answer to the same query (ADR 0021). Three things differ:
+  - A query the safeguard stops is every witness's `Unknown`, where asking again might have answered; and an `Unsat`
+    takes every witness away, where another attempt might have been stopped and kept the finding.
+  - Witnesses of one candidate whose sides run in opposite orders, where the candidate does not split by orientation,
+    ask mirrored queries, the same up to the names of the two sides. The candidate asks the form of its first witness in
+    the order the budget is spent in. A decided answer is the same for both forms, but at the work limit one may be
+    decided and the other not. A canonical form would not give back what pairing by variants gave, which asked both
+    forms, and would need an order of two accesses that may differ in their guards alone, so the move stays.
+  - On a run whose budget runs out, a finding that stood only on a witness that repeated an unsatisfiable query after the
+    budget was spent goes away with the first.
+  A query with no conditions and no terms is not asked and costs nothing, as before.
+- **May move where candidates tie:** within one occurrence, two witnesses that tie on protection, instances and score
+  are shown in collection order. Collection order follows positions, so two such witnesses with their executions in one
+  pair of executions may swap; the code flow and read sources the report shows for that occurrence would then be the
+  other's. A differential test of each step shows whether that happens on the demo, eShop or the fixtures; a shift is
+  explained or the step is wrong.
+- **Never moves:** which pairs of sites pair before the solver. A pair of accesses still stands when some pair of their
+  executions passes, and every filter before the solver reads what it reads today.
 
 ### Options considered
 
@@ -311,9 +352,14 @@ to split over threads. #478 is needed under every option.
 - **C1a and C1b record what the collector asks of its execution.** A new read of the execution in the collector must be
   recorded, or the class test fails where a case reaches it. ADR 0041's rule that a new place reading the path must leave
   the path-free accesses holds the same way.
-- **CONTEXT and SPEC do not change.** CONTEXT **Access** keeps its meaning: an access recorded once with the execution
-  instances that run it so. The text of SPEC TD-076 and of CONTEXT **Occurrence** stays as it is, and the code is brought
-  to it in step C2. SPEC section 6's counters keep their definitions.
+- **SPEC TD-039 scores a finding over its witnesses; CONTEXT says what an occurrence shows.** CONTEXT **Access** keeps its
+  meaning: an access recorded once with the execution instances that run it so. The text of SPEC TD-076 stays as it is,
+  and the code is brought to it in step C2. SPEC TD-039 said a finding takes the occurrence with the highest score and
+  gathers the uncertainty of all occurrences; it now says the same of every witness, as the owner decided on
+  2026-11-23. CONTEXT **Occurrence** says which pair of instances an occurrence shows where a pair of roots reaches the
+  sites by several, and that the finding reads them all; its rule on **Candidate** gives one candidate per pair of
+  roots and orientation with its witnesses. SPEC section 6's counters keep their definitions: `solver-budget-exhausted`
+  counts candidates and `solver-queries` queries, as before, of candidates that are now one per pair of roots.
 - **Accesses that cannot stand in a candidate are kept.** Construction-local accesses never enter pairing, and accesses on
   thread-confined regions are skipped there (83 % of eShop's copies). Keeping them only as counts would cut memory and
   move `accesses`, `accessExecutions`, the comparisons and the `confined` skips; that is decided after C2, on its

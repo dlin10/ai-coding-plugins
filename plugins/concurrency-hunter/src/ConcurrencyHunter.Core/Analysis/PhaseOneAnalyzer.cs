@@ -130,7 +130,7 @@ public static class PhaseOneAnalyzer
 
     /// <summary>The limits a caller that passes none runs under: <c>CH_ANALYSIS_LIMITS=depth,contexts,scc</c> when that variable is
     /// set, so the limits grid can run the demo matcher under other limits, else the defaults.</summary>
-    private static AnalysisLimits EnvironmentLimits()
+    internal static AnalysisLimits EnvironmentLimits()
     {
         if (Environment.GetEnvironmentVariable(ANALYSIS_LIMITS_VARIABLE) is not { Length: > 0 } text)
             return AnalysisLimits.Default;

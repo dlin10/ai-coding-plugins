@@ -32,7 +32,9 @@ public static class SolverRefinement
     }
 
     /// <summary>The same, spending a budget the caller holds: a run is many scopes and the budget is the run's, so the one
-    /// budget is carried from scope to scope (TD-094). Every query asked is given and charged its whole limit (ADR 0021).</summary>
+    /// budget is carried from scope to scope (TD-094). Every query asked is given and charged its whole limit (ADR 0021). A candidate
+    /// with several witnesses is asked once, at the place its first witness takes in the order the budget is spent in, and its answer is
+    /// every witness's: the query is made of the two accesses' conditions and terms, which its witnesses share (ADR 0042).</summary>
     /// <param name="pairs">The scope's candidates the cheap filters left.</param>
     /// <param name="solver">The solver behind the last filter.</param>
     /// <param name="budget">What is left of the run's budget.</param>
@@ -45,21 +47,28 @@ public static class SolverRefinement
         };
         var traces = new List<string>();
         var kept = new AccessPair?[pairs.Pairs.Count];
+        var witnesses = pairs.Pairs.Select((pair, index) => (pair.Candidate, Index: index)).Where(item => item.Candidate is not null)
+                             .GroupBy(item => item.Candidate!.Value)
+                             .ToDictionary(group => group.Key, group => group.Select(item => item.Index).ToArray());
+        var asked = new HashSet<int>();
         foreach (var index in Ordered(pairs.Pairs))
         {
             WorkCancellation.Check();
             var pair = pairs.Pairs[index];
+            if (pair.Candidate is { } number && !asked.Add(number))
+                continue;
+            int[] members = pair.Candidate is { } candidate ? witnesses[candidate] : [index];
             var query = Query(pair);
             if (query.IsEmpty)
             {
-                kept[index] = pair;
+                Keep(member => member);
                 continue;
             }
 
             if (!budget.Holds(queryLimit))
             {
                 counters[SolverCounters.BUDGET_EXHAUSTED] = counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED) + 1;
-                kept[index] = Undecided(pair, "the run's solver budget was spent");
+                Keep(member => Undecided(member, "the run's solver budget was spent"));
                 continue;
             }
 
@@ -77,15 +86,23 @@ public static class SolverRefinement
                 case SolverAnswer.Sat:
                     counters[SolverCounters.SAT] = counters.GetValueOrDefault(SolverCounters.SAT) + 1;
                     traces.Add($"{Site(pair)}: satisfiable; {outcome.Trace}");
-                    kept[index] = pair with { Feasibility = SolverAnswer.Sat };
+                    Keep(member => member with { Feasibility = SolverAnswer.Sat });
                     break;
                 default:
                     counters[SolverCounters.UNKNOWN] = counters.GetValueOrDefault(SolverCounters.UNKNOWN) + 1;
                     // The one answer the clock decided: counted apart, so a run that depended on the machine's load says so.
                     if (outcome.Stop == SolverStop.Safeguard)
                         counters[SolverCounters.SAFEGUARD_TIMEOUT] = counters.GetValueOrDefault(SolverCounters.SAFEGUARD_TIMEOUT) + 1;
-                    kept[index] = Undecided(pair, outcome.Trace);
+                    Keep(member => Undecided(member, outcome.Trace));
                     break;
+            }
+
+            // Keeps every witness of the candidate the pair is one of, as the answer makes it.
+            void Keep(Func<AccessPair, AccessPair> answered)
+            {
+                // bounded: the witnesses of one candidate.
+                foreach (var member in members)
+                    kept[member] = answered(pairs.Pairs[member]);
             }
         }
 

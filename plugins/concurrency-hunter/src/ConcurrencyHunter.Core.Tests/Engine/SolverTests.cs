@@ -148,6 +148,62 @@ public sealed class SolverTests
         Assert.Equal(1, second.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
     }
 
+    /// <summary>A candidate is asked once, at its first witness's place, and its answer is every witness's (ADR 0042): with one query's
+    /// budget left and two witnesses whose one query is unsatisfiable, both go and nothing is left for want of budget, where the two
+    /// asked apart, as two candidates of their own, lose the first to the answer and leave the second standing undecided.</summary>
+    [Fact]
+    public void A_candidate_is_asked_once_and_its_answer_is_every_witness_s()
+    {
+        AccessPair[] witnesses = [Pair(Query(Cell(0), Cell(1))) with { Candidate = 0 }, Pair(Query(Cell(0), Cell(1))) with { Candidate = 0 }];
+        var solver = new StubSolver(_ => new SolverOutcome(SolverAnswer.Unsat, "stub"));
+        var apart = new StubSolver(_ => new SolverOutcome(SolverAnswer.Unsat, "stub"));
+
+        var refined = SolverRefinement.Refine(Analysis(witnesses), solver, SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
+        var byCandidates = SolverRefinement.Refine(Analysis([.. witnesses.Select(pair => pair with { Candidate = null })]), apart,
+                                                   SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
+
+        Assert.Single(solver.Limits);
+        Assert.Empty(refined.Pairs.Pairs);
+        Assert.Equal(1, refined.Pairs.Skips.GetValueOrDefault(SolverRefinement.SKIP_UNSATISFIABLE_QUERY));
+        Assert.Equal(0, refined.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
+        Assert.Single(apart.Limits);
+        var left = Assert.Single(byCandidates.Pairs.Pairs);
+        Assert.Equal(SolverAnswer.Unknown, left.Feasibility);
+        Assert.Equal(1, byCandidates.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
+        // A satisfiable answer stands for every witness too.
+        var satisfiable = SolverRefinement.Refine(Analysis(witnesses), new StubSolver(_ => new SolverOutcome(SolverAnswer.Sat, "stub")),
+                                                  SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
+        Assert.Equal([SolverAnswer.Sat, SolverAnswer.Sat], satisfiable.Pairs.Pairs.Select(pair => pair.Feasibility));
+    }
+
+    /// <summary>A candidate's one answer is every witness's, a safeguard's too, which is no repeatable answer (ADR 0021, ADR 0042): with
+    /// budget for two queries, a first query the safeguard stops leaves both witnesses undecided, where the two asked apart would have had
+    /// the second attempt's Sat.</summary>
+    [Fact]
+    public void A_safeguard_stop_of_a_candidate_s_query_is_every_witness_s()
+    {
+        AccessPair[] witnesses = [Pair(Query(Cell(0), Cell(1))) with { Candidate = 0 }, Pair(Query(Cell(0), Cell(1))) with { Candidate = 0 }];
+        var solver = new StubSolver(Scripted());
+        var apart = new StubSolver(Scripted());
+
+        var refined = SolverRefinement.Refine(Analysis(witnesses), solver, 2 * SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
+        var byCandidates = SolverRefinement.Refine(Analysis([.. witnesses.Select(pair => pair with { Candidate = null })]), apart,
+                                                   2 * SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
+
+        Assert.Single(solver.Limits);
+        Assert.Equal([SolverAnswer.Unknown, SolverAnswer.Unknown], refined.Pairs.Pairs.Select(pair => pair.Feasibility));
+        Assert.Equal(1, refined.Counters.GetValueOrDefault(SolverCounters.SAFEGUARD_TIMEOUT));
+        Assert.Equal(2, apart.Limits.Count);
+        Assert.Equal([SolverAnswer.Unknown, SolverAnswer.Sat], byCandidates.Pairs.Pairs.Select(pair => pair.Feasibility));
+
+        // The safeguard stops the first query asked, and the next is answered.
+        static Func<SolverLimit, SolverOutcome> Scripted()
+        {
+            var asked = 0;
+            return _ => asked++ == 0 ? SolverOutcome.Unknown("stopped", SolverStop.Safeguard) : new SolverOutcome(SolverAnswer.Sat, "stub");
+        }
+    }
+
     /// <summary>No query is cut to a remainder: while the budget holds a whole limit the query is given all of it, and what is
     /// left past the last whole limit asks nothing (ADR 0021).</summary>
     [Fact]
