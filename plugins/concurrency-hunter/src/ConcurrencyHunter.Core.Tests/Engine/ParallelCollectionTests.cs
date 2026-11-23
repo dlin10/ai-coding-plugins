@@ -72,7 +72,15 @@ public sealed class ParallelCollectionTests
     internal static async Task ForEachDemoScope(Action<InterproceduralInput> check)
     {
         await DemoWorkspace.EnsureRestoredAsync();
-        var path = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");
+        await ForEachScope(RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx"), check);
+    }
+
+    /// <summary>Runs a check over the input of each scope of a solution, after the pipeline has collected it once, while the solution is
+    /// loaded.</summary>
+    /// <param name="path">The solution.</param>
+    /// <param name="check">The check of one scope's input.</param>
+    internal static async Task ForEachScope(string path, Action<InterproceduralInput> check)
+    {
         using var loaded = await new MsBuildSolutionLoader().LoadAsync(path);
         Assert.True(loaded.Coverage.LoadComplete, string.Join(", ", loaded.Coverage.MissingProjects));
         var rootDirectory = Path.GetDirectoryName(path)!;

@@ -47,6 +47,15 @@ internal sealed class TimingCounters
     /// <summary>The joins those records keep: the joins of a parent's visits whose one handle names a start of the parent.</summary>
     internal long ParentJoinEntries;
 
+    /// <summary>The questions the completion proof of the queried passes was asked, on the graph and its replays.</summary>
+    internal long PassProofs;
+
+    /// <summary>The questions among them answered from the answers the proof kept.</summary>
+    internal long PassProofHits;
+
+    /// <summary>The times a proof forgot its kept answers at its limit (<see cref="HappensBefore.ProofAnswerLimit"/>).</summary>
+    internal long PassProofClears;
+
     /// <summary>The counts as they stand, for a later report of what happened since.</summary>
     internal TimingCounters Copy() => (TimingCounters)MemberwiseClone();
 
@@ -58,5 +67,7 @@ internal sealed class TimingCounters
         $"replays={Replays - before.Replays} replaysTotal={Replays} flows={Flows - before.Flows} flowNodes={FlowNodes - before.FlowNodes} " +
         $"flowsTotal={Flows} flowsShared={SharedFlows - before.SharedFlows} reachSets={ReachSets - before.ReachSets} reachExecutions={ReachExecutions - before.ReachExecutions} " +
         $"passJoins={PassJoins - before.PassJoins} handleProofs={HandleProofs - before.HandleProofs} " +
-        $"parentJoins={ParentJoins - before.ParentJoins} parentJoinEntries={ParentJoinEntries - before.ParentJoinEntries}";
+        $"parentJoins={ParentJoins - before.ParentJoins} parentJoinEntries={ParentJoinEntries - before.ParentJoinEntries} " +
+        $"passProofs={PassProofs - before.PassProofs} passProofHits={PassProofHits - before.PassProofHits} " +
+        $"passProofClears={PassProofClears - before.PassProofClears}";
 }

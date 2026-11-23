@@ -6023,6 +6023,39 @@ public static class InterproceduralPairing
 
     private static readonly IReadOnlySet<string> NoAssumptions = new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>The fewest seconds between two <c>pairing-progress</c> checkpoints of one pairing.</summary>
+    private const int PROGRESS_SECONDS = 60;
+
+    /// <summary>When and where pairing writes its <c>pairing-progress</c> lines (#486): a line at most once an interval, looked for after
+    /// each candidate pair and before each question about a pair of executions, so that a run stopped in one long candidate still shows
+    /// how far pairing got and what it holds. Pairing has none where diagnostics are off, and then neither counts for it nor reads a
+    /// clock.</summary>
+    /// <param name="interval">The least time between two lines.</param>
+    /// <param name="report">Writes one line: the checkpoint's name and its details.</param>
+    internal sealed class PairingProgress(TimeSpan interval, Action<string, IReadOnlyList<string>> report)
+    {
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+        /// <summary>The lines of a diagnostic run, once a minute into its checkpoints; null where diagnostics are off.</summary>
+        internal static PairingProgress? OfDiagnostics() =>
+            DiagnosticCheckpoint.IsOn
+                ? new PairingProgress(TimeSpan.FromSeconds(PROGRESS_SECONDS),
+                                      (name, details) => DiagnosticCheckpoint.Reach(name, collect: false, () => details))
+                : null;
+
+        /// <summary>Whether a line is due: the interval has passed since the last one, or since pairing began.</summary>
+        internal bool Due => _clock.Elapsed >= interval;
+
+        /// <summary>Writes a line and starts the interval anew.</summary>
+        /// <param name="name">The checkpoint, with the scope.</param>
+        /// <param name="details">What the line says.</param>
+        internal void Report(string name, IReadOnlyList<string> details)
+        {
+            report(name, details);
+            _clock.Restart();
+        }
+    }
+
     /// <summary>
     /// The candidate pairs of a scope's accesses (ADR 0038). An access recorded once with its executions is compared once with each
     /// access it meets: what the pair filters read of the two accesses is decided for the pair, and only whether two executions may run
@@ -6037,7 +6070,7 @@ public static class InterproceduralPairing
     /// <param name="executions">The scope's executions, which decide the timing.</param>
     /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap) =>
-        Pair(accesses, executions, heap, StringComparer.Ordinal);
+        Pair(accesses, executions, heap, StringComparer.Ordinal, PairingProgress.OfDiagnostics());
 
     /// <summary>The candidate pairs of a scope's accesses, with the candidate index enumerating its buckets in the order a comparer gives
     /// their keys (<see cref="CandidateIndex.Build(IReadOnlyList{Access}, HeapSolution, IComparer{string})"/>): a test's way to show that
@@ -6046,7 +6079,9 @@ public static class InterproceduralPairing
     /// <param name="executions">The scope's executions, which decide the timing.</param>
     /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
     /// <param name="bucketOrder">The order of the index's bucket keys.</param>
-    internal static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap, IComparer<string> bucketOrder)
+    /// <param name="progress">Where the <c>pairing-progress</c> lines go, or null for none.</param>
+    internal static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap, IComparer<string> bucketOrder,
+                                      PairingProgress? progress = null)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
         var found = new List<(AccessPair Pair, long Order)>();
@@ -6077,6 +6112,8 @@ public static class InterproceduralPairing
                 assumed[assumption] = assumed.GetValueOrDefault(assumption) + 1;
         }
 
+        ExecutionPairs? current = null;
+
         void Consider(CandidatePair candidate)
         {
             counted++;
@@ -6096,9 +6133,9 @@ public static class InterproceduralPairing
                 : null;
             // Two invocations touch two fresh objects, and the accesses of one invocation follow one another (R12).
             var last = one.IsFresh && other.IsFresh ? SKIP_FRESH_OBJECT : null;
-            var pair = new ExecutionPairs(sides[one], sides[other], candidate.ByPosition);
+            var pair = current = new ExecutionPairs(sides[one], sides[other], candidate.ByPosition);
             var (firstOne, firstOther) = pair.FirstExecutions();
-            var firstSkip = Reason(pair.Oriented(firstOne, firstOther), middle, last, out var firstAssumptions);
+            var firstSkip = Reason(pair.Asked(firstOne, firstOther), middle, last, out var firstAssumptions);
             // The pair's own confinement, conditions or freshness skips every pair of executions that the executions do not.
             if (middle is not null || last is not null)
             {
@@ -6111,8 +6148,9 @@ public static class InterproceduralPairing
             var once = protection == PairProtection.SUFFICIENT || one.IsLibraryInternal && other.IsLibraryInternal;
             var witnesses = pair.Witnesses(taken => taken == (firstOne, firstOther)
                                                         ? firstSkip is null
-                                                        : Reason(pair.Oriented(taken.One, taken.Other), null, null, out _) is null, once,
-                                           candidate.ReportsFirst && !ReferenceEquals(one.Resource, other.Resource));
+                                                        : Reason(pair.Asked(taken.One, taken.Other), null, null, out _) is null, once,
+                                           candidate.ReportsFirst && !ReferenceEquals(one.Resource, other.Resource),
+                                           progress is null ? null : CheckProgress);
             if (witnesses.Count == 0)
             {
                 Count(firstSkip!, firstAssumptions);
@@ -6147,6 +6185,8 @@ public static class InterproceduralPairing
                                Uncertainties = candidate.Uncertainties,
                                Candidate = number
                            }, order));
+                pair.Moved();
+                CheckProgress();
             }
 
             counted += numbers.Count - 1;
@@ -6182,8 +6222,34 @@ public static class InterproceduralPairing
             ownership.Kind == OwnershipKind.ThreadConfined;
 
         var index = CandidateIndex.Build(candidates, heap, bucketOrder);
+        // The views a candidate's questions made go when the candidate is done (#486). A run stopped before pairing-end still shows how
+        // far pairing got and what it holds: where diagnostics are on, a line at most once an interval, looked for after each candidate,
+        // at each pair of executions the search for witnesses looks at and as each witness moves to the found pairs, since one candidate
+        // of large sides searches for minutes.
+        var considered = 0L;
         foreach (var candidate in index.Pairs())
+        {
             Consider(candidate);
+            current?.Forget();
+            current = null;
+            if (progress is null)
+                continue;
+            considered++;
+            CheckProgress();
+        }
+
+        void CheckProgress()
+        {
+            if (progress?.Due == true)
+                Progress();
+        }
+
+        void Progress() =>
+            progress!.Report($"pairing-progress:{scope}",
+                             [$"considered={considered} comparisons={counted} executionPairs={executionPairs} candidates={numbered} " +
+                              $"witnesses={found.Count} pending={current?.Gathered ?? 0} suppressed={suppressed} buckets={index.Buckets} " +
+                              $"heldViews={sides.Values.Sum(side => (long)side.Held)}",
+                              $"timing {(timingCounters is null ? "none" : timingCounters.Since(timingBefore!))}"]);
 
         // In the order of an all-pairs loop over every execution of every access: by the earlier one, then the later one. Findings keep the
         // first of two pairs with one identity, so this order makes them what the plain loop gives.
@@ -6208,6 +6274,10 @@ public static class InterproceduralPairing
     {
         /// <summary>The views made so far, by execution; none until the first is asked for.</summary>
         private Dictionary<int, Access>? _views;
+
+        /// <summary>The views the questions of the candidate being considered made, by execution, apart from those kept; let go when the
+        /// candidate is done (#486).</summary>
+        private Dictionary<int, Access>? _asked;
 
         /// <summary>The executions grouped by variant, the variants one after another (<see cref="_variantStart"/>); null where that is
         /// execution order itself, every variant's executions standing next to each other.</summary>
@@ -6292,9 +6362,37 @@ public static class InterproceduralPairing
                 return Access;
             _views ??= [];
             if (!_views.TryGetValue(execution, out var view))
-                _views.Add(execution, view = Access.View(Access.Executions[execution]));
+            {
+                if (_asked is null || !_asked.Remove(execution, out view))
+                    view = Access.View(Access.Executions[execution]);
+                _views.Add(execution, view);
+            }
             return view;
         }
+
+        /// <summary>The access as one of its executions has it, for a question about a pair of executions of the candidate being
+        /// considered: the view the side keeps (<see cref="View"/>), or the one the candidate's questions made, made at the first of them
+        /// and let go with the candidate (<see cref="Forget"/>; #486). Pairing asks about every pair of variants, and keeping a view of
+        /// every execution it asked about held one for nearly every copy of a side; a view made anew is equal to the kept one field for
+        /// field, and a question reads its fields only.</summary>
+        /// <param name="execution">The execution.</param>
+        internal Access Asked(int execution)
+        {
+            if (Access.Executions.Count == 0)
+                return Access;
+            if (_views?.GetValueOrDefault(execution) is { } kept)
+                return kept;
+            _asked ??= [];
+            if (!_asked.TryGetValue(execution, out var view))
+                _asked.Add(execution, view = Access.View(Access.Executions[execution]));
+            return view;
+        }
+
+        /// <summary>Lets go of the views the questions of the candidate just considered made.</summary>
+        internal void Forget() => _asked = null;
+
+        /// <summary>The views the side holds: those kept for found pairs and those of the candidate being considered.</summary>
+        internal int Held => (_views?.Count ?? 0) + (_asked?.Count ?? 0);
     }
 
     /// <summary>The executions of one variant of a side, in collection order: a run of a side's executions grouped by variant, or of the
@@ -6360,6 +6458,29 @@ public static class InterproceduralPairing
                 ? (other.View(otherExecution), one.View(oneExecution))
                 : (one.View(oneExecution), other.View(otherExecution));
 
+        /// <summary>The two views of a pair of executions as one question reads them, in the order the pair compares them: those the
+        /// sides keep or made for this candidate's questions (<see cref="PairingSide.Asked"/>).</summary>
+        /// <param name="oneExecution">The execution of the first side.</param>
+        /// <param name="otherExecution">The execution of the second side.</param>
+        internal (Access First, Access Second) Asked(int oneExecution, int otherExecution) =>
+            Swapped((oneExecution, otherExecution))
+                ? (other.Asked(otherExecution), one.Asked(oneExecution))
+                : (one.Asked(oneExecution), other.Asked(otherExecution));
+
+        /// <summary>The witnesses <see cref="Witnesses"/> has gathered and pairing has not yet moved to the found pairs, for a progress
+        /// line written while it searches or moves them.</summary>
+        internal int Gathered { get; private set; }
+
+        /// <summary>Counts one gathered witness moved to the found pairs.</summary>
+        internal void Moved() => Gathered--;
+
+        /// <summary>Lets go of the views the candidate's questions made on both sides.</summary>
+        internal void Forget()
+        {
+            one.Forget();
+            other.Forget();
+        }
+
         /// <summary>For each pair of the two sides' variants, the first pair of executions in collection order that passes, with its
         /// order (the earlier execution's position, then the later's) and the candidate it is a witness of: its two variants' path roots,
         /// an unordered pair for the self-pair, and the orientation it was found in (ADR 0042).</summary>
@@ -6367,12 +6488,15 @@ public static class InterproceduralPairing
         /// <param name="once">Whether one witness is enough.</param>
         /// <param name="byOrientation">Whether each orientation of a pair of variants gives its own witness: a pair reported on its
         /// earlier execution's resource names another resource when the earlier execution is the other side's.</param>
-        internal List<Witness> Witnesses(Func<(int One, int Other), bool> passes, bool once, bool byOrientation)
+        /// <param name="examined">Told of each pair of executions the search looks at, before an orientation may reject it unasked, or
+        /// null (#486).</param>
+        internal List<Witness> Witnesses(Func<(int One, int Other), bool> passes, bool once, bool byOrientation, Action? examined = null)
         {
             var witnesses = new List<Witness>();
             Func<(int One, int Other), bool>[] filters = byOrientation
-                ? [executions => !Swapped(executions) && passes(executions), executions => Swapped(executions) && passes(executions)]
-                : [passes];
+                ? [executions => Examined() && !Swapped(executions) && passes(executions),
+                   executions => Examined() && Swapped(executions) && passes(executions)]
+                : [executions => Examined() && passes(executions)];
             for (var oneVariant = 0; oneVariant < one.VariantCount; oneVariant++)
             {
                 for (var otherVariant = IsSelf ? oneVariant : 0; otherVariant < other.VariantCount; otherVariant++)
@@ -6388,6 +6512,7 @@ public static class InterproceduralPairing
                             ? new CandidateKey(otherRoot, oneRoot, orientation)
                             : new CandidateKey(oneRoot, otherRoot, orientation);
                         witnesses.Add(new Witness(found.Executions, found.Order, candidate));
+                        Gathered = witnesses.Count;
                         if (once)
                             return witnesses;
                     }
@@ -6395,6 +6520,12 @@ public static class InterproceduralPairing
             }
 
             return witnesses;
+
+            bool Examined()
+            {
+                examined?.Invoke();
+                return true;
+            }
         }
 
         /// <summary>Whether a pair of executions puts the second side's execution first.</summary>

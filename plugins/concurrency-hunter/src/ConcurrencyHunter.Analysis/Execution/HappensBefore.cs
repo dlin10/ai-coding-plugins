@@ -116,6 +116,16 @@ internal sealed partial class HappensBefore
     /// <summary>What the timing did on this graph and on the replays it builds, for the pairing checkpoints.</summary>
     internal TimingCounters Counters { get; }
 
+    /// <summary>The most answers the completion proof of the queried passes keeps before it forgets them all (#486); a replay keeps as
+    /// many as the graph that builds it. A test lowers it, before the graph is asked, to have the questions proven anew.</summary>
+    internal int ProofAnswerLimit { get; set; } = PROOF_ANSWER_LIMIT;
+
+    /// <summary>The default of <see cref="ProofAnswerLimit"/>, against a budget of about 51 MB a proof, the graph's and each replay's: a
+    /// dictionary of these answers, a 72-byte entry and a 4-byte bucket a slot, grows to 672,827 slots (51.1 MB) on its way and
+    /// to 1,395,263 (106 MB) when one more answer comes, and a clear keeps the slots; forgetting at 672,827 answers keeps the table at the
+    /// smaller size. With the four replays the demo builds that is about 256 MB, with all seven about 409 MB.</summary>
+    private const int PROOF_ANSWER_LIMIT = 672_827;
+
     /// <summary>Every assumption set a reading can rest on: the waiting code's entry with or without the waited task's thread scheduler.</summary>
     private static readonly OrderingAssumption[] AssumptionSets =
     [
@@ -388,7 +398,10 @@ internal sealed partial class HappensBefore
         if (!_replays.TryGetValue(key, out var replay))
         {
             _replays.Add(key, replay = new HappensBefore(_scope, _heap, _segments, _executions, _entries, _visits, _steps, _anchorList, _tails,
-                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet(), Counters, _shared));
+                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet(), Counters, _shared)
+                                       {
+                                           ProofAnswerLimit = ProofAnswerLimit
+                                       });
             Counters.Replays++;
         }
         return replay;

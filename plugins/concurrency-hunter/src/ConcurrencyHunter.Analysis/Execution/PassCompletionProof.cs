@@ -48,6 +48,7 @@ internal sealed partial class HappensBefore
         /// <param name="Done">Whether the call returns only when its runs are done: a member that returns no task.</param>
         private sealed record OuterPass(PointKey After, IReadOnlyList<(PointKey Point, bool CompletedFault)> Joins, bool Done);
 
+        /// <summary>The answers of <see cref="Ordered"/> by question, at most the graph's <see cref="HappensBefore.ProofAnswerLimit"/>.</summary>
         private readonly Dictionary<(string SourceExecution, string DestinationExecution, PointKey Source, PointKey Destination, string? Creator), bool> _proofs = [];
         private readonly Dictionary<string, Flow> _flows = new(StringComparer.Ordinal);
         private GapOrigins? _handleOrigins;
@@ -61,7 +62,8 @@ internal sealed partial class HappensBefore
 
         // The waits the climb passed, by the start of the work they complete: one start's waits never explain another's exits (ADR 0035).
         // They explain exceptional edges, but are not cuts for a caller that still has to wait for the returned task. A weaker proof of a
-        // fault must survive a stronger reading of the same wait's form.
+        // fault must survive a stronger reading of the same wait's form. They are the question's own: forgotten when a question is
+        // proven, so that no question reads the waits another's climbs passed, such as an outer caller's await an admitted pass adds (#486).
         private readonly Dictionary<SpawnAnchor, Dictionary<PointKey, bool>> _completions = [];
 
         /// <summary>Keeps a completion the climb passed, with the weakest proof of its exceptional exit.</summary>
@@ -85,7 +87,14 @@ internal sealed partial class HappensBefore
         internal List<ModelRecordEvidence>? Models { get; init; }
 
         /// <summary>Whether the completion of the queried passes orders two accesses: of one execution, its passes do not overlap each
-        /// other; of two, the work of one completes before the other on every pass.</summary>
+        /// other; of two, the work of one completes before the other on every pass. An answer is kept for the same question asked again,
+        /// and at the graph's limit every kept answer is forgotten at once (#486): pairing asks about every pair of variants of two sides,
+        /// so a question is mostly about a pair of executions no question named before, and keeping each answer grew without bound on
+        /// OrchardCore. A question asked after that is proven anew and gets the answer it got, because an answer is a function of the
+        /// graph and the question alone: a question reads only the waits its own climbs pass (<see cref="_completions"/>, forgotten here
+        /// before it is proven); the joins of a parent are recorded by a walk whose answers no start changes (#475); a pass's flow is kept
+        /// by everything it is built from; and the climb's guards are empty at the top of a question. So the order of questions decides
+        /// no answer, and a diagnostic request's fresh proof answers what the analysis answered.</summary>
         /// <param name="first">One access.</param>
         /// <param name="second">The other access.</param>
         /// <param name="creator">The creator whose run the query reads, or null.</param>
@@ -94,10 +103,23 @@ internal sealed partial class HappensBefore
             var source = new PointKey(first.InstanceId, first.OperationId, false);
             var destination = new PointKey(second.InstanceId, second.OperationId, false);
             var key = (first.ExecutionId, second.ExecutionId, source, destination, creator);
-            if (!_proofs.TryGetValue(key, out var proven))
-                _proofs.Add(key, proven = (first.ExecutionId == second.ExecutionId ? CompleteBeforeNext(first.ExecutionId, creator)
-                    : CompleteBeforeAccess(first, second, creator) || CompleteBeforeAccess(second, first, creator)) ||
-                    SequentialRuns(first, second, creator) || SequentialRuns(second, first, creator));
+            order.Counters.PassProofs++;
+            if (_proofs.TryGetValue(key, out var proven))
+            {
+                order.Counters.PassProofHits++;
+                return proven;
+            }
+
+            _completions.Clear();
+            proven = (first.ExecutionId == second.ExecutionId ? CompleteBeforeNext(first.ExecutionId, creator)
+                         : CompleteBeforeAccess(first, second, creator) || CompleteBeforeAccess(second, first, creator)) ||
+                     SequentialRuns(first, second, creator) || SequentialRuns(second, first, creator);
+            if (_proofs.Count >= order.ProofAnswerLimit)
+            {
+                _proofs.Clear();
+                order.Counters.PassProofClears++;
+            }
+            _proofs.Add(key, proven);
             return proven;
         }
 
@@ -538,7 +560,8 @@ internal sealed partial class HappensBefore
         /// work of one execution before its next pass. Its fault follows the work's completion as a frame's join on that handle would:
         /// the form, the environment and the scheduler of the task the handle carries decide it. Every start of the execution is read
         /// with its own frame (ADR 0035): the join is added to the frame of each start whose own handle it carries, the work is ordered
-        /// only when every start completes it before the next pass, and a join that carries no start's handle orders nothing.</summary>
+        /// only when every start completes it before the next pass, and a join that carries no start's handle orders nothing. Like a
+        /// question of <see cref="Ordered"/>, it reads only the waits its own climbs pass (#486).</summary>
         /// <param name="instanceId">The instance making the join.</param>
         /// <param name="operation">The join operation.</param>
         /// <param name="first">One access of the work.</param>
@@ -546,6 +569,7 @@ internal sealed partial class HappensBefore
         /// <param name="creator">The creator whose run the query reads, or null.</param>
         internal bool JoinWouldOrder(string instanceId, int operation, Access first, Access second, string? creator)
         {
+            _completions.Clear();
             if (first.ExecutionId != second.ExecutionId || !order._heap.Instances.TryGetValue(instanceId, out var instance) ||
                 instance.Summary.Joins.FirstOrDefault(join => join.OperationId == operation) is not { HandlesKnown: true, Handles.Count: 1 } join)
                 return false;
