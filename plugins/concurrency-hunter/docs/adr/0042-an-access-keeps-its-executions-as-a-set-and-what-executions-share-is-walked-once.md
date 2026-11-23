@@ -153,9 +153,9 @@ numbers. C1a after C2 leaves OrchardCore's time to the third step and takes its 
   - What the scope reads of that `Access` is the key and what follows from the key: the site, instance, resource,
     operation, held protections, guards, locality, freshness, term and flags, and the uncertainties, gap checks,
     deciding calls, binding and ownership evidence, symbol and source made from them. None of it is the execution's:
-    the variant is in the parts, outside the `Access`. Its lists are the scope's pooled ones, the same object for equal
-    contents (ADR 0040). So the `Access` any execution would build for a key is equal to the first's field by field,
-    and which worker built it is not observable.
+    the variant is in the parts, outside the `Access`. So the `Access` any execution would build for a key is equal to
+    the first's field by field, its lists by content, and the lists the scope pools (ADR 0040) are the same objects. Which
+    worker built it is not observable.
   - The parts of the variant are the fold's to keep, for each execution it takes, in collection order.
 - **Readers.** `InterproceduralPairing` reads the set and the parts: `PairingSide` keeps the side's executions by number,
   and the witness search walks pairs of executions in collection order as it does now. `AccessExecutionList`, which model
