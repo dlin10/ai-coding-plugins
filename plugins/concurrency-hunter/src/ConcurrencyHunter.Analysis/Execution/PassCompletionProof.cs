@@ -62,9 +62,19 @@ internal sealed partial class HappensBefore
 
         // The waits the climb passed, by the start of the work they complete: one start's waits never explain another's exits (ADR 0035).
         // They explain exceptional edges, but are not cuts for a caller that still has to wait for the returned task. A weaker proof of a
-        // fault must survive a stronger reading of the same wait's form. They are the question's own: forgotten when a question is
-        // proven, so that no question reads the waits another's climbs passed, such as an outer caller's await an admitted pass adds (#486).
+        // fault must survive a stronger reading of the same wait's form. They are the disjunct's own: forgotten before each disjunct of a
+        // question is proven, so that no question reads the waits another's climbs passed, such as an outer caller's await an admitted pass
+        // adds (#486), and no disjunct those of one tried before it (#490).
         private readonly Dictionary<SpawnAnchor, Dictionary<PointKey, bool>> _completions = [];
+
+        /// <summary>Forgets the waits of the climb, so that the disjunct of a question that follows reads only the waits its own climbs
+        /// pass (#490).</summary>
+        /// <returns>True, so that a disjunct reads <c>Anew() &amp;&amp; disjunct</c>.</returns>
+        private bool Anew()
+        {
+            _completions.Clear();
+            return true;
+        }
 
         /// <summary>Keeps a completion the climb passed, with the weakest proof of its exceptional exit.</summary>
         /// <param name="start">The start of the work being completed.</param>
@@ -91,10 +101,12 @@ internal sealed partial class HappensBefore
         /// and at the graph's limit every kept answer is forgotten at once (#486): pairing asks about every pair of variants of two sides,
         /// so a question is mostly about a pair of executions no question named before, and keeping each answer grew without bound on
         /// OrchardCore. A question asked after that is proven anew and gets the answer it got, because an answer is a function of the
-        /// graph and the question alone: a question reads only the waits its own climbs pass (<see cref="_completions"/>, forgotten here
-        /// before it is proven); the joins of a parent are recorded by a walk whose answers no start changes (#475); a pass's flow is kept
-        /// by everything it is built from; and the climb's guards are empty at the top of a question. So the order of questions decides
-        /// no answer, and a diagnostic request's fresh proof answers what the analysis answered.</summary>
+        /// graph and the question alone: each of its disjuncts reads only the waits its own climbs pass (<see cref="_completions"/>,
+        /// forgotten before every disjunct, <see cref="Anew"/>); the joins of a parent are recorded by a walk whose answers no start
+        /// changes (#475); a pass's flow is kept by everything it is built from; and the climb's guards are empty at the top of a question.
+        /// So the order of questions decides no answer, and a diagnostic request's fresh proof answers what the analysis answered. Nor does
+        /// the order of the question's own accesses (#490): the disjuncts are the same either way round, and a disjunct that fails leaves
+        /// no wait for the next to read, even where both climb through one outer start.</summary>
         /// <param name="first">One access.</param>
         /// <param name="second">The other access.</param>
         /// <param name="creator">The creator whose run the query reads, or null.</param>
@@ -110,10 +122,10 @@ internal sealed partial class HappensBefore
                 return proven;
             }
 
-            _completions.Clear();
-            proven = (first.ExecutionId == second.ExecutionId ? CompleteBeforeNext(first.ExecutionId, creator)
-                         : CompleteBeforeAccess(first, second, creator) || CompleteBeforeAccess(second, first, creator)) ||
-                     SequentialRuns(first, second, creator) || SequentialRuns(second, first, creator);
+            proven = first.ExecutionId == second.ExecutionId
+                ? Anew() && CompleteBeforeNext(first.ExecutionId, creator)
+                : Anew() && CompleteBeforeAccess(first, second, creator) || Anew() && CompleteBeforeAccess(second, first, creator);
+            proven = proven || Anew() && SequentialRuns(first, second, creator) || Anew() && SequentialRuns(second, first, creator);
             if (_proofs.Count >= order.ProofAnswerLimit)
             {
                 _proofs.Clear();
