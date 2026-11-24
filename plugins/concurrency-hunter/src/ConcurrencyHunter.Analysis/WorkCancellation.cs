@@ -17,6 +17,20 @@ internal static class WorkCancellation
     /// <summary>Suspends enclosing work, including its token and observer, until disposal.</summary>
     internal static IDisposable Outside() => new Frame(CancellationToken.None, null, outside: true);
 
+    /// <summary>Takes back, until disposal, the work the nearest <see cref="Outside"/> suspended, its token and observer, for work done
+    /// inside the suspension on that work's behalf alone, such as the diagnostic census within pairing (issue 492); with no suspension
+    /// around it, the current work goes on as it is.</summary>
+    internal static IDisposable Resumed()
+    {
+        var frame = Current.Value;
+        // bounded: one step for each frame entered since the suspension, which work nests a handful deep.
+        while (frame is not null && !frame.IsOutside)
+            frame = frame.Outer;
+        if (frame is null)
+            return new Frame(CancellationToken.None, null, outside: false);
+        return new Frame(frame.Outer?.Token ?? CancellationToken.None, frame.Outer?.Observed, outside: false);
+    }
+
     /// <summary>Reports a check, then throws cancellation with the current work's effective token.</summary>
     internal static void Check()
     {
@@ -34,9 +48,16 @@ internal static class WorkCancellation
         internal CancellationToken Token { get; }
         internal Action? Observed { get; }
 
+        /// <summary>Whether this frame suspends the work around it (<see cref="Outside"/>).</summary>
+        internal bool IsOutside { get; }
+
+        /// <summary>The frame this one was entered in, or null for the first.</summary>
+        internal Frame? Outer => _outer;
+
         internal Frame(CancellationToken token, Action? observed, bool outside)
         {
             _outer = Current.Value;
+            IsOutside = outside;
             var enclosing = outside ? CancellationToken.None : _outer?.Token ?? CancellationToken.None;
             if (token.CanBeCanceled && enclosing.CanBeCanceled)
                 _linked = CancellationTokenSource.CreateLinkedTokenSource(token, enclosing);

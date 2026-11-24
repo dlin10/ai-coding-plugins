@@ -317,6 +317,11 @@ public sealed class ExecutionAnalysis
     /// <param name="second">The second execution's id.</param>
     public bool Overlaps(string first, string second) => first != second || _executions[first].OverlapsItself;
 
+    /// <summary>Whether an execution may start before startup ends, by the happens-before graph; false without a graph.</summary>
+    /// <param name="execution">The execution's id.</param>
+    // bounded: forwards once to the happens-before graph.
+    internal bool StartsDuringStartup(string execution) => _order?.StartsDuringStartup(execution) == true;
+
     /// <summary>Whether a universal happens-before path or a completion proof for the queried passes orders two accesses.</summary>
     /// <param name="first">The first access.</param>
     /// <param name="second">The second access.</param>

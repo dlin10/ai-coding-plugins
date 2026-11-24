@@ -6118,6 +6118,9 @@ public static class InterproceduralPairing
         DiagnosticCheckpoint.Reach($"pairing:{scope}", collect: true,
                                    () => [$"accesses={accesses.Count} candidates={candidates.Length} " +
                                           $"accessExecutions={candidates.Sum(access => (long)access.ExecutionCount)}"]);
+        var index = CandidateIndex.Build(candidates, heap, bucketOrder);
+        if (DiagnosticCheckpoint.IsOn)
+            PairingCensus.Write(scope, candidates, index, access => sides[access].VariantCount, executions);
 
         void Count(string skip, IReadOnlySet<string> assumptions)
         {
@@ -6219,7 +6222,6 @@ public static class InterproceduralPairing
                                                  : access.Resource.RegionId!, out var ownership) &&
             ownership.Kind == OwnershipKind.ThreadConfined;
 
-        var index = CandidateIndex.Build(candidates, heap, bucketOrder);
         // The views a candidate's questions made go when the candidate is done (#486). A run stopped before pairing-end still shows how
         // far pairing got and what it holds: where diagnostics are on, a line at most once an interval, looked for after each candidate,
         // at each pair of executions the search for witnesses looks at and as each witness moves to the found pairs, since one candidate
@@ -6812,7 +6814,7 @@ internal sealed record CandidatePair(Access First, Access Second, AccessResource
 /// (R3); within a wildcard bucket and between it and its region's resource buckets; or between an open region's bucket and a closed
 /// region of its group. Which buckets meet and which resource names their pair is <see cref="Meets"/>'s alone.
 /// </summary>
-internal sealed class CandidateIndex
+internal sealed partial class CandidateIndex
 {
     private sealed class RegionBuckets(string scope, string regionId)
     {

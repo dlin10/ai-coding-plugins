@@ -311,6 +311,11 @@ internal sealed partial class HappensBefore
                        .ToArray();
     });
 
+    /// <summary>Whether an execution may start before startup ends: one of the executions startup's end orders nothing before (issue
+    /// 123), which the census of pairing counts apart (issue 492).</summary>
+    /// <param name="execution">The execution's id.</param>
+    internal bool StartsDuringStartup(string execution) => _duringStartup.Contains(execution);
+
     /// <summary>Whether a happens-before path, or the completion proof of the queried passes, orders two accesses, in the whole scope,
     /// or with a creator given, in one run of it: the creator runs once there, and every condition an edge puts on an execution running
     /// or being started once is read per run of it (ADR 0020).</summary>

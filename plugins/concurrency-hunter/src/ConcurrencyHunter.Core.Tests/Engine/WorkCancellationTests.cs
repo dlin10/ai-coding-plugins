@@ -122,6 +122,35 @@ public sealed class WorkCancellationTests
         Assert.Equal(1, seen);
     }
 
+    [Fact]
+    public void Resumed_takes_back_the_work_the_nearest_outside_suspended_and_gives_the_suspension_back_on_disposal()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var seen = 0;
+        using var outer = WorkCancellation.Enter(cancellation.Token, () => seen++);
+        using (WorkCancellation.Outside())
+        using (WorkCancellation.Enter(CancellationToken.None))
+        {
+            using (WorkCancellation.Resumed())
+            {
+                Assert.Equal(cancellation.Token, WorkCancellation.Token);
+                WorkCancellation.Check();
+                Assert.Equal(1, seen);
+                cancellation.Cancel();
+                Assert.Equal(cancellation.Token, Assert.Throws<OperationCanceledException>(WorkCancellation.Check).CancellationToken);
+            }
+
+            Assert.Equal(CancellationToken.None, WorkCancellation.Token);
+            WorkCancellation.Check();
+            Assert.Equal(2, seen);
+        }
+
+        using (WorkCancellation.Resumed())
+            Assert.Equal(cancellation.Token, WorkCancellation.Token);
+        Assert.Throws<OperationCanceledException>(WorkCancellation.Check);
+        Assert.Equal(3, seen);
+    }
+
     [Theory]
     [InlineData("Read")]
     [InlineData("Lock")]
