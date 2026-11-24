@@ -29,7 +29,10 @@ architecture is SPEC §2.
 - `docs/adr/` — the decisions. SPEC's header lists the ADRs it has absorbed; a later ADR wins over
   the SPEC passage it decides.
 - `CONTEXT.md` — the vocabulary. Name things in code, tests and docs with its words; it lists the
-  words to avoid.
+  words to avoid. A Russian text — an answer to the user, an issue's body or comment, a record in
+  `docs/runs/` — keeps these words in English and does not translate them: `access`, not «доступ»;
+  `execution instance`, not «исполнение». A word of the code that the vocabulary does not list
+  (`copy`, `fold`) stays in English too. Text already written is not rewritten for this.
 - `demo/SCENARIOS.md` (Russian) — the demo cases of every phase, with intent and verdict in words.
 - `docs/PLAN.md` (Russian) — the finished phases and runs with their gates and what each delivered,
   and the temporary limits: what SPEC describes and the code does not do yet, with the phase or run

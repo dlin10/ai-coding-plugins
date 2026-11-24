@@ -313,10 +313,28 @@ that hold different protections at one site, or reach it in different instances 
 accesses.
 _Avoid_: use, reference, touch
 
+**Variant**:
+One way an **Access** is reached: the **Execution root** it runs under, the root its call path
+starts from, which is another one where several roots trigger one **Construction**, the call path,
+the **Spawn sites** on it, the code flow and, for a read-modify-write, the loads it depends on. An
+**Execution instance** that runs the access gives it a variant, or several where it reaches it by
+several paths; instances that reach it alike share one.
+_Avoid_: path, route (a variant also names the roots and the code flow), copy (the implementation's
+record of one instance running one access)
+
 **Candidate**:
 A pair of accesses that passed the cheap resource, overlap and operation filters and still needs
 refinement.
 _Avoid_: potential race, pair, hit
+
+**Witness**:
+A pair of **Execution instances**, one running each **Access** of a **Candidate**, that may overlap:
+what shows that the two accesses, each reached in one **Variant**, can conflict. A candidate has one
+for each pair of its accesses' variants, the first such pair of instances in the order the analysis
+collected them. A **Finding** reads every witness of its candidates for its confidence, uncertainty
+and gap evidence, and an **Occurrence** shows one of them.
+_Avoid_: proof (a witness shows that two instances may overlap, not that a race happens), sample,
+hit, pair (bare)
 
 **Bucket**:
 One cell of the candidate index: the accesses of one process scope on one resource, and, apart from
@@ -739,9 +757,10 @@ _Avoid_: static seed, user object, default value, probe
 A user object the **Driver** adds, before it calls the member, to every field that could hold one —
 in the library objects it hands over and in the library's static fields — because a program may
 have put its own object there: a converter in serializer options, a writer given to
-`Console.SetOut`. Every member of a seed is a witness: a value the library hands it is a value user
-code received, which a **Library model** writes as a **Deep read** of it, and a delegate handed to it
-runs in an **Unknown execution**. A seed only adds to what the field already holds, and never makes a
+`Console.SetOut`. Every member of a seed stands in for user code: a value the library hands it is a
+value user code received, which a **Library model** writes as a **Deep read** of it, and a delegate
+handed to it runs in an **Unknown execution**. A seed only adds to what the field already holds, and
+never makes a
 value that came from a call without a body look followed. A **Recipe value** supplies library state
 before seeds are added and is not a seed; ordinary seed opening keeps its readonly rules. Only the
 `off` library copy opens recipe statics for writes, while its analysis retains the ordinary copy's
@@ -853,7 +872,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - An **Opaque call** changes no object's **Ownership**: an object of one execution it receives is
   only read, and a shared object it reaches gets the whole **Unknown effect**. A **Construction**
   that hands a shared object it produces to one has published it.
-- Two **Accesses** on one **Resource** form a **Candidate** when two **Execution instances**, one running each, may overlap. They form one per pair of the instances' roots and, where each access is reported on its own resource object, one per which of the two runs first; two instances of one execution have no first, so there the access the content of the two puts first counts as first. Each pair of the ways the two are reached, by root, call path and code flow, gives it a witness, the first pair of instances reaching them so that may overlap, and a **Candidate** becomes at most one **Finding**.
+- Two **Accesses** on one **Resource** form a **Candidate** when two **Execution instances**, one running each, may overlap. They form one per pair of the instances' roots and, where each access is reported on its own resource object, one per which of the two runs first; two instances of one execution have no first, so there the access the content of the two puts first counts as first. Each pair of the two accesses' **Variants** gives it a **Witness**, the first pair of instances reaching them so that may overlap, and a **Candidate** becomes at most one **Finding**.
 - Two **Accesses** are compared only inside one **Bucket** or across the wildcard and open-region joins the bucket's definition names; an access in no bucket is compared with nothing.
 - A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
 - A file **Suppression** names a **Fingerprint** and nothing else.
