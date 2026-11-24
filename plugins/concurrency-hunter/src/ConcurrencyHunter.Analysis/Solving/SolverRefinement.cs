@@ -163,8 +163,13 @@ public static class SolverRefinement
         identity.Length == 0 || identity.StartsWith(PathPredicate.CANONICAL, StringComparison.Ordinal);
 
     /// <summary>The candidates in the order the budget is spent on them: the score each is expected to get, highest first, and
-    /// where that is equal, the resource and the two sites, so that two runs ask the same questions in the same order. The resource is
-    /// ordered by its identity's text without joining it (<see cref="AccessResource.IDENTITY_ORDER"/>).</summary>
+    /// where that is equal, the resource and the two sites in the order the pair puts its sides, then the order the pairs were found in,
+    /// so that two runs ask the same questions in the same order. The resource is ordered by its identity's text without joining it
+    /// (<see cref="AccessResource.IDENTITY_ORDER"/>). Nothing here reads content: pairing gives the sides, the resource and the order of
+    /// the found pairs (ADR 0042). Where the candidate index orients a pair by its copies, its first side is the earlier execution's, and
+    /// of a pair of one execution the one the content of the two puts first; other pairs keep the side the index puts first. The resource
+    /// is the first side's only where the index reports a pair on its first side, and the found pairs of one execution stand in the
+    /// order of their views' content.</summary>
     /// <param name="pairs">The candidates.</param>
     internal static IReadOnlyList<int> Ordered(IReadOnlyList<AccessPair> pairs) =>
         Enumerable.Range(0, pairs.Count)

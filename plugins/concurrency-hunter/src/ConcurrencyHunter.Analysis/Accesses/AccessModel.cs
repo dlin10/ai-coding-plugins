@@ -285,12 +285,15 @@ public sealed record ReadSource(string Symbol, SourceSpan Source, IReadOnlyList<
 public sealed record AccessVariant(AccessRoot Root, AccessRoot PathRoot, IReadOnlyList<string> CallPath, IReadOnlyList<SpawnSiteLocation> SpawnSites,
                                    IReadOnlyList<CodeFlowStep> CodeFlow, IReadOnlyList<ReadSource> ReadSources);
 
-/// <summary>One execution of an access recorded once (ADR 0038): the execution, what it gives the access, and where the access stood
-/// among every access the scope's executions made, in the order they made them.</summary>
+/// <summary>One execution of an access recorded once (ADR 0038): the execution, what it gives the access, and where it stands in the
+/// scope's collection order (ADR 0042).</summary>
 /// <param name="ExecutionId">The execution that runs the access.</param>
 /// <param name="Variant">The root, path and loads that execution gives it.</param>
-/// <param name="Position">The access's place in the scope's collection order, which pairing keeps.</param>
-public readonly record struct AccessExecution(string ExecutionId, AccessVariant Variant, int Position);
+/// <param name="Position">The place in the scope's collection order, which pairing keeps: the execution's number, then the access's
+/// place among the scope's folded accesses in the order the fold first met them (<see cref="AccessFolding.PositionOf"/>). The executions
+/// one execution has of one access share it; the access lists them in the ordinal order of their path roots' ids and then of what their
+/// variants hold.</param>
+public readonly record struct AccessExecution(string ExecutionId, AccessVariant Variant, long Position);
 
 /// <summary>An access on one resource, recorded once with the executions that run it so (ADR 0038). It carries its region's ownership and
 /// evidence chain; a construction-local access touches the object its construction builds and never pairs; a read-modify-write lists the

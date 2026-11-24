@@ -8,11 +8,17 @@ namespace ConcurrencyHunter.Accesses;
 /// Records each access of a scope once with the executions that make it so (ADR 0038). Two accesses are one when they agree
 /// on everything but what <see cref="AccessVariant"/> holds and the execution: the site, instance, resource and operation, the held
 /// protections, conditions, construction-locality, freshness, iteration indexing, selector term, ownership, library-internality, gap
-/// checks and labels. Every execution of it keeps its id, its variant and its place in the order the executions made their accesses, so
-/// pairing can still answer each pair of executions as it did, in the order it did.
+/// checks and labels. Every execution of it keeps its id, its variant and its place in collection order (ADR 0042): the execution's
+/// number, then the access's place among the folded accesses, and among the executions one execution has of the access the order of
+/// their path roots' ids and then of what their variants hold, so pairing can answer each pair of executions in an order that no list
+/// of copies has to hold.
 /// </summary>
 internal sealed class AccessFolding
 {
+    /// <summary>Orders the variants one execution gives one access by their path roots' ids and then by what they hold
+    /// (<see cref="PairContent.Compare(AccessVariant, AccessVariant)"/>).</summary>
+    private static readonly IComparer<AccessVariant> CONTENT = Comparer<AccessVariant>.Create(PairContent.Compare);
+
     private readonly Dictionary<Access, int> _index = new(AccessKey.INSTANCE);
     private readonly List<Access> _firsts = [];
     private readonly List<List<AccessExecution>> _executions = [];
@@ -36,32 +42,35 @@ internal sealed class AccessFolding
 
     /// <summary>Adds the accesses one execution made, in the order it made them.</summary>
     /// <param name="accesses">The execution's accesses.</param>
+    /// <param name="execution">The execution's number: its place among the scope's executions, which the fold takes in that order.</param>
     /// <param name="firsts">Given each access that starts a folded access of its own, in order: the execution is the first to make
     /// it; null for no one.</param>
-    internal void Add(IReadOnlyList<Access> accesses, List<Access>? firsts = null)
+    internal void Add(IReadOnlyList<Access> accesses, int execution, List<Access>? firsts = null)
     {
         WorkCancellation.Check();
         foreach (var access in accesses)
         {
             WorkCancellation.Check();
-            var execution = new AccessExecution(access.ExecutionId, Variant(access), ExecutionCount++);
+            ExecutionCount++;
+            // The position is the execution's number until the accesses are given out, which places every execution of an access.
+            var made = new AccessExecution(access.ExecutionId, Variant(access), execution);
             if (_index.TryGetValue(access, out var at))
             {
-                _executions[at].Add(execution);
+                _executions[at].Add(made);
                 continue;
             }
 
             _index.Add(access, _firsts.Count);
             _firsts.Add(access);
-            _executions.Add([execution]);
+            _executions.Add([made]);
             firsts?.Add(access);
         }
 
         _met.Clear();
     }
 
-    /// <summary>The scope's accesses, each with its executions, in the order their first executions made them; an access's own
-    /// execution, root and path are its first execution's. The folding keeps only its counts after.</summary>
+    /// <summary>The scope's accesses, each with its executions in collection order, in the order the fold first met them; an access's
+    /// own execution, root and path are its first execution's. The folding keeps only its counts after.</summary>
     internal IReadOnlyList<Access> Accesses()
     {
         var accesses = new Access[_firsts.Count];
@@ -69,6 +78,7 @@ internal sealed class AccessFolding
         {
             WorkCancellation.Check();
             var executions = _executions[at].ToArray();
+            Place(executions, at);
             accesses[at] = _firsts[at].View(executions[0]) with { Executions = executions };
             _executions[at] = [];
         }
@@ -80,6 +90,44 @@ internal sealed class AccessFolding
         _variants.Clear();
         _roots.Clear();
         return accesses;
+    }
+
+    /// <summary>A position in collection order (ADR 0042): the execution's number, then the access's place among the scope's folded
+    /// accesses, so that two positions compare as those two do in turn. Both are places in lists the fold holds, so every pair of them has
+    /// its position. The executions one execution has of one access share it and stand in the order <see cref="Place"/> gives them, which
+    /// a reader of positions takes from their places in the access's list.</summary>
+    /// <param name="execution">The execution's number.</param>
+    /// <param name="access">The access's place among the scope's folded accesses.</param>
+    internal static long PositionOf(int execution, int access) => (long)execution << 32 | (uint)access;
+
+    /// <summary>Gives each execution of one folded access its position (<see cref="PositionOf"/>), in place. The executions arrive in
+    /// execution order, and those of one execution next to each other in the order it made them; those are put in the ordinal order of
+    /// their path roots' ids and, of one path root, in the order of what their variants hold
+    /// (<see cref="PairContent.Compare(AccessVariant, AccessVariant)"/>), which no order of the copies decides.</summary>
+    /// <param name="executions">The access's executions, each holding its execution's number as its position.</param>
+    /// <param name="access">The access's place among the scope's folded accesses.</param>
+    private static void Place(AccessExecution[] executions, int access)
+    {
+        for (var start = 0; start < executions.Length;)
+        {
+            WorkCancellation.Check();
+            var execution = executions[start].Position;
+            var end = start + 1;
+            // bounded: the executions of one execution, one for each variant it gives the access.
+            while (end < executions.Length && executions[end].Position == execution)
+            {
+                WorkCancellation.Check();
+                end++;
+            }
+
+            if (end - start > 1)
+                executions[start..end].OrderBy(made => made.Variant, CONTENT).ToArray().CopyTo(executions, start);
+
+            // bounded: the same executions once more.
+            for (var at = start; at < end; at++)
+                executions[at] = executions[at] with { Position = PositionOf((int)execution, access) };
+            start = end;
+        }
     }
 
     private AccessVariant Variant(Access access)
@@ -200,9 +248,9 @@ internal sealed class AccessFolding
     }
 }
 
-/// <summary>Every execution of the accesses of one or more scopes as an access of its own (<see cref="Access.View"/>), each scope's in the order its
-/// executions made them (ADR 0038): what the collection was before accesses were recorded once. A view is made once, when first read; an
-/// access built for one execution alone is its own view.</summary>
+/// <summary>Every execution of the accesses of one or more scopes as an access of its own (<see cref="Access.View"/>), each scope's in
+/// collection order (ADR 0038, ADR 0042): execution after execution, and within one the accesses where the fold first met them. A view is
+/// made once, when first read; an access built for one execution alone is its own view.</summary>
 public sealed class AccessExecutionList : IReadOnlyList<Access>
 {
     private readonly IReadOnlyList<Access>[] _scopes;
@@ -269,12 +317,12 @@ public sealed class AccessExecutionList : IReadOnlyList<Access>
         return _views[scope][at] = folded.Executions.Count == 0 ? folded : folded.View(folded.Executions[execution]);
     }
 
-    /// <summary>A scope's executions of accesses in collection order: by their positions, an access without executions where it stands
-    /// in the list.</summary>
+    /// <summary>A scope's executions of accesses in collection order: by their positions, those of one position in the order their
+    /// access lists them, an access without executions where it stands in the list.</summary>
     /// <param name="accesses">The scope's accesses.</param>
     private static (int Access, int Execution)[] Order(IReadOnlyList<Access> accesses)
     {
-        var order = new List<(int Position, int Access, int Execution)>();
+        var order = new List<(long Position, int Access, int Execution)>();
         // bounded: one pass, made once when the list is first read; it checks nothing, as View says.
         for (var index = 0; index < accesses.Count; index++)
         {

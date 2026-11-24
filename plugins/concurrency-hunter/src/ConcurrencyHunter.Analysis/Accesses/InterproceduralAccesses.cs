@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
@@ -354,7 +356,7 @@ public static partial class InterproceduralAccesses
             // The fold takes the executions in their order whatever walked them, so every access keeps its executions and positions.
             void Fold(int at, ExecutionCollector collector, IReadOnlyList<Access> accesses, long milliseconds)
             {
-                folding.Add(accesses, census?.Firsts);
+                folding.Add(accesses, at, census?.Firsts);
                 unproven.UnionWith(collector.UnprovenReferences);
                 folded.UnionWith(collector.FoldedReferences);
                 unresolved.UnionWith(collector.UnresolvedBases);
@@ -6066,7 +6068,9 @@ public static class InterproceduralPairing
     /// pairs of accesses: a skipped pair once, under the reason of its first pair of executions, and a pair that stands once for each
     /// candidate it gives.
     /// </summary>
-    /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
+    /// <param name="accesses">The scope's accesses, all of one kind: recorded once with their executions, or each built for one execution
+    /// alone. A list of both kinds is no scope's: the fold numbers the executions of the first, pairing those of the second, and two such
+    /// numberings can give two executions one number.</param>
     /// <param name="executions">The scope's executions, which decide the timing.</param>
     /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap) =>
@@ -6075,7 +6079,8 @@ public static class InterproceduralPairing
     /// <summary>The candidate pairs of a scope's accesses, with the candidate index enumerating its buckets in the order a comparer gives
     /// their keys (<see cref="CandidateIndex.Build(IReadOnlyList{Access}, HeapSolution, IComparer{string})"/>): a test's way to show that
     /// nothing <see cref="Pair(IReadOnlyList{Access}, ExecutionAnalysis, HeapSolution)"/> gives reads that order.</summary>
-    /// <param name="accesses">The scope's accesses: recorded once with their executions, or each built for one execution alone.</param>
+    /// <param name="accesses">The scope's accesses, all of one kind: recorded once with their executions, or each built for one execution
+    /// alone (<see cref="Pair(IReadOnlyList{Access}, ExecutionAnalysis, HeapSolution)"/>).</param>
     /// <param name="executions">The scope's executions, which decide the timing.</param>
     /// <param name="heap">The scope's heap, whose regions the index and the hosted-transient rule read.</param>
     /// <param name="bucketOrder">The order of the index's bucket keys.</param>
@@ -6084,7 +6089,7 @@ public static class InterproceduralPairing
                                       PairingProgress? progress = null)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
-        var found = new List<(AccessPair Pair, long Order)>();
+        var found = new List<(AccessPair Pair, WitnessOrder Order)>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var counted = 0;
@@ -6092,8 +6097,18 @@ public static class InterproceduralPairing
         // The candidates numbered so far: every witness of one carries its number (ADR 0042).
         var numbered = 0;
         var sides = new Dictionary<Access, PairingSide>(ReferenceEqualityComparer.Instance);
+        // The views the found pairs hold, numbered as pairing first keeps them and placed in collection order once it is done.
+        var kept = new KeptViews();
+        // An access built for one execution alone is numbered by its execution, in the order the list first names it, as a folded
+        // access's executions are by theirs.
+        var executionNumbers = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var at = 0; at < candidates.Length; at++)
-            sides.TryAdd(candidates[at], new PairingSide(candidates[at], at));
+        {
+            WorkCancellation.Check();
+            if (candidates[at].Executions.Count == 0)
+                executionNumbers.TryAdd(candidates[at].ExecutionId, executionNumbers.Count);
+            sides.TryAdd(candidates[at], new PairingSide(candidates[at], at, executionNumbers.GetValueOrDefault(candidates[at].ExecutionId), kept));
+        }
         // What the stage holds and does, for a run that has not reached it before: the accesses on entry, and at the end the pairs,
         // the pairs of executions asked and what their timing did on the happens-before graph and its replays.
         var scope = candidates.Length == 0 ? string.Empty : candidates[0].Resource.Scope;
@@ -6173,12 +6188,12 @@ public static class InterproceduralPairing
             // pair that stands is counted once for each candidate it gives, so every comparison is still a skip, a suppression or a
             // candidate.
             var numbers = new Dictionary<CandidateKey, int>();
-            foreach (var (taken, order, key) in witnesses)
+            foreach (var (taken, key) in witnesses)
             {
                 WorkCancellation.Check();
                 if (!numbers.TryGetValue(key, out var number))
                     numbers.Add(key, number = numbered++);
-                var (first, second) = pair.Oriented(taken.One, taken.Other);
+                var (first, second, order) = pair.Kept(taken);
                 found.Add((new AccessPair(first, second, protection)
                            {
                                Resource = candidate.ReportsFirst ? first.Resource : candidate.Reported,
@@ -6192,28 +6207,11 @@ public static class InterproceduralPairing
             counted += numbers.Count - 1;
         }
 
-        // What a pair of executions alone decides, in the order of the filters around it: the hosted transient and the timing before
-        // the pair's confinement and conditions, the disjoint iteration before its freshness.
         string? Reason((Access First, Access Second) views, string? middle, string? last, out IReadOnlySet<string> assumptions)
         {
-            var (first, second) = views;
-            assumptions = NoAssumptions;
             executionPairs++;
-            if (first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first))
-                return SKIP_NO_OVERLAP;
-            if (Skip(executions.Timing(first, second, out assumptions)) is { } timing)
-                return timing;
-            if (middle is not null)
-                return middle;
-            return IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION : last;
+            return Decide(views, middle, last, executions, heap, out assumptions);
         }
-
-        // A transient resolved for a hosted service is one object per hosted instance: an execution overlapping itself because the
-        // instance count is unknown runs its two sides on different instances, so on different transients.
-        bool IsHostedInstanceTransient(Access access) =>
-            heap.Regions[access.IsReferenceAccess ? access.Resource.CollectionId ?? access.Resource.RegionId!
-                                                   : access.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
-            region.Context.StartsWith($"di|{DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal);
 
         bool IsConfined(Access access) =>
             executions.Ownership.TryGetValue(access.IsReferenceAccess
@@ -6252,8 +6250,17 @@ public static class InterproceduralPairing
                               $"timing {(timingCounters is null ? "none" : timingCounters.Since(timingBefore!))}"]);
 
         // In the order of an all-pairs loop over every execution of every access: by the earlier one, then the later one. Findings keep the
-        // first of two pairs with one identity, so this order makes them what the plain loop gives.
-        var pairs = found.OrderBy(item => item.Order).Select(item => item.Pair).ToArray();
+        // first of two pairs with one identity, so this order makes them what the plain loop gives. Each found pair holds the numbers of
+        // its two views until they have their places, and is then ordered by one number, as no comparison reads a view.
+        var places = kept.Places();
+        var orders = CollectionsMarshal.AsSpan(found);
+        for (var at = 0; at < orders.Length; at++)
+        {
+            WorkCancellation.Check();
+            orders[at].Order = orders[at].Order.InPlaces(places);
+        }
+
+        var pairs = found.OrderBy(item => item.Order.Key).Select(item => item.Pair).ToArray();
         DiagnosticCheckpoint.Reach($"pairing-end:{scope}", collect: true,
                                    () => [$"comparisons={counted} executionPairs={executionPairs} candidates={numbered} witnesses={pairs.Length} suppressed={suppressed} " +
                                           $"buckets={index.Buckets} largestBucket={index.LargestBucket}",
@@ -6272,8 +6279,15 @@ public static class InterproceduralPairing
     /// place in the list, and its own view.</summary>
     private sealed class PairingSide
     {
-        /// <summary>The views made so far, by execution; none until the first is asked for.</summary>
-        private Dictionary<int, Access>? _views;
+        /// <summary>The views kept for found pairs so far, by execution, each with its number among the kept views; none until the first
+        /// is asked for.</summary>
+        private Dictionary<int, (Access View, int Number)>? _views;
+
+        /// <summary>Where the kept views are numbered.</summary>
+        private readonly KeptViews _kept;
+
+        /// <summary>The number of an access built for one execution alone among the kept views, once kept; -1 before.</summary>
+        private int _ownNumber = -1;
 
         /// <summary>The views the questions of the candidate being considered made, by execution, apart from those kept; let go when the
         /// candidate is done (#486).</summary>
@@ -6287,20 +6301,26 @@ public static class InterproceduralPairing
         /// every variant has one execution, which is then the execution of its own number.</summary>
         private readonly int[]? _variantStart;
 
+        /// <summary>Its position when it has no executions: its execution's number, then its place among the scope's candidates.</summary>
+        private readonly long _position;
+
         /// <summary>The access as pairing sees it.</summary>
         /// <param name="access">The access.</param>
-        /// <param name="index">Its place among the scope's candidates: its position when it has no executions.</param>
-        internal PairingSide(Access access, int index)
+        /// <param name="index">Its place among the scope's candidates.</param>
+        /// <param name="executionNumber">Where it has no executions, its execution's number among those of the scope's candidates.</param>
+        /// <param name="kept">Where the views kept for found pairs are numbered.</param>
+        internal PairingSide(Access access, int index, int executionNumber, KeptViews kept)
         {
             Access = access;
+            Index = index;
+            _kept = kept;
+            _position = AccessFolding.PositionOf(executionNumber, index);
             if (access.Executions.Count == 0)
             {
-                Positions = [index];
                 VariantCount = 1;
                 return;
             }
 
-            Positions = access.Executions.Select(execution => execution.Position).ToArray();
             // A variant is numbered in the order of its first execution, so the variants of executions in execution order never step
             // back exactly where every variant's executions stand next to each other.
             var numbers = new Dictionary<AccessVariant, int>(ReferenceEqualityComparer.Instance);
@@ -6335,8 +6355,22 @@ public static class InterproceduralPairing
 
         internal Access Access { get; }
 
-        /// <summary>Each execution's position, in execution order, which is collection order.</summary>
-        internal int[] Positions { get; }
+        /// <summary>Its place among the scope's candidates.</summary>
+        internal int Index { get; }
+
+        /// <summary>The number of the execution one of its executions is, read from its position (<see cref="AccessExecution.Position"/>);
+        /// an access built for one execution alone has its execution's number. The executions one execution has of one access stand in the
+        /// order of their places in the access's list, which is the order of their variants' content (ADR 0042).</summary>
+        /// <param name="execution">The execution's place in the access's list.</param>
+        internal int Number(int execution) => (int)((Access.Executions.Count == 0 ? _position : Access.Executions[execution].Position) >> 32);
+
+        /// <summary>How two sides compare by content (ADR 0042): by their accesses (<see cref="PairContent.CompareViews"/>, which reads the
+        /// variant of an access built for one execution alone), and two equal throughout by their places among the candidates, so that two
+        /// sides never compare equal.</summary>
+        /// <param name="one">One side.</param>
+        /// <param name="other">The other.</param>
+        internal static int Content(PairingSide one, PairingSide other) =>
+            PairContent.CompareViews(one.Access, other.Access) is var order and not 0 ? order : one.Index.CompareTo(other.Index);
 
         /// <summary>How many variants the executions have.</summary>
         internal int VariantCount { get; }
@@ -6354,20 +6388,26 @@ public static class InterproceduralPairing
                 ? new VariantExecutions(null, variant, 1)
                 : new VariantExecutions(_byVariant, _variantStart[variant], _variantStart[variant + 1] - _variantStart[variant]);
 
-        /// <summary>The access as one of its executions has it, made the first time it is asked for and the same object afterwards.</summary>
+        /// <summary>The access as one of its executions has it, kept for a found pair, with its number among the kept views
+        /// (<see cref="KeptViews"/>): made and numbered the first time it is asked for, the same afterwards, and found with one lookup.
+        /// An access built for one execution alone is its own view.</summary>
         /// <param name="execution">The execution.</param>
-        internal Access View(int execution)
+        internal (Access View, int Number) Keep(int execution) =>
+            Access.Executions.Count != 0 ? Kept(execution) : (Access, _ownNumber >= 0 ? _ownNumber : _ownNumber = _kept.Add(this, execution));
+
+        /// <summary>An execution's kept view with its number, kept the first time: the view a question of this candidate made, or a new
+        /// one.</summary>
+        /// <param name="execution">The execution.</param>
+        private (Access View, int Number) Kept(int execution)
         {
-            if (Access.Executions.Count == 0)
-                return Access;
             _views ??= [];
-            if (!_views.TryGetValue(execution, out var view))
+            if (!_views.TryGetValue(execution, out var kept))
             {
-                if (_asked is null || !_asked.Remove(execution, out view))
+                if (_asked is null || !_asked.Remove(execution, out var view))
                     view = Access.View(Access.Executions[execution]);
-                _views.Add(execution, view);
+                _views.Add(execution, kept = (view, _kept.Add(this, execution)));
             }
-            return view;
+            return kept;
         }
 
         /// <summary>The access as one of its executions has it, for a question about a pair of executions of the candidate being
@@ -6380,8 +6420,8 @@ public static class InterproceduralPairing
         {
             if (Access.Executions.Count == 0)
                 return Access;
-            if (_views?.GetValueOrDefault(execution) is { } kept)
-                return kept;
+            if (_views is not null && _views.TryGetValue(execution, out var kept))
+                return kept.View;
             _asked ??= [];
             if (!_asked.TryGetValue(execution, out var view))
                 _asked.Add(execution, view = Access.View(Access.Executions[execution]));
@@ -6429,12 +6469,10 @@ public static class InterproceduralPairing
     /// gives its own witness.</param>
     private readonly record struct CandidateKey(string OneRoot, string OtherRoot, int Orientation);
 
-    /// <summary>The first pair of executions of one pair of variants that passes, with its place in collection order and the candidate it
-    /// is a witness of.</summary>
+    /// <summary>The first pair of executions of one pair of variants that passes, with the candidate it is a witness of.</summary>
     /// <param name="Executions">The execution of each side.</param>
-    /// <param name="Order">Its order: the earlier execution's position, then the later's.</param>
     /// <param name="Candidate">The candidate it is a witness of.</param>
-    private readonly record struct Witness((int One, int Other) Executions, long Order, CandidateKey Candidate);
+    private readonly record struct Witness((int One, int Other) Executions, CandidateKey Candidate);
 
     /// <summary>The pairs of executions of two accesses a candidate pair compares, one of them taken from each side; the same access twice
     /// is the self-pair of a bucket, whose executions pair with themselves and with each other once.</summary>
@@ -6450,13 +6488,17 @@ public static class InterproceduralPairing
         /// itself.</summary>
         internal (int One, int Other) FirstExecutions() => (0, 0);
 
-        /// <summary>The two views of a pair of executions, in the order the pair compares them.</summary>
-        /// <param name="oneExecution">The execution of the first side.</param>
-        /// <param name="otherExecution">The execution of the second side.</param>
-        internal (Access First, Access Second) Oriented(int oneExecution, int otherExecution) =>
-            Swapped((oneExecution, otherExecution))
-                ? (other.View(otherExecution), one.View(oneExecution))
-                : (one.View(oneExecution), other.View(otherExecution));
+        /// <summary>A witness as the found pairs keep it: the two kept views of its pair of executions, in the order the pair compares
+        /// them, and where it stands among the found pairs (<see cref="WitnessOrder"/>), by the numbers of the two views until pairing
+        /// places them; each view and its number found with one lookup.</summary>
+        /// <param name="executions">The execution of each side.</param>
+        internal (Access First, Access Second, WitnessOrder Order) Kept((int One, int Other) executions)
+        {
+            var (oneView, oneNumber) = one.Keep(executions.One);
+            var (otherView, otherNumber) = other.Keep(executions.Other);
+            var order = WitnessOrder.Of(oneNumber, otherNumber);
+            return Swapped(executions) ? (otherView, oneView, order) : (oneView, otherView, order);
+        }
 
         /// <summary>The two views of a pair of executions as one question reads them, in the order the pair compares them: those the
         /// sides keep or made for this candidate's questions (<see cref="PairingSide.Asked"/>).</summary>
@@ -6481,9 +6523,9 @@ public static class InterproceduralPairing
             other.Forget();
         }
 
-        /// <summary>For each pair of the two sides' variants, the first pair of executions in collection order that passes, with its
-        /// order (the earlier execution's position, then the later's) and the candidate it is a witness of: its two variants' path roots,
-        /// an unordered pair for the self-pair, and the orientation it was found in (ADR 0042).</summary>
+        /// <summary>For each pair of the two sides' variants, the first pair of executions in collection order that passes, with the
+        /// candidate it is a witness of: its two variants' path roots, an unordered pair for the self-pair, and the orientation it was
+        /// found in (ADR 0042).</summary>
         /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
         /// <param name="once">Whether one witness is enough.</param>
         /// <param name="byOrientation">Whether each orientation of a pair of variants gives its own witness: a pair reported on its
@@ -6511,7 +6553,7 @@ public static class InterproceduralPairing
                         var candidate = IsSelf && string.CompareOrdinal(otherRoot, oneRoot) < 0
                             ? new CandidateKey(otherRoot, oneRoot, orientation)
                             : new CandidateKey(oneRoot, otherRoot, orientation);
-                        witnesses.Add(new Witness(found.Executions, found.Order, candidate));
+                        witnesses.Add(new Witness(found, candidate));
                         Gathered = witnesses.Count;
                         if (once)
                             return witnesses;
@@ -6530,17 +6572,37 @@ public static class InterproceduralPairing
 
         /// <summary>Whether a pair of executions puts the second side's execution first.</summary>
         /// <param name="executions">The execution of each side.</param>
-        private bool Swapped((int One, int Other) executions) => byPosition && other.Positions[executions.Other] < one.Positions[executions.One];
+        private bool Swapped((int One, int Other) executions) => byPosition && Precedes(other, executions.Other, one, executions.One);
 
-        /// <summary>The first pair of executions of two variants, in collection order, that passes: by the earlier execution, then the
-        /// later one. A variant of the self-pair with itself pairs each execution with itself and with every later one; two variants pair
-        /// each execution of one with each execution of the other.</summary>
+        /// <summary>How the first side compares with the second by content (<see cref="PairingSide.Content"/>), once a candidate.</summary>
+        private int? _content;
+
+        /// <summary>Whether an execution of one side comes before an execution of the other in collection order (ADR 0042): by the numbers
+        /// of the two executions; within one execution by the content of the two accesses, and of one access by place in its list, which is
+        /// the order of its variants' content; never by the order the fold first met them, which another execution can decide.</summary>
+        /// <param name="side">The one side.</param>
+        /// <param name="execution">Its execution.</param>
+        /// <param name="otherSide">The other side, the same one for two variants of the self-pair.</param>
+        /// <param name="otherExecution">Its execution.</param>
+        private bool Precedes(PairingSide side, int execution, PairingSide otherSide, int otherExecution)
+        {
+            var (number, otherNumber) = (side.Number(execution), otherSide.Number(otherExecution));
+            if (number != otherNumber)
+                return number < otherNumber;
+            if (ReferenceEquals(side, otherSide))
+                return execution < otherExecution;
+            var content = _content ??= PairingSide.Content(one, other);
+            return ReferenceEquals(side, one) ? content < 0 : content > 0;
+        }
+
+        /// <summary>The first pair of executions of two variants, in collection order (<see cref="Precedes"/>), that passes: by the earlier
+        /// execution, then the later one. A variant of the self-pair with itself pairs each execution with itself and with every later one;
+        /// two variants pair each execution of one with each execution of the other.</summary>
         /// <param name="ones">The first side's executions of one variant, in collection order.</param>
         /// <param name="others">The second side's executions of one variant, in collection order.</param>
         /// <param name="self">Whether the two are one variant of the self-pair, so that <paramref name="ones"/> stands for both.</param>
         /// <param name="passes">Whether a pair of executions passes what the executions decide.</param>
-        private ((int One, int Other) Executions, long Order)? First(VariantExecutions ones, VariantExecutions others, bool self,
-                                                                     Func<(int One, int Other), bool> passes)
+        private (int One, int Other)? First(VariantExecutions ones, VariantExecutions others, bool self, Func<(int One, int Other), bool> passes)
         {
             if (self)
             {
@@ -6550,7 +6612,7 @@ public static class InterproceduralPairing
                     {
                         WorkCancellation.Check();
                         if (passes((ones[first], ones[second])))
-                            return ((ones[first], ones[second]), Order(one.Positions[ones[first]], one.Positions[ones[second]]));
+                            return (ones[first], ones[second]);
                     }
                 }
 
@@ -6562,12 +6624,12 @@ public static class InterproceduralPairing
             {
                 WorkCancellation.Check();
                 // The earlier of the two next executions pairs with every execution of the other side that comes after it, in order.
-                if (atOther >= others.Length || atOne < ones.Length && one.Positions[ones[atOne]] < other.Positions[others[atOther]])
+                if (atOther >= others.Length || atOne < ones.Length && Precedes(one, ones[atOne], other, others[atOther]))
                 {
                     for (var later = atOther; later < others.Length; later++)
                     {
                         if (passes((ones[atOne], others[later])))
-                            return ((ones[atOne], others[later]), Order(one.Positions[ones[atOne]], other.Positions[others[later]]));
+                            return (ones[atOne], others[later]);
                     }
                     atOne++;
                 }
@@ -6576,7 +6638,7 @@ public static class InterproceduralPairing
                     for (var later = atOne; later < ones.Length; later++)
                     {
                         if (passes((ones[later], others[atOther])))
-                            return ((ones[later], others[atOther]), Order(other.Positions[others[atOther]], one.Positions[ones[later]]));
+                            return (ones[later], others[atOther]);
                     }
                     atOther++;
                 }
@@ -6584,9 +6646,119 @@ public static class InterproceduralPairing
 
             return null;
         }
-
-        private static long Order(int earlier, int later) => (long)earlier << 32 | (uint)later;
     }
+
+    /// <summary>The views the found pairs hold, numbered in the order pairing first keeps them (ADR 0042). A found pair holds the numbers
+    /// of its two views while pairing runs, and once it is done each number is given its view's place in collection order, so that the
+    /// found pairs are ordered by one number each and no comparison of them reads a view.</summary>
+    private sealed class KeptViews
+    {
+        private readonly List<(PairingSide Side, int Execution)> _views = [];
+
+        /// <summary>Numbers a view kept for a found pair.</summary>
+        /// <param name="side">The side whose view it is.</param>
+        /// <param name="execution">The execution of the side it is the view of.</param>
+        internal int Add(PairingSide side, int execution)
+        {
+            _views.Add((side, execution));
+            return _views.Count - 1;
+        }
+
+        /// <summary>Each kept view's place in collection order, by its number: by the number of its execution; of one execution, by the
+        /// content of the accesses (<see cref="PairingSide.Content"/>), ranked once for the sides that keep a view; of one access, by place
+        /// in its list, which is the order of its variants' content.</summary>
+        internal int[] Places()
+        {
+            var sides = _views.Select(view => view.Side).Distinct().ToArray();
+            try
+            {
+                Array.Sort(sides, PairingSide.Content);
+            }
+            catch (InvalidOperationException sorting) when (sorting.InnerException is OperationCanceledException canceled)
+            {
+                // The comparison checks for cancellation as it compares terms and protections; the sort wraps what it throws, and a
+                // cancelled analysis must end as cancelled, not as failed.
+                ExceptionDispatchInfo.Throw(canceled);
+            }
+            var ranks = new Dictionary<PairingSide, int>(sides.Length, ReferenceEqualityComparer.Instance);
+            for (var rank = 0; rank < sides.Length; rank++)
+            {
+                WorkCancellation.Check();
+                ranks.Add(sides[rank], rank);
+            }
+
+            // No two kept views share a side and an execution, so no two keys are equal.
+            var keys = _views.Select(view => (view.Side.Number(view.Execution), ranks[view.Side], view.Execution)).ToArray();
+            var numbers = Enumerable.Range(0, keys.Length).ToArray();
+            Array.Sort(keys, numbers);
+            var places = new int[numbers.Length];
+            for (var place = 0; place < numbers.Length; place++)
+            {
+                WorkCancellation.Check();
+                places[numbers[place]] = place;
+            }
+
+            return places;
+        }
+    }
+
+    /// <summary>Where a witness stands among the found pairs, in the order of an all-pairs loop over every execution of every access:
+    /// by its earlier view, then its later one, in collection order (<see cref="KeptViews.Places"/>), so by its earlier execution and
+    /// that execution's view, then its later execution and view. Two views of one execution stand in the order of their content, not of
+    /// the order the fold first met their accesses, which another execution can decide (ADR 0042), so the order of found pairs, which a
+    /// finding's shown witness and the solver's budget fall back to, reads none. It is one number, as the found pairs hold one each.</summary>
+    /// <param name="Key">While pairing runs, the numbers of the pair's two kept views, the first side's in the high half; once they are
+    /// placed, the earlier view's place in the high half and the later one's in the low.</param>
+    private readonly record struct WitnessOrder(long Key)
+    {
+        /// <summary>A witness's order by the numbers of its two kept views.</summary>
+        /// <param name="one">The first side's view's number.</param>
+        /// <param name="other">The second side's.</param>
+        internal static WitnessOrder Of(int one, int other) => new((long)one << 32 | (uint)other);
+
+        /// <summary>The order once the kept views are placed: the earlier place, then the later.</summary>
+        /// <param name="places">Each kept view's place, by its number.</param>
+        internal WitnessOrder InPlaces(int[] places)
+        {
+            var (one, other) = (places[(int)(Key >> 32)], places[(int)Key]);
+            return new WitnessOrder((long)Math.Min(one, other) << 32 | (uint)Math.Max(one, other));
+        }
+    }
+
+    /// <summary>What a pair of executions decides, in the order of the filters around it: the hosted transient and the timing before the
+    /// pair's own confinement and conditions, the disjoint iteration before its freshness; null where the pair stands.</summary>
+    /// <param name="views">The two executions' views, in the order the pair compares them.</param>
+    /// <param name="middle">The skip the pair's own confinement or conditions give, or null.</param>
+    /// <param name="last">The skip the pair's freshness gives, or null.</param>
+    /// <param name="executions">The scope's executions.</param>
+    /// <param name="heap">The scope's heap.</param>
+    /// <param name="assumptions">The assumptions the timing rests on.</param>
+    internal static string? Decide((Access First, Access Second) views, string? middle, string? last, ExecutionAnalysis executions,
+                                   HeapSolution heap, out IReadOnlySet<string> assumptions)
+    {
+        var (first, second) = views;
+        assumptions = NoAssumptions;
+        if (first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first, heap) && IsHostedInstanceTransient(second, heap))
+            return SKIP_NO_OVERLAP;
+        if (Skip(executions.Timing(first, second, out assumptions)) is { } timing)
+            return timing;
+        if (middle is not null)
+            return middle;
+        return IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION : last;
+    }
+
+    /// <summary>Whether an access is on a transient resolved for a hosted service, which is one object per hosted instance: an execution
+    /// overlapping itself because the instance count is unknown runs its two sides on different instances, so on different transients.
+    /// A pair of one execution is skipped only where both sides are on one: a side that reaches the resource through a holder every
+    /// instance shares reaches one object from every instance, and which side the pair puts first decides nothing. A holder of one
+    /// instance does not make what it holds one object per instance: a collection a singleton hands to the transient is one object for
+    /// all of them, and the pair is skipped though it races (#485).</summary>
+    /// <param name="access">The access.</param>
+    /// <param name="heap">The heap whose regions say what the access is on.</param>
+    internal static bool IsHostedInstanceTransient(Access access, HeapSolution heap) =>
+        heap.Regions[access.IsReferenceAccess ? access.Resource.CollectionId ?? access.Resource.RegionId!
+                                               : access.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
+        region.Context.StartsWith($"di|{DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal);
 
     /// <summary>The skip a pair's timing gives: none for two accesses that may run at once (<see cref="ExecutionAnalysis.Timing"/>).</summary>
     /// <param name="timing">The timing of the pair.</param>

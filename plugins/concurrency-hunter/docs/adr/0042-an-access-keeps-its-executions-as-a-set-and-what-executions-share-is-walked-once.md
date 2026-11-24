@@ -120,10 +120,46 @@ numbers. C1a after C2 leaves OrchardCore's time to the third step and takes its 
   The variant of an access in one execution is the two parts together, the fields `AccessExecution.Variant` holds today.
 - **The position** of an execution of an access is the execution's number, then the access's place among the scope's
   folded accesses in the order the fold first met them. Collection order between two executions is execution order, as
-  it is today. Within one execution the order is the order of first meeting instead of the order of emission: for the
-  accesses an execution is the first to make they agree, and of two accesses an earlier execution made, the one the
-  scope met first comes first. A pair within one bucket is reported on its earlier execution's resource; the resources of
-  a bucket have one identity, so the text a finding is keyed and fingerprinted by is the same whichever comes first.
+  it is today. Within one execution the order of first meeting is one another execution can decide, so pairing reads
+  only a position's execution number and, of one execution, orders two accesses by their content and the copies of one
+  access by their places in its list. The content order (`PairContent`) compares, of two accesses, the scope, assembly,
+  region with its context, path and member of the resource, which a finding's group reads (the resources of a bucket
+  have one identity but may be named by different paths or holders, as one list two fields hold is), then the site,
+  instance, operation and every other field the fold tells accesses apart by, each record they hold field by field, so
+  that two accesses compare equal exactly where the fold keeps them as one; of two variants of one access, their roots'
+  ids, call path, spawn sites, code flow, read sources and the rest of their roots, item by item. That one order of
+  copies, the execution's number and then content, is the order pairing puts one of two copies first by, before any
+  witness is chosen; the candidate index says where it applies and names the reported resource:
+  - The search for a pair of variants' witness takes, of two next executions, the earlier, and of two of one execution
+    the one whose content comes first, so the site each execution of a witness has. This holds for every pair.
+  - Where the index orients a pair by its copies (`ByPosition`: within one bucket, and a whole struct against a field
+    below it), the copy the order puts first is the pair's first side: the earlier execution's, or of a pair of one
+    execution, which has no earlier side, the one its content puts first. That side is what a witness is filtered and
+    keyed by in orientation. Other pairs keep the side the index puts first: an open region's before a closed one's, the
+    first bucket's of two that meet across buckets.
+  - The found pairs are ordered by their earlier copy, then their later one (`WitnessOrder`). A found pair holds the
+    numbers of its two kept views while pairing runs, and once it is done each view gets its place in that order,
+    ranking once the accesses of the sides that keep a view, so the found pairs are ordered by one number each, as
+    before.
+  - Which resource a pair is reported on is the index's to say: where it reports a pair on its first side
+    (`ReportsFirst`, within one bucket), the oriented first side's; otherwise the resource the meeting names, as a whole
+    struct and its field are reported on the field whichever runs first.
+
+  Where every order a reader keeps ties, the shown witness of an
+  occurrence, the best scored witness and the solver's budget fall to that order, and the findings of one group whose
+  sides start alike stand in the order their sides end, then their operations, then their identities. The
+  hosted-transient rule skips a pair of one execution only where both sides are on a hosted transient. An execution
+  that makes one access from several path roots, as a construction several roots trigger does, or from one path root by
+  several variants, has those copies at one position, in the ordinal order of the roots' ids and then of what their
+  variants hold: the order it made them in is not kept, and the set and its parts give the roots and the variants
+  without it. Both numbers of a position are places in lists the fold holds, so every copy has one. What the order of
+  first meeting still decides within one execution: the order of the public list of executions, and the order in which
+  pairing meets pairs of accesses and numbers candidates. No finding, group, pair counter or coverage the probes compare
+  reads that order; the timing's assumptions are gathered across a proof's questions in the order they are asked
+  (#490), and are measured, not shown, not to read it. Two places of the candidate index read
+  the fold's order as they did before step C2, and step C2 leaves them (#494): a collection several holder regions
+  share is registered under the region the fold met first, and a pair across two buckets of overlapping cells puts first
+  the side of the bucket the index filled first and asks no content (amended 2026-11-23 and 2026-11-24 in step C2).
 - **One occurrence per pair of roots.** CONTEXT **Occurrence** and SPEC TD-076 allow at most one occurrence per pair of
   roots, with "the call path by which the analysis first reached each site from its root". `ConflictFindings.Fold` groups
   by the pair of roots and the pair of call paths, so it makes more where one root reaches a site by two paths: 4 of the
@@ -209,10 +245,19 @@ share work between executions.
 
 ### What changes in the output
 
-- **Byte for byte, by construction, up to the solver:** every pair of sites and fingerprint the pairing gives,
-  `accesses` and `accessExecutions`, the skips, suppressions and assumptions of the filters before the solver, which are
-  counted per pair of accesses under its first pair of executions (each side's first execution, the same under either
-  position), every check a gap decides for a witness, and every library call a gap admits.
+- **The same on the demo and eShop, measured:** every pair of sites and fingerprint the pairing gives, `accesses` and
+  `accessExecutions`, the skips, suppressions and assumptions of the filters before the solver, which are counted per
+  pair of accesses under its first pair of executions (each side's first execution, the same under either position),
+  every check a gap decides for a witness, and every library call a gap admits. Within one execution the order of
+  emission gave a pair its first side and a witness's search its next execution, and content gives them now (**The
+  position**): they can differ only where the two orders differ for a pair of one execution, or for two copies of one
+  execution a witness's search meets next, and that pair reaches what is compared; it can then name another path or
+  region of one bucket than the order of emission named, or give each execution of a witness the other site. Two
+  things are measured and no more is claimed of them: the assumptions the timing reports are gathered across the
+  questions a completion proof asks, so they read the order in which pairing asks its questions, which this changes,
+  and they are the same on the demo and eShop; and whether the timing of a pair reads which of its sides comes first is
+  asked of every pair of executions of the demo and eShop in both orientations (`PairOrientationTests`), the proof's
+  own questions beyond them being #490.
 - **Diagnostic lines only:** the witness search may ask the pairs of executions inside one pair of executions in another
   order, so `executionPairs` and the timing line of the `pairing-end` checkpoint may move.
 - **Moves, with one occurrence per pair of roots:** the demo's occurrences, 301 to 297; its candidates, 304 to 297, and
@@ -242,12 +287,18 @@ share work between executions.
     budget was spent goes away with the first.
   A query with no conditions and no terms is not asked and costs nothing, as before.
 - **May move where candidates tie:** within one occurrence, two witnesses that tie on protection, instances and score
-  are shown in collection order. Collection order follows positions, so two such witnesses with their executions in one
-  pair of executions may swap; the code flow and read sources the report shows for that occurrence would then be the
-  other's. A differential test of each step shows whether that happens on the demo, eShop or the fixtures; a shift is
-  explained or the step is wrong.
-- **Never moves:** which pairs of sites pair before the solver. A pair of accesses still stands when some pair of their
-  executions passes, and every filter before the solver reads what it reads today.
+  are shown in collection order. Collection order places two witnesses with their executions in one pair of executions
+  by their views' content, where it placed them by emission, so two such witnesses may swap; the code flow and read
+  sources the report shows for that occurrence would then be the other's. A differential test of each step shows
+  whether that happens on the demo, eShop or the fixtures; a shift is explained or the step is wrong.
+- **Moves by intent, with the hosted-transient rule:** a pair of one execution with one side on a hosted transient and
+  the other on a holder every instance shares now stands, where the rule read the first side alone and skipped the pair
+  whenever that side was the transient's: a list a hosted transient and a singleton both hold is one object, and the
+  pair may race. The demo and eShop have no such pair, so nothing of theirs moves; the fixtures that have one gain its
+  pairs and findings, as the run record of step C2 lists.
+- **Never moves, measured on the demo and eShop:** which pairs of sites pair before the solver. A pair of accesses still
+  stands when some pair of their executions passes, and every filter before the solver reads what it reads today, the
+  hosted-transient rule aside.
 
 ### Options considered
 
@@ -340,8 +391,11 @@ to split over threads. #478 is needed under every option.
 - **An execution of an access is a member of a set**, not a record. A reader that needs one execution's view of an access
   asks for it and gets it made; a reader that walked `Executions` as a list walks the set and the parts. The tests that
   pin the representative of an occurrence (ADR 0038) pin it under the new position.
-- **The position is no longer the order of emission.** Nothing that reaches a finding's identity reads it; the
-  representative of an occurrence can, where candidates tie, and the differential test of step 2 shows where.
+- **The position is no longer the order of emission.** Pairing reads only its execution number. Within one execution
+  nothing pairing gives a finding's identity, group, representative or the solver's order reads the order of first
+  meeting: a pair of one execution takes its first side, a witness's search its next execution and ties among witnesses
+  their order from content. The candidate index still registers a collection several holder regions share, and joins
+  buckets of overlapping cells, in the fold's order, as it did before step C2 (**The position**, #494).
 - **The fold keeps its order and loses its cost.** It is still the one place where order is made (ADR 0040), and it does a
   lookup of numbers per copy.
 - **ADR 0040 admits one shared structure that is no cache of a pure function:** the map of folded keys. A worker's answer

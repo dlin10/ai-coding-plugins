@@ -87,9 +87,12 @@ An access is recorded once, in the collector, with each execution that makes it 
     confinement, conditions, freshness, protection and library-internality.
   - Three questions are asked of pairs of the two accesses' executions, in the order of the filters around them: whether
     a hosted transient is one object, the timing, and the disjoint iteration.
-  - The pair stands when some pair of executions passes. It gives one candidate per pair of the two sides' variants: the
-    first pair of executions in collection order that passes, ordered by the earlier position, then the later one. A pair
-    within a bucket is reported on its earlier execution's resource, so there each orientation gives its own candidate.
+  - The pair stands when some pair of executions passes. It gives one witness per pair of the two sides' variants: the
+    first pair of executions in collection order that passes, ordered by the earlier position, then the later one; the
+    witnesses of one pair of path roots and one orientation are one candidate (ADR 0042). A pair within a bucket is
+    reported on its earlier execution's resource, so there each orientation gives its own candidate. A pair of one
+    execution has no earlier execution: the content of its two sides gives its orientation and the resource it is
+    reported on (ADR 0042).
   - Candidates are kept in that order.
   - [ADR 0042](0042-an-access-keeps-its-executions-as-a-set-and-what-executions-share-is-walked-once.md) makes these
     the witnesses of a candidate, one candidate per pair of path roots and orientation, which the solver asks once.

@@ -156,6 +156,58 @@ public sealed class SharingAndOverlapTests
         Assert.Same(stage.First, stage.Second);
     }
 
+    /// <summary>A hosted worker of unknown multiplicity reaches one list through a transient it is given and through a singleton every
+    /// instance shares. Its stop root makes the two accesses in one order; its execute root, an earlier execution, makes one of them
+    /// alone, so the order the fold first met them is that one's (ADR 0042). The pair of the two within the stop root, paired folded as
+    /// the analysis pairs, stands either way: only a pair whose both sides are on the transient is one object per instance.</summary>
+    [Fact]
+    public void A_list_a_hosted_transient_and_a_singleton_hold_pairs_within_one_root_whichever_access_was_met_first()
+    {
+        var holderFirst = Run("ViaHolder");
+        var registryFirst = Run("ViaRegistry");
+
+        // The holder's region comes first by its id, so the access through it is the first side and names the pair, on the list and on
+        // its cell.
+        Assert.Equal(["ViaHolder | ViaRegistry on holder Items", "ViaHolder | ViaRegistry on holder Items/[?]"], holderFirst);
+        Assert.Equal(holderFirst, registryFirst);
+
+        static string[] Run(string first)
+        {
+            var run = AnalyzeFolded(Types + $$"""
+                public sealed class Registry { public readonly System.Collections.Generic.List<string> Items = new(); }
+                public sealed class Holder { public readonly System.Collections.Generic.List<string> Items; public Holder(Registry registry) => Items = registry.Items; }
+                public sealed class Worker : BackgroundService
+                {
+                    private readonly Holder _holder;
+                    private readonly Registry _registry;
+                    public Worker(Holder holder, Registry registry) { _holder = holder; _registry = registry; }
+                    private void ViaHolder() => _holder.Items.Add("a");
+                    private void ViaRegistry() => _registry.Items.Add("b");
+                    protected override Task ExecuteAsync(CancellationToken stoppingToken) { {{first}}(); return Task.CompletedTask; }
+                    public override Task StopAsync(CancellationToken cancellationToken) { ViaHolder(); ViaRegistry(); return Task.CompletedTask; }
+                }
+                """ + Startup("services.AddSingleton<Registry>().AddTransient<Holder>().AddHostedService<Worker>().AddSingleton<IHostedService, Worker>();"));
+            Assert.Contains(run.Of("Items"), access => access.Resource.RegionId!.Contains("Holder@Transient", StringComparison.Ordinal));
+            // The stop root's pairs of the two sites within itself, by their sides as pairing puts them and the region and path the pair
+            // is reported on.
+            return run.Pairs.Pairs.Where(pair => pair.First.ExecutionId == pair.Second.ExecutionId && pair.First.BodyId != pair.Second.BodyId &&
+                                                 pair.First.ExecutionId.Contains("StopAsync", StringComparison.Ordinal))
+                      .Select(pair => $"{Method(pair.First)} | {Method(pair.Second)} on {Region(pair.Resource)} {string.Join("/", pair.Resource.AccessPath)}")
+                      .Order(StringComparer.Ordinal).ToArray();
+        }
+
+        static string Method(Access access)
+        {
+            var body = access.BodyId.Split('(')[0];
+            return body[(body.LastIndexOf('.') + 1)..];
+        }
+
+        static string Region(AccessResource resource) =>
+            resource.RegionId!.Contains("Holder@Transient", StringComparison.Ordinal) ? "holder"
+            : resource.RegionId.Contains("Registry@Singleton", StringComparison.Ordinal) ? "registry"
+            : resource.RegionId;
+    }
+
     [Fact]
     public void Two_fields_assigned_from_one_transient_parameter_pair()
     {

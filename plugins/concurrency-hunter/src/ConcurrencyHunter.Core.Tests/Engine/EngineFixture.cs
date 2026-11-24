@@ -138,6 +138,18 @@ public static class EngineFixture
     public static InterproceduralInput Input(ExecutionRun execution) =>
         new(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);
 
+    /// <summary>Runs the engine over one source file and pairs the folded accesses, as the analysis does (ADR 0038): each access recorded
+    /// once with its executions, where <see cref="Analyze(string, AnalysisLimits?)"/> pairs one access per execution. Each pairs a list of
+    /// one kind, as pairing requires: a fixture that pairs accesses of its own builds them all folded, through <see cref="AccessFolding"/>,
+    /// or all for one execution each, never both in one list, whose two numberings of executions could meet.</summary>
+    /// <param name="source">The source file of the case.</param>
+    public static EngineRun AnalyzeFolded(string source)
+    {
+        var execution = Execute(source);
+        var collection = InterproceduralAccesses.Collect(Input(execution), CancellationToken.None);
+        return new EngineRun(execution, collection, InterproceduralPairing.Pair(collection.Folded, execution.Analysis, execution.Heap.Heap));
+    }
+
     private static EngineRun Analyze(ExecutionRun execution)
     {
         var collection = InterproceduralAccesses.Collect(Input(execution), CancellationToken.None);
@@ -220,13 +232,20 @@ public static class EngineFixture
     /// accesses is tested against the rule that admits it (one resource; one collection's cells; one region's storage continuing another's
     /// or a wildcard on either side; an open region and a closed region of its group, by the same rule or with a wildcard on either side),
     /// then compared as the index's <c>Consider</c> compares it. An access recorded once with its executions is paired as its
-    /// executions' copies were before (ADR 0038), each a view of its own in collection order.</summary>
-    /// <param name="accesses">The scope's accesses, recorded once with their executions or one per execution.</param>
+    /// executions' copies were before (ADR 0038), each a view of its own in collection order, the views of one execution in the order of
+    /// their content (ADR 0042), as pairing orders the pairs it finds. That content order is the production one, so the reference cannot
+    /// tell a wrong one: <c>PairContentTests</c> holds it to the fold's equality field by field, and the fixtures that turn on it name
+    /// the sides, resources and witnesses they expect.</summary>
+    /// <param name="accesses">The scope's accesses, all of one kind, as pairing requires: recorded once with their executions, or one per
+    /// execution.</param>
     /// <param name="executions">The executions that say which accesses overlap and which are ordered.</param>
     /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
     internal static PairAnalysis ReferencePair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
-        var candidates = new AccessExecutionList([accesses]).Where(access => !access.IsConstructionLocal).ToArray();
+        var listed = new AccessExecutionList([accesses]).Where(access => !access.IsConstructionLocal).ToArray();
+        var numbers = listed.Select(view => view.ExecutionId).Distinct(StringComparer.Ordinal)
+                            .Select((execution, number) => (execution, number)).ToDictionary(item => item.execution, item => item.number, StringComparer.Ordinal);
+        var candidates = listed.OrderBy(view => numbers[view.ExecutionId]).ThenBy(view => view, Comparer<Access>.Create(PairContent.CompareViews)).ToArray();
         var pairs = new List<AccessPair>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -250,10 +269,8 @@ public static class EngineFixture
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? InterproceduralPairing.SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope ||
-                  first.ExecutionId == second.ExecutionId && heap.Regions[first.IsReferenceAccess
-                      ? first.Resource.CollectionId ?? first.Resource.RegionId!
-                      : first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
-                  region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
+                  first.ExecutionId == second.ExecutionId && InterproceduralPairing.IsHostedInstanceTransient(first, heap) &&
+                  InterproceduralPairing.IsHostedInstanceTransient(second, heap)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
                 : InterproceduralPairing.Skip(executions.Timing(first, second, out assumptions)) is { } timing ? timing
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
@@ -291,7 +308,8 @@ public static class EngineFixture
     }
 
     /// <summary>Whether the reference admits two accesses, oriented and reported as the candidate index does, or null: the index's own
-    /// rule of which resources meet (<see cref="CandidateIndex.Meets"/>), asked of every pair.</summary>
+    /// rule of which resources meet (<see cref="CandidateIndex.Meets"/>), asked of every pair. A pair within one bucket is reported on its
+    /// earlier side; one of one execution has no earlier side, and the content of its two sides puts one first (ADR 0042).</summary>
     /// <param name="one">The earlier access of the all-pairs loop.</param>
     /// <param name="other">The later access.</param>
     /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
@@ -301,7 +319,11 @@ public static class EngineFixture
         if (CandidateIndex.Meets(one.Resource, other.Resource, heap) is not { } meeting)
             return null;
         var (first, second) = ReferenceEquals(meeting.First, one.Resource) ? (one, other) : (other, one);
-        return (first, second, meeting.Reported, meeting.Enumeration == PairEnumeration.OpenRegion ? first.Uncertainties : []);
+        var reported = meeting.Reported;
+        if (AccessResource.SameIdentity(one.Resource, other.Resource) && one.ExecutionId == other.ExecutionId &&
+            PairContent.CompareViews(first, second) > 0)
+            (first, second, reported) = (second, first, second.Resource);
+        return (first, second, reported, meeting.Enumeration == PairEnumeration.OpenRegion ? first.Uncertainties : []);
     }
 
     private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>

@@ -202,7 +202,8 @@ public sealed class ProofAnswerLimitTests
                           execution with { ExecutionId = execution.ExecutionId + "/2", Position = execution.Position + 2 }]
         };
         var sideType = typeof(InterproceduralPairing).GetNestedType("PairingSide", BindingFlags.NonPublic)!;
-        var side = Activator.CreateInstance(sideType, NON_PUBLIC, null, [access, 0], null)!;
+        var kept = Activator.CreateInstance(typeof(InterproceduralPairing).GetNestedType("KeptViews", BindingFlags.NonPublic)!, nonPublic: true)!;
+        var side = Activator.CreateInstance(sideType, NON_PUBLIC, null, [access, 0, 0, kept], null)!;
 
         var asked = Asked(0);
         Assert.Same(asked, Asked(0));
@@ -221,7 +222,7 @@ public sealed class ProofAnswerLimitTests
         Assert.Equal(2, Held());
 
         Access Asked(int at) => (Access)sideType.GetMethod("Asked", NON_PUBLIC)!.Invoke(side, [at])!;
-        Access View(int at) => (Access)sideType.GetMethod("View", NON_PUBLIC)!.Invoke(side, [at])!;
+        Access View(int at) => (((Access View, int Number))sideType.GetMethod("Keep", NON_PUBLIC)!.Invoke(side, [at])!).View;
         void Forget() => sideType.GetMethod("Forget", NON_PUBLIC)!.Invoke(side, null);
         int Held() => (int)sideType.GetProperty("Held", NON_PUBLIC)!.GetValue(side)!;
     }

@@ -109,6 +109,68 @@ public sealed class FindingIdentityTests
         Assert.NotEqual(findings[0].Fingerprint, findings[1].Fingerprint);
     }
 
+    /// <summary>Two findings of one group whose sides agree on roots, operations, spans and operation numbers and differ in a body, as
+    /// two instances of one generic method do, stand in the order of their identities: whichever order their pairs come in, each keeps its
+    /// number (ADR 0042).</summary>
+    [Fact]
+    public void Findings_of_one_group_that_differ_in_a_body_alone_keep_their_numbers_whichever_order_their_pairs_come_in()
+    {
+        var resource = FindingTestData.Resource("static:Chain", "Value");
+        Access Side(string body, AccessOperation operation) =>
+            FindingTestData.Access(resource, operation, "root-a", "Chain.Touch()", new SourceSpan("Case.cs", 7, 40, 7, 45)) with { BodyId = body, OperationId = 3 };
+        var write = Side("body:Chain.Write", AccessOperation.Write);
+        AccessPair[] pairs =
+        [
+            new(Side("body:Chain<int>.Read", AccessOperation.Read), write, PairProtection.UNPROTECTED),
+            new(Side("body:Chain<string>.Read", AccessOperation.Read), write, PairProtection.UNPROTECTED)
+        ];
+
+        var forward = Numbered(pairs);
+        var backward = Numbered(pairs.Reverse());
+
+        Assert.Equal(["F1 G1 body:Chain<int>.Read", "F2 G1 body:Chain<string>.Read"], forward);
+        Assert.Equal(forward, backward);
+
+        static string[] Numbered(IEnumerable<AccessPair> pairs) =>
+            ConflictFindings.Create(pairs, CancellationToken.None).Findings
+                            .Select(finding => $"{finding.FindingId} {finding.GroupId} " +
+                                               new[] { finding.AccessA.BodyId, finding.AccessB.BodyId }.Single(body => body.EndsWith(".Read", StringComparison.Ordinal)))
+                            .ToArray();
+    }
+
+    /// <summary>Two findings of one group whose sides agree on roots, operations and where they start, in two bodies, one read ending
+    /// sooner at a later operation than the other: they stand in the order their sides end, the shorter first, before the operations and
+    /// the identities, which order them the other way, whichever order their pairs come in (ADR 0042).</summary>
+    [Fact]
+    public void Findings_of_one_group_that_start_alike_stand_in_the_order_their_sides_end_before_their_operations()
+    {
+        var resource = FindingTestData.Resource("static:Chain", "Value");
+        Access Side(string body, AccessOperation operation, int endColumn, int operationId) =>
+            FindingTestData.Access(resource, operation, "root-a", "Chain.Touch()", new SourceSpan("Case.cs", 7, 40, 7, endColumn)) with
+            {
+                BodyId = body,
+                OperationId = operationId
+            };
+        var write = Side("body:Chain.Write", AccessOperation.Write, 45, 3);
+        AccessPair[] pairs =
+        [
+            new(Side("body:Chain.Short.Read", AccessOperation.Read, 45, 20), write, PairProtection.UNPROTECTED),
+            new(Side("body:Chain.Long.Read", AccessOperation.Read, 60, 1), write, PairProtection.UNPROTECTED)
+        ];
+
+        var forward = Numbered(pairs);
+        var backward = Numbered(pairs.Reverse());
+
+        Assert.Equal(["F1 G1 body:Chain.Short.Read", "F2 G1 body:Chain.Long.Read"], forward);
+        Assert.Equal(forward, backward);
+
+        static string[] Numbered(IEnumerable<AccessPair> pairs) =>
+            ConflictFindings.Create(pairs, CancellationToken.None).Findings
+                            .Select(finding => $"{finding.FindingId} {finding.GroupId} " +
+                                               new[] { finding.AccessA.BodyId, finding.AccessB.BodyId }.Single(body => body.EndsWith(".Read", StringComparison.Ordinal)))
+                            .ToArray();
+    }
+
     [Fact]
     public void Lazy_construction_reached_by_two_roots_has_an_occurrence_for_each_root()
     {

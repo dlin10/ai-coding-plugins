@@ -81,6 +81,18 @@ internal static class ConflictFindings
                                                  .ThenBy(item => item.Evidence.AccessB.Source.Path, StringComparer.Ordinal)
                                                  .ThenBy(item => item.Evidence.AccessB.Source.StartLine)
                                                  .ThenBy(item => item.Evidence.AccessB.Source.StartColumn)
+                                                 // Where the two start alike, the ends and the operations, which the report shows of
+                                                 // each side, rather than the order the pairs were found in (ADR 0042).
+                                                 .ThenBy(item => item.Evidence.AccessA.Source.EndLine)
+                                                 .ThenBy(item => item.Evidence.AccessA.Source.EndColumn)
+                                                 .ThenBy(item => item.Evidence.AccessB.Source.EndLine)
+                                                 .ThenBy(item => item.Evidence.AccessB.Source.EndColumn)
+                                                 .ThenBy(item => item.Evidence.AccessA.OperationId)
+                                                 .ThenBy(item => item.Evidence.AccessB.OperationId)
+                                                 // Last, what tells two findings apart: two bodies, or two paths, may have one span and
+                                                 // one operation, as two instances of a generic method or one file built into two
+                                                 // assemblies have.
+                                                 .ThenBy(item => FindingIdentity(item.Evidence), StringComparer.Ordinal)
                                                  .ToArray())
                            .OrderByDescending(group => group.Max(item => item.Score))
                            .ThenBy(group => group[0].Evidence.Key.Scope, StringComparer.Ordinal)
