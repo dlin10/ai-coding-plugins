@@ -289,7 +289,7 @@ internal static class AwaitedRunsFixture
     };
 
     internal static EngineRun Run(string work, string? relation = "sequential-awaited", bool http = false, string members = "", string other = "",
-                                  bool builtIn = false, bool generated = false, bool fieldDelegate = false)
+                                  bool builtIn = false, bool generated = false, bool fieldDelegate = false, string startup = "")
     {
         var source = Usings + $$"""
             public sealed class State
@@ -325,7 +325,7 @@ internal static class AwaitedRunsFixture
                 [HttpGet] public async Task Read() { {{(other.StartsWith("// http", StringComparison.Ordinal) ? other : "")}} }
             }
             """ + Startup("services.AddSingleton<State>(); services.AddSingleton<object>(_ => new object()); " +
-                           (http ? "" : "services.AddHostedService<Worker>(); ") + "services.AddHostedService<Reader>();");
+                           (http ? "" : "services.AddHostedService<Worker>(); ") + "services.AddHostedService<Reader>();" + startup);
         var solution = FixtureSolution.Create(new FixtureOptions { MetadataReferences = [Library.Value] }, ("Case.cs", source));
         var compilation = solution.Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!;
         Assert.Empty(compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
