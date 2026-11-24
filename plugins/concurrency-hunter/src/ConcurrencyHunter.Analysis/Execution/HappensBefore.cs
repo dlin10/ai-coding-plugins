@@ -134,6 +134,9 @@ internal sealed partial class HappensBefore
         OrderingAssumption.ThreadPoolEntry | OrderingAssumption.ThreadContext | OrderingAssumption.Observers
     ];
 
+    /// <summary>Every flag of <see cref="AssumptionSets"/>: the union of any two of them, and the last alone.</summary>
+    private const OrderingAssumption EVERY_ASSUMPTION = OrderingAssumption.ThreadPoolEntry | OrderingAssumption.ThreadContext | OrderingAssumption.Observers;
+
     /// <summary>What the edges of one context decide and cache: the whole scope (no creator), or one run of the creator of a
     /// <c>TreeConfined</c> region, where every condition an edge puts on an execution running or being started once is read per run of
     /// that creator (ADR 0020).</summary>
@@ -361,32 +364,82 @@ internal sealed partial class HappensBefore
     internal bool PassJoinWouldOrder(string instance, int operation, Access first, Access second, string? creator) => In(creator, () =>
         (_passCompletion ??= new PassCompletionProof(this)).JoinWouldOrder(instance, operation, first, second, creator));
 
-    /// <summary>The assumptions a pair <see cref="OrderedBy"/> orders is ordered only under (R5): none when the same decision, with the
-    /// exceptional exit of every blocking wait for a task ordering nothing as in the cases of R4, still orders it. Otherwise the union of
-    /// the assumption sets of the readings the decision needed — each one without which it does not order the pair — and, where those
-    /// alone do not order it, of each other reading that orders the pair together with them alone, every other reading withheld: a proof
-    /// that cannot do without one reading and has alternatives for the rest rests on the alternatives too. Where nothing qualifies, every
-    /// reading taken.</summary>
+    /// <summary>The assumptions a pair <see cref="OrderedBy"/> orders is ordered only under (R5), by the rule of
+    /// <see cref="Assumed(IReadOnlySet{OrderingAssumption}, Func{IReadOnlyList{OrderingAssumption}, bool})"/>, each decision with some
+    /// sets withheld asked of the replay that withholds them (<see cref="Withholding"/>). The answer is a function of the graph and the
+    /// pair, not of the questions asked before it (#495). The sets they read (<see cref="_assumptions"/>) tell only two things. One is
+    /// whether any reading was taken at all: a pair that rests on one took it in its own decision, before this is asked, so a scope that
+    /// took none has nothing to withhold. The other is which sets to try as needed, which a set the pair needs always is, since its own
+    /// decision read it. A replay is a graph of this class built from the same inputs, and its answers are history-free for the reasons
+    /// the graph's own are: every cache it fills is its own, and the flows it shares with the graph are keyed by every input that builds
+    /// them. What it enumerates does not depend on where its objects lie either: its collections are keyed by strings, numbers and records
+    /// of them, and nothing in it runs in parallel. That last is what a search of the keyed collections of this class and of the completion
+    /// proof finds; not every enumeration in them has been read.</summary>
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
     /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    // bounded: forwards once to the static overload that holds the rule; it never recurses into this method.
     internal OrderingAssumption Assumed(Access first, Access second, string? creator)
     {
-        // Every reading a decision made was taken when it was first computed, so a scope that took none has nothing to withhold.
         if (_assumptions.Count == 0)
             return OrderingAssumption.None;
         Counters.AssumptionQueries++;
-        if (Withholding(AssumptionSets).OrderedBy(first, second, creator) is not null)
+        return Assumed(_assumptions, withheld => Withholding(withheld).OrderedBy(first, second, creator) is not null);
+    }
+
+    /// <summary>The assumptions a pair is ordered only under (R5), from whether it is ordered with given assumption sets withheld: none
+    /// when it is ordered with all three withheld, the exceptional exit of every blocking wait for a task ordering nothing as in the cases
+    /// of R4. Otherwise the union of the sets it needs — each one without which it is not ordered — and, where those alone do not order
+    /// it, of each other set that orders it together with them alone, every other set withheld: a proof that cannot do without one
+    /// reading and has alternatives for the rest rests on the alternatives too. Alternatives are tried among every set but the needed
+    /// ones, whether or not a question read it. Where nothing qualifies, every proof of the pair needs two sets and each set has a proof
+    /// without it, which with the three sets of <see cref="AssumptionSets"/> means that every two of them order the pair, and it rests on
+    /// all three. A pair one set orders alone and the other two order together rests on that one alone: none is needed, and the two are
+    /// no alternative, since each orders the pair only with the other. The sets are tried in the order of <see cref="AssumptionSets"/>,
+    /// and nothing is asked whose answer cannot change the result, since any two sets, like the last set alone, hold every flag: no set
+    /// once the union holds every flag; with one needed set that does not order the pair alone, no alternative, as each other set
+    /// completes it; and with none needed, not the last set once neither before it orders the pair alone. So every question withholds
+    /// at least one set and none is asked twice: the questions withhold at most the seven nonempty combinations of the three.</summary>
+    /// <param name="taken">The assumption sets the readings of the questions so far took: the candidates for needed sets.</param>
+    /// <param name="ordered">Whether the pair is ordered with the given assumption sets withheld.</param>
+    internal static OrderingAssumption Assumed(IReadOnlySet<OrderingAssumption> taken, Func<IReadOnlyList<OrderingAssumption>, bool> ordered)
+    {
+        if (ordered(AssumptionSets))
             return OrderingAssumption.None;
-        var taken = AssumptionSets.Where(_assumptions.Contains).ToArray();
-        var needed = taken.Where(set => Withholding([set]).OrderedBy(first, second, creator) is null).ToArray();
-        // Readings the needed ones order the pair without are no part of its proof.
-        var alone = needed.Length != 0 && Withholding(AssumptionSets.Where(other => !needed.Contains(other)).ToArray())
-                                              .OrderedBy(first, second, creator) is not null;
-        var completing = alone ? [] : taken.Except(needed).Where(set => Withholding(AssumptionSets.Where(other => other != set && !needed.Contains(other)).ToArray())
-                                                                            .OrderedBy(first, second, creator) is not null);
-        var read = needed.Concat(completing).ToArray();
-        return (read.Length != 0 ? read : taken).Aggregate(OrderingAssumption.None, (union, set) => union | set);
+        // A set the pair cannot do without is one its own decision read, and so taken: withholding a set it did not read leaves the
+        // proof it found standing. Only those are tried here, so no replay is built for a set no question read.
+        var needed = new List<OrderingAssumption>();
+        var union = OrderingAssumption.None;
+        // bounded: the three assumption sets.
+        foreach (var set in AssumptionSets.Where(taken.Contains))
+        {
+            if (union != EVERY_ASSUMPTION && !ordered([set]))
+            {
+                needed.Add(set);
+                union |= set;
+            }
+        }
+
+        if (union == EVERY_ASSUMPTION)
+            return union;
+        // One needed set is left, since two of them, or the last set alone, hold every flag. Readings it orders the pair without are
+        // no part of its proof. Where it does not order the pair alone, each other set completes it, as a set that is not needed has
+        // a proof without it, and the needed set with either other, like the last set alone, holds every flag: nothing more is asked.
+        if (needed.Count != 0)
+            return ordered(AssumptionSets.Except(needed).ToArray()) ? union : EVERY_ASSUMPTION;
+        // No set is needed. An alternative is any set, whether or not a question read it so far: the replay decides whether it orders
+        // the pair alone. The last set holds every flag, so where no set before it does, it is not asked: either answer gives every
+        // flag, the fallback included.
+        // bounded: the three assumption sets.
+        foreach (var set in AssumptionSets)
+        {
+            if (union == OrderingAssumption.None && set == EVERY_ASSUMPTION)
+                return EVERY_ASSUMPTION;
+            if (union != EVERY_ASSUMPTION && ordered(AssumptionSets.Where(other => other != set).ToArray()))
+                union |= set;
+        }
+
+        return union;
     }
 
     /// <summary>The graph of the same scope whose blocking waits for a task, read under one of the given assumption sets, order nothing
