@@ -480,6 +480,27 @@ ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.LongLength_and_GetLong
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Loop_bound_on_Length_adds_no_pair_to_the_element_increment	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Multidimensional_GetLength_is_known	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Rank_and_bounds_are_known_calls_without_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "convention-middleware-increments-its-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "filter-attribute-of-a-routed-action-increments-its"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "inline-middleware-increments-a-captured-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handler-adds-to-a-captured-list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handler-increments-a-captured-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handler-increments-a-field-of-a-captur"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handler-increments-its-own-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handlers-add-to-and-count-a-captured-l"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handlers-add-to-and-count-a-static-lis"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "minimal-api-handlers-write-and-read-a-captured-loc"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "singleton-imiddleware-increments-its-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "transient-imiddleware-increments-its-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_collects_the_accesses_its_claim_names(name: "minimal-api-handler-adds-to-a-captured-list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_collects_the_accesses_its_claim_names(name: "minimal-api-handler-increments-a-field-of-a-captur"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_collects_the_accesses_its_claim_names(name: "minimal-api-handlers-add-to-and-count-a-captured-l"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_collects_the_accesses_its_claim_names(name: "minimal-api-handlers-write-and-read-a-captured-loc"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_discovers_the_roots_its_claim_names(name: "convention-middleware-increments-its-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_discovers_the_roots_its_claim_names(name: "filter-attribute-of-a-routed-action-increments-its"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_discovers_the_roots_its_claim_names(name: "inline-middleware-increments-a-captured-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AspNetCoreProbeTests.Probe_discovers_the_roots_its_claim_names(name: "singleton-imiddleware-increments-its-field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.AssumptionAttributionMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: ContinueWith, waited: AsyncCall, removal: Exceptional)	Passed
 ConcurrencyHunter.Core.Tests.Engine.AssumptionAttributionMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: ContinueWith, waited: AsyncCall, removal: NormalReturn)	Passed
 ConcurrencyHunter.Core.Tests.Engine.AssumptionAttributionMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: ContinueWith, waited: StartNewNone, removal: Exceptional)	Passed
@@ -7659,6 +7680,13 @@ ConcurrencyHunter.Core.Tests.Engine.HolderFateTests.Holder_returned_from_a_sourc
 ConcurrencyHunter.Core.Tests.Engine.HolderFateTests.Holder_whose_members_nobody_calls_runs_its_delegate_nowhere	Passed
 ConcurrencyHunter.Core.Tests.Engine.HolderFateTests.Holder_with_an_unresolved_delegate_handed_to_a_call_without_a_body_is_a_dispatch_there	Passed
 ConcurrencyHunter.Core.Tests.Engine.HolderFateTests.Holder_with_an_unresolved_delegate_is_a_dispatch_at_each_member_call	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "execute-after-its-first-await-against-a-later-star"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "execute-before-its-first-await-against-a-later-sta"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "execute-before-its-first-await-against-startup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-starts-in-sequence")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_collects_both_writes_its_truth_orders(name: "execute-before-its-first-await-against-startup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HostLifecycleProbeTests.Probe_collects_both_writes_its_truth_orders(name: "two-starts-in-sequence")	Passed
 ConcurrencyHunter.Core.Tests.Engine.HostNodeCollisionTests.Sequence_whose_creator_is_its_own_delegate_collects_the_creators_accesses_in_its_unknown_enumeration	Passed
 ConcurrencyHunter.Core.Tests.Engine.HostNodeCollisionTests.Work_that_may_restart_its_starter_or_run_a_member_without_a_body_on_another_object_collects_the_starters_accesses_in_the_spawn	Passed
 ConcurrencyHunter.Core.Tests.Engine.HostNodeCollisionTests.Work_that_may_restart_its_starter_or_run_a_member_without_a_body_on_it_collects_the_starters_accesses_in_the_spawn	Passed
@@ -7672,6 +7700,26 @@ ConcurrencyHunter.Core.Tests.Engine.HttpClientTaskResultTests.Awaited_string_rea
 ConcurrencyHunter.Core.Tests.Engine.HttpClientTaskResultTests.Result_of_a_get_gives_the_same_new_response(method: "GetAwaiterResult")	Passed
 ConcurrencyHunter.Core.Tests.Engine.HttpClientTaskResultTests.Result_of_a_get_gives_the_same_new_response(method: "GetResult")	Passed
 ConcurrencyHunter.Core.Tests.Engine.HttpClientTaskResultTests.Result_of_a_send_keeps_the_request	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-captured-by-task-run-read-by-the-lambda-writ"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-captured-by-task-run-written-by-the-lambda-r"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-field-read-by-an-async-callee-after-its-awai"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-field-written-by-an-async-callee-after-its-a"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-field-written-by-an-async-callee-before-its-"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "finalizer-decrements-a-shared-static")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-captured-by-task-run")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-field-added-to-by-an-async-callee-after-its-a"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-handed-to-an-async-call-not-yet-awaited")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "object-captured-by-task-run")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "object-handed-to-an-async-call-not-yet-awaited")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "primary-constructor-parameter-copied-to-a-readonly"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "primary-constructor-parameter-incremented")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "primary-constructor-parameter-reassigned")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_collects_the_accesses_its_claim_names(name: "array-captured-by-task-run-read-by-the-lambda-writ"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_collects_the_accesses_its_claim_names(name: "array-captured-by-task-run-written-by-the-lambda-r"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_collects_the_accesses_its_claim_names(name: "array-field-read-by-an-async-callee-after-its-awai"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_collects_the_accesses_its_claim_names(name: "array-field-written-by-an-async-callee-after-its-a"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ImplicitSharingProbeTests.Probe_collects_the_accesses_its_claim_names(name: "list-handed-to-an-async-call-not-yet-awaited")	Passed
 ConcurrencyHunter.Core.Tests.Engine.InertInitializerWorkMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
 ConcurrencyHunter.Core.Tests.Engine.InertInitializerWorkMatrixTests.Every_cell_gets_its_expected_treatment	Passed
 ConcurrencyHunter.Core.Tests.Engine.InertInitializerWorkMatrixTests.Every_cell_starts_its_work_as_expected	Passed
@@ -8028,6 +8076,43 @@ ConcurrencyHunter.Core.Tests.Engine.LaterRunsPlacementMatrixTests.Every_cell_has
 ConcurrencyHunter.Core.Tests.Engine.LaterRunsPlacementMatrixTests.Every_cell_has_the_first_run_in_the_caller(relation: SequentialAwaited, target: TaskRun, layer: Generated)	Passed
 ConcurrencyHunter.Core.Tests.Engine.LaterRunsPlacementMatrixTests.Every_cell_has_the_first_run_in_the_caller(relation: SequentialAwaited, target: TaskRun, layer: Project)	Passed
 ConcurrencyHunter.Core.Tests.Engine.LaterRunsPlacementMatrixTests.There_are_36_cells_covering_every_value_of_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "coalesce-assignment-control")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "coalesce-assignment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "double-checked-locking-control")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "double-checked-locking-published-before-init")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "double-checked-locking")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "ensure-initialized-with-lock")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "ensure-initialized")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "field-keyword-coalesce-assignment-control")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "field-keyword-coalesce-assignment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-default")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-execution-and-publication")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-factory-counts-its-runs-in-a-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-factory-reads-a-readonly-field-set-after-it")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-factory-reads-a-readonly-field-set-before-it")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-field-initializer-reads-a-primary-constructor"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-field-initializer-reads-nothing")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-none")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-not-thread-safe")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lazy-publication-only")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "null-check-then-write-then-read")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "null-check-then-write")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "static-lazy-counts-its-runs")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "static-lazy-publication-only-counts-its-runs")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LazyInitializationProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "static-lazy-reads-a-static-readonly-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Options_value_uncertainty_names_the_unresolved_get_Value	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "frozen-dictionary-made-from-a-dictionary-being-wri"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "immutable-interlocked-update-whose-transformer-cou"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "immutable-interlocked-update")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "immutable-list-replaced-by-its-successor")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "linq-where-adds-to-a-set")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "options-value-list-added-to-by-two-services")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "plinq-for-all-writes-a-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "plinq-where-adds-to-a-set")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "progress-handler-against-its-reporter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibraryCallbackProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "progress-handler-reported-twice")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibraryInternalObjectMatrixTests.Every_cell_is_exact	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibraryInternalObjectMatrixTests.Every_value_of_every_axis_occurs_and_the_cells_are_counted	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibraryInternalObjectMatrixTests.Existing_counts_are_those_of_the_pairing_before_the_rule	Passed
@@ -8138,6 +8223,17 @@ ConcurrencyHunter.Core.Tests.Engine.LinqBuiltInResultTests.Element_operator_retu
 ConcurrencyHunter.Core.Tests.Engine.LinqBuiltInResultTests.ToArray_returns_a_new_array_holding_the_sources_elements	Passed
 ConcurrencyHunter.Core.Tests.Engine.LinqBuiltInResultTests.ToList_returns_a_new_list_holding_the_sources_elements	Passed
 ConcurrencyHunter.Core.Tests.Engine.LinqBuiltInResultTests.Where_then_ToList_runs_the_predicate_in_the_caller	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-filled-before-it-is-stored")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-filled-before-it-is-stored")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-initializer-before-it-is-stored")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-object-held-in-an-object-field-on-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-object-taken-through-a-type-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-object-taken-through-an-object-field-aliasing"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-object-taken-through-an-object-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field-control")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-the-list-it-replaces")	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_copy_is_overwritten_only_by_a_store_before_every_other_use_of_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_store_past_the_64th_block_runs_under_the_branches_that_dominate_it_in_their_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_store_runs_under_the_branches_of_the_blocks_that_dominate_it_in_their_order	Passed
@@ -11918,6 +12014,11 @@ ConcurrencyHunter.Core.Tests.Engine.TaskCompletionProvenanceTests.Completion_val
 ConcurrencyHunter.Core.Tests.Engine.TaskCompletionProvenanceTests.Completion_value_is_unfollowed_exactly_when_its_source_is(form: Sequence, source: Opaque, shape: "V1", consumer: Result)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TaskCompletionProvenanceTests.Completion_value_is_unfollowed_exactly_when_its_source_is(form: Sequence, source: Opaque, shape: "V2", consumer: Await)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TaskCompletionProvenanceTests.Completion_value_is_unfollowed_exactly_when_its_source_is(form: Sequence, source: Opaque, shape: "V2", consumer: Result)	Passed
+ConcurrencyHunter.Core.Tests.Engine.TaskCompositionProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.TaskCompositionProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "attached-child-of-a-waited-start-new")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TaskCompositionProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "attached-child-of-task-run")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TaskCompositionProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "when-each-enumerated-to-the-end")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TaskCompositionProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "when-each-left-early-leaves-a-task-running")	Passed
 ConcurrencyHunter.Core.Tests.Engine.TaskForwarderJoinMatrixTests.Every_cell_is_exact_outside_the_wider_list(form: AsTask, wait: Await, place: Loop, path: AllPaths, parent: Hosted, side: ParentAfterWait, origin: Program)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TaskForwarderJoinMatrixTests.Every_cell_is_exact_outside_the_wider_list(form: AsTask, wait: Await, place: Loop, path: AllPaths, parent: Hosted, side: ParentBeforeStart, origin: Program)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TaskForwarderJoinMatrixTests.Every_cell_is_exact_outside_the_wider_list(form: AsTask, wait: Await, place: Loop, path: AllPaths, parent: Hosted, side: SameWork, origin: Program)	Passed
@@ -12704,6 +12805,27 @@ ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Publishing_a_delegate_publ
 ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Publishing_a_delegate_publishes_only_the_closures_it_captures(publish: "Sink.Saved = () => Ping();", kind: TreeConfined)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Publishing_a_delegate_publishes_only_the_closures_it_captures(publish: "Sink.Saved = Ping;", kind: TreeConfined)	Passed
 ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Two_creators_contexts_in_one_analysis_answer_alike_whichever_is_asked_first	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "await-of-task-yield")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "await-of-tasks-that-completed-synchronously")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "callback-invoked-inline-under-the-callers-lock")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "classic-extension-method")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "default-interface-method")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "extension-block-method")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "extension-block-property-setter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-for-each-callback-under-the-callers-lock")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "method-in-a-generated-file")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "partial-method-implemented-in-a-generated-file")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "partial-method-implemented-in-another-part")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "partial-property-against-its-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "partial-property")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "user-defined-binary-operator")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "user-defined-compound-assignment-operator")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "user-defined-increment-operator")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "using-declaration-disposed-after-the-task-is-waite"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "using-declaration-disposed-while-a-task-uses-it")	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "using-statement-ends-after-the-async-call-is-await"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.TwistProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "using-statement-ends-while-an-async-call-uses-it")	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeInitializerTreatmentMatrixTests.A_delegate_an_inert_initializer_hands_to_unseen_code_has_it_as_handing_execution	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeInitializerTreatmentMatrixTests.A_merged_instance_runs_if_any_of_its_types_runs_its_initializer	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeInitializerTreatmentMatrixTests.A_merged_running_initializer_still_has_a_non_running_closure_to_scan	Passed

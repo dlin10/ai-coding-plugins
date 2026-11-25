@@ -23,6 +23,15 @@ public static class StubAssemblies
     /// fixture references it unless a case asks for it by name.</summary>
     public const string NEWTONSOFT_JSON = "Newtonsoft.Json";
 
+    /// <summary>The options interfaces and <c>Options.Create</c>, at their real assembly name, so that a case reaches the built-in
+    /// census models of that assembly. It is not one of <see cref="Names"/>: only a case that asks for it references it.</summary>
+    public const string OPTIONS = "Microsoft.Extensions.Options";
+
+    /// <summary>The MVC filter contracts (<c>IFilterMetadata</c>, <c>IActionFilter</c> and their context types), at their real assembly
+    /// name; <see cref="MVC_CORE"/> references it for <c>ActionFilterAttribute</c>. It is not one of <see cref="Names"/>: only a case
+    /// that uses a filter references it.</summary>
+    public const string MVC_ABSTRACTIONS = "Microsoft.AspNetCore.Mvc.Abstractions";
+
     /// <summary>The gRPC packages are versioned on their own: their stubs default to <see cref="GRPC_DEFAULT_VERSION"/> and compile
     /// against the framework stubs at <see cref="FixtureOptions.DEFAULT_STUB_VERSION"/>.</summary>
     public const int GRPC_DEFAULT_VERSION = 2;
@@ -46,16 +55,19 @@ public static class StubAssemblies
             [HOSTING_ABSTRACTIONS] = ([DEPENDENCY_INJECTION_ABSTRACTIONS], HostingSource),
             [HTTP_ABSTRACTIONS] = ([], HttpSource),
             [ROUTING] = ([HTTP_ABSTRACTIONS], RoutingSource),
-            [MVC_CORE] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING], MvcCoreSource),
+            [MVC_ABSTRACTIONS] = ([], MvcAbstractionsSource),
+            [MVC_CORE] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, MVC_ABSTRACTIONS], MvcCoreSource),
             [MVC] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, MVC_CORE], MvcSource),
             [GRPC_CORE_API] = ([], GrpcCoreSource),
             [GRPC_ASPNETCORE_SERVER] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, GRPC_CORE_API], GrpcServerSource),
-            [NEWTONSOFT_JSON] = ([], NewtonsoftJsonSource)
+            [NEWTONSOFT_JSON] = ([], NewtonsoftJsonSource),
+            [OPTIONS] = ([], OptionsSource)
         };
 
     private static readonly ConcurrentDictionary<(string Name, int Major, bool Empty), Lazy<MetadataReference>> Cache = new();
 
-    public static IReadOnlyList<string> Names { get; } = Stubs.Keys.Where(name => name != NEWTONSOFT_JSON).ToArray();
+    public static IReadOnlyList<string> Names { get; } =
+        Stubs.Keys.Where(name => name is not (NEWTONSOFT_JSON or OPTIONS or MVC_ABSTRACTIONS)).ToArray();
 
     /// <summary>Whether a stub follows the target framework's major version; the gRPC stubs do not.</summary>
     public static bool IsFramework(string name) => name is not (GRPC_CORE_API or GRPC_ASPNETCORE_SERVER);
@@ -482,6 +494,19 @@ public static class StubAssemblies
                 IApplicationBuilder New();
                 RequestDelegate Build();
             }
+
+            public static class UseMiddlewareExtensions
+            {
+                public static IApplicationBuilder UseMiddleware<TMiddleware>(this IApplicationBuilder app, params object?[] args) => throw null!;
+            }
+        }
+
+        namespace Microsoft.AspNetCore.Http
+        {
+            public interface IMiddleware
+            {
+                Task InvokeAsync(HttpContext context, RequestDelegate next);
+            }
         }
 
         namespace Microsoft.AspNetCore.Http
@@ -785,6 +810,16 @@ public static class StubAssemblies
             }
         }
 
+        namespace Microsoft.AspNetCore.Mvc.Filters
+        {
+            [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
+            public abstract class ActionFilterAttribute : Attribute, IActionFilter
+            {
+                public virtual void OnActionExecuting(ActionExecutingContext context) => throw null!;
+                public virtual void OnActionExecuted(ActionExecutedContext context) => throw null!;
+            }
+        }
+
         namespace Microsoft.AspNetCore.Builder
         {
             public sealed class ControllerActionEndpointConventionBuilder : IEndpointConventionBuilder
@@ -907,6 +942,47 @@ public static class StubAssemblies
             public static class GrpcServicesExtensions
             {
                 public static IGrpcServerBuilder AddGrpc(this IServiceCollection services) => throw null!;
+            }
+        }
+        """;
+
+    private const string MvcAbstractionsSource = """
+        namespace Microsoft.AspNetCore.Mvc.Filters
+        {
+            public interface IFilterMetadata { }
+
+            public class ActionExecutingContext { }
+
+            public class ActionExecutedContext { }
+
+            public interface IActionFilter : IFilterMetadata
+            {
+                void OnActionExecuting(ActionExecutingContext context);
+                void OnActionExecuted(ActionExecutedContext context);
+            }
+        }
+        """;
+
+    private const string OptionsSource = """
+        using System;
+
+        namespace Microsoft.Extensions.Options
+        {
+            public interface IOptions<out TOptions> where TOptions : class
+            {
+                TOptions Value { get; }
+            }
+
+            public interface IOptionsMonitor<out TOptions>
+            {
+                TOptions CurrentValue { get; }
+                TOptions Get(string? name);
+                IDisposable? OnChange(Action<TOptions, string?> listener);
+            }
+
+            public static class Options
+            {
+                public static IOptions<TOptions> Create<TOptions>(TOptions options) where TOptions : class => throw null!;
             }
         }
         """;
