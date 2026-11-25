@@ -314,7 +314,10 @@ internal sealed partial class HappensBefore
         /// caller before the caller goes on, so the caller's suspensions follow the same wait; one a caller awaits at once in its prefix
         /// has its tail joined to the caller's, which suspends at that await; one that an admitted call runs as its delegate is waited
         /// for by the call's own wait (<see cref="WaitOfCall"/>). A call whose work is done when it returns has no wait to pass. The tail of
-        /// a body above is joined where its caller waits for the task of the one start at that caller and call (<see cref="AsyncStartsAt"/>).</summary>
+        /// a body above is joined where its caller waits for the task of the one start at that caller and call (<see cref="AsyncStartsAt"/>).
+        /// A caller's wait — a fresh join, an <c>await</c> at once, an admitted call's — stands for the body's waits only where every normal
+        /// return of the body passes them, and its fault follows the work only where every exception of the body does too: a body that
+        /// may return or throw around its waits hands its caller a task complete, or faulted, before the work is (#503).</summary>
         /// <param name="anchor">The start of the continuation of the call's delegate.</param>
         /// <param name="body">The body at this level of the chain of async entries.</param>
         /// <param name="start">The point after the call this level makes: the admitted call, or the async call of the body below.</param>
@@ -330,6 +333,10 @@ internal sealed partial class HappensBefore
             WorkCancellation.Check();
             if (!seen.Add(body.Id))
                 return false;
+            // What the body's exits guarantee a caller whose wait for its task stands for the waits here: a normal return around them
+            // hands the caller a task complete before the work is, and an exception around them a fault the work has not completed
+            // before (#503). A call whose work is done when it returns guarantees both.
+            bool normal = true, faultFollows = faultCompletion;
             if (waits.Count != 0)
             {
                 var flow = PassFlow(anchor, waits, faultCompletion);
@@ -341,6 +348,8 @@ internal sealed partial class HappensBefore
                     if (!flow.BeforeDestination(start, suspension, cuts, overlappingRuns: false))
                         return false;
                 }
+                normal = flow.BeforeReturn(start, cuts, exceptionalExits: false);
+                faultFollows = faultCompletion && flow.BeforeReturn(start, cuts, exceptionalExits: true);
             }
 
             var calls = (order._steps.GetValueOrDefault(anchor.ExecutionId) ?? []).Where(step => step.Callee == body.Id).ToArray();
@@ -354,20 +363,20 @@ internal sealed partial class HappensBefore
             foreach (var (callerId, operation) in entries)
             {
                 WorkCancellation.Check();
-                if (order._awaitedCalls.FirstOrDefault(call => call.Instance == callerId && call.Operation == operation) is not { } runner ||
+                if (!normal || order._awaitedCalls.FirstOrDefault(call => call.Instance == callerId && call.Operation == operation) is not { } runner ||
                     WaitOfCall(anchor.ExecutionId, runner) is not { } outer || !outer.Done && outer.Wait is null)
                     continue;
-                if (TailFollows(anchor, outer.Caller, outer.After, outer.Wait is { } wait ? [wait] : [], tail, faultCompletion, [.. seen]))
+                if (TailFollows(anchor, outer.Caller, outer.After, outer.Wait is { } wait ? [wait] : [], tail, faultFollows, [.. seen]))
                     return true;
             }
             // A body that a caller awaits at once in its prefix has its tail joined to the caller's: the caller suspends at that await,
             // so its own suspensions are reached only through it, and its tail follows what the body's does.
-            foreach (var (callerId, operation) in entries.Where(entry => !tails.ContainsKey(entry)))
+            foreach (var (callerId, operation) in entries.Where(entry => normal && !tails.ContainsKey(entry)))
             {
                 WorkCancellation.Check();
                 if (AwaitedAtOnce(anchor.ExecutionId, callerId, operation) is { } awaited &&
                     order._heap.Instances.TryGetValue(callerId, out var awaiting) &&
-                    TailFollows(anchor, awaiting, new PointKey(callerId, operation, true), [awaited], tail, faultCompletion, [.. seen]))
+                    TailFollows(anchor, awaiting, new PointKey(callerId, operation, true), [awaited], tail, faultFollows, [.. seen]))
                     return true;
             }
             // A body entered whole runs inside its caller's visit before the caller goes on, so the caller reaches its own suspensions
@@ -381,7 +390,7 @@ internal sealed partial class HappensBefore
             foreach (var ((caller, operation), starts) in tails)
             {
                 WorkCancellation.Check();
-                if (!order._heap.Instances.TryGetValue(caller, out var above))
+                if (!normal || !order._heap.Instances.TryGetValue(caller, out var above))
                     continue;
                 var aboveWaits = new List<(PointKey Point, bool CompletedFault)>();
                 foreach (var child in starts)
@@ -394,7 +403,7 @@ internal sealed partial class HappensBefore
                     }
                     aboveWaits.AddRange(joins.Concat(suspended.Select(join => (join.Point, join.CompletedFault))).Where(join => join.Point.Instance == caller));
                 }
-                if (aboveWaits.Count != 0 && TailFollows(anchor, above, new PointKey(caller, operation, true), aboveWaits.Distinct().ToList(), tail, faultCompletion, [.. seen]))
+                if (aboveWaits.Count != 0 && TailFollows(anchor, above, new PointKey(caller, operation, true), aboveWaits.Distinct().ToList(), tail, faultFollows, [.. seen]))
                     return true;
             }
 

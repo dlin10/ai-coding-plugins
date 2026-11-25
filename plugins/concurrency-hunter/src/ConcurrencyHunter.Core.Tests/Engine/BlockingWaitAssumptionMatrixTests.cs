@@ -1199,18 +1199,58 @@ public sealed class BlockingWaitAssumptionMatrixTests
                                  $"try {{ await outer; }} catch (Exception) {{ {handler} }} }}"));
         var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
         var afters = run.Of("Value").Where(access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal)).ToArray();
-        var proven = handler.StartsWith("await", StringComparison.Ordinal)
-            ? Assert.Single(afters)
-            : Assert.Single(afters, access => !access.ExecutionId.Contains('>'));
+        // The write after the suspension runs in the helper's continuation alone; the write at once in the catch runs in the root, where
+        // the await finds the outer task already faulted, and in the continuation, where the await resumes.
+        var atOnce = !handler.StartsWith("await", StringComparison.Ordinal);
+        var tail = Assert.Single(afters, access => access.ExecutionId.Contains(">async:", StringComparison.Ordinal));
+        Assert.Equal(atOnce ? 2 : 1, afters.Length);
+        var proven = atOnce ? Assert.Single(afters, access => !access.ExecutionId.Contains('>')) : tail;
 
         Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, proven));
         Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, proven));
-        foreach (var write in afters.Where(access => access != proven))
+        if (atOnce)
         {
-            Assert.Contains(">async:", write.ExecutionId, StringComparison.Ordinal);
-            Assert.Equal(TimingBranch.HappensBeforePath, Branch(run, child, write));
-            Assert.Empty(Assumed(run, child, write));
+            Assert.Equal(TimingBranch.HappensBeforePath, Branch(run, child, tail));
+            Assert.Empty(Assumed(run, child, tail));
         }
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>Three helpers, each awaiting the task of the one below (#503): the inner one starts a child writing in <c>First</c>, may
+    /// block on it and awaits it, which keeps its work's frame from being empty; the middle one may leave before its <c>await</c> of the
+    /// inner one's task, by a throw or a return; the outer one awaits the middle one's task — kept, or at once — and writes after a
+    /// suspension, in the <c>catch</c> of that <c>await</c> or after it. Leaving early, the middle helper hands the outer one a task
+    /// faulted, or complete, while the child may still run, so the pair is reported; leaving only after its <c>await</c>, the
+    /// completion proof orders the two writes.</summary>
+    /// <param name="awaited">How the outer helper awaits the middle one's task: <c>kept</c> in a local by a call before the <c>try</c>,
+    /// or <c>at-once</c>, the call inside it.</param>
+    /// <param name="leave">How the middle helper may leave: <c>throw</c> or <c>return</c>.</param>
+    /// <param name="early">Whether the middle helper may leave before its <c>await</c> of the inner one's task, rather than after it.</param>
+    [Theory]
+    [InlineData("kept", "throw", true)]
+    [InlineData("kept", "throw", false)]
+    [InlineData("kept", "return", true)]
+    [InlineData("kept", "return", false)]
+    [InlineData("at-once", "throw", true)]
+    [InlineData("at-once", "throw", false)]
+    [InlineData("at-once", "return", true)]
+    [InlineData("at-once", "return", false)]
+    public void Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(string awaited, string leave, bool early)
+    {
+        var exit = leave == "throw" ? "if (Environment.TickCount % 2 == 0) throw new InvalidOperationException();" : "if (Environment.TickCount % 2 == 0) return;";
+        var (call, wait) = awaited == "kept" ? ("var b = B(); ", "await b;") : (string.Empty, "await B();");
+        var outer = leave == "throw" ? $"{call}try {{ {wait} }} catch (InvalidOperationException) {{ await Task.Yield(); After(); }}" : $"{call}{wait} await Task.Yield(); After();";
+        var run = Analyze(Worker("var c = C(); await c;",
+                                 "private async Task A(bool probe) { var t = Task.Run(() => { First(); return 1; }); " +
+                                 "if (probe) { try { t.Wait(); } catch (Exception) { } } await t; } " +
+                                 $"private async Task B() {{ var a = A(Environment.TickCount % 3 == 0); {(early ? $"{exit} await a;" : $"await a; {exit}")} }} " +
+                                 $"private async Task C() {{ {outer} }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.Contains(">async:", write.ExecutionId, StringComparison.Ordinal);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Empty(Assumed(run, child, write));
         Assert.Equal(early, Pairs(run, "First", "After"));
     }
 

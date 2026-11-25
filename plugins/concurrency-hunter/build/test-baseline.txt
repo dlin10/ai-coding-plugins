@@ -2819,6 +2819,14 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_instal
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_installer_body_is_reached_as_the_scope_says(scope: SetContextDeadBranch, reached: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_installer_body_is_reached_as_the_scope_says(scope: SetContextUnreached, reached: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.There_are_495_cells_covering_every_value_of_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "at-once", leave: "return", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "at-once", leave: "return", early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "at-once", leave: "throw", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "at-once", leave: "throw", early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "kept", leave: "return", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "kept", leave: "return", early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "kept", leave: "throw", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Three_helpers_the_middle_one_leaving_before_its_await_keep_the_pair(awaited: "kept", leave: "throw", early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Two_helpers_in_a_row_the_outer_catching_the_fault_of_the_inner_keep_the_pair(early: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Two_helpers_in_a_row_the_outer_catching_the_fault_of_the_inner_keep_the_pair(early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Wait_all_of_a_partly_proven_set_caught_orders_nothing	Passed
