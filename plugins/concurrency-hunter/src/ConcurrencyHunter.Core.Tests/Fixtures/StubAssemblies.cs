@@ -32,6 +32,18 @@ public static class StubAssemblies
     /// that uses a filter references it.</summary>
     public const string MVC_ABSTRACTIONS = "Microsoft.AspNetCore.Mvc.Abstractions";
 
+    /// <summary>The SignalR hub base class, at its real assembly name. It is not one of <see cref="Names"/>: only a case that declares a
+    /// hub references it.</summary>
+    public const string SIGNALR_CORE = "Microsoft.AspNetCore.SignalR.Core";
+
+    /// <summary><c>AddSignalR</c> and <c>MapHub</c>, at their real assembly name, over <see cref="SIGNALR_CORE"/>. It is not one of
+    /// <see cref="Names"/>: only a case that maps a hub references it.</summary>
+    public const string SIGNALR = "Microsoft.AspNetCore.SignalR";
+
+    /// <summary>The Razor Pages <c>PageModel</c> and <c>MapRazorPages</c>, at their real assembly name (<c>AddRazorPages</c> is in
+    /// <see cref="MVC"/>). It is not one of <see cref="Names"/>: only a case that declares a page references it.</summary>
+    public const string MVC_RAZOR_PAGES = "Microsoft.AspNetCore.Mvc.RazorPages";
+
     /// <summary>The gRPC packages are versioned on their own: their stubs default to <see cref="GRPC_DEFAULT_VERSION"/> and compile
     /// against the framework stubs at <see cref="FixtureOptions.DEFAULT_STUB_VERSION"/>.</summary>
     public const int GRPC_DEFAULT_VERSION = 2;
@@ -61,13 +73,16 @@ public static class StubAssemblies
             [GRPC_CORE_API] = ([], GrpcCoreSource),
             [GRPC_ASPNETCORE_SERVER] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, GRPC_CORE_API], GrpcServerSource),
             [NEWTONSOFT_JSON] = ([], NewtonsoftJsonSource),
-            [OPTIONS] = ([], OptionsSource)
+            [OPTIONS] = ([], OptionsSource),
+            [SIGNALR_CORE] = ([], SignalRCoreSource),
+            [SIGNALR] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, ROUTING, SIGNALR_CORE], SignalRSource),
+            [MVC_RAZOR_PAGES] = ([ROUTING], RazorPagesSource)
         };
 
     private static readonly ConcurrentDictionary<(string Name, int Major, bool Empty), Lazy<MetadataReference>> Cache = new();
 
     public static IReadOnlyList<string> Names { get; } =
-        Stubs.Keys.Where(name => name is not (NEWTONSOFT_JSON or OPTIONS or MVC_ABSTRACTIONS)).ToArray();
+        Stubs.Keys.Where(name => name is not (NEWTONSOFT_JSON or OPTIONS or MVC_ABSTRACTIONS or SIGNALR_CORE or SIGNALR or MVC_RAZOR_PAGES)).ToArray();
 
     /// <summary>Whether a stub follows the target framework's major version; the gRPC stubs do not.</summary>
     public static bool IsFramework(string name) => name is not (GRPC_CORE_API or GRPC_ASPNETCORE_SERVER);
@@ -997,6 +1012,66 @@ public static class StubAssemblies
         }
         """;
 
+    private const string SignalRCoreSource = """
+        using System;
+        using System.Threading.Tasks;
+
+        namespace Microsoft.AspNetCore.SignalR
+        {
+            public abstract class Hub : IDisposable
+            {
+                public virtual Task OnConnectedAsync() => throw null!;
+                public virtual Task OnDisconnectedAsync(Exception? exception) => throw null!;
+                public void Dispose() { }
+                protected virtual void Dispose(bool disposing) { }
+            }
+
+            public interface ISignalRServerBuilder { }
+        }
+        """;
+
+    private const string SignalRSource = """
+        using Microsoft.AspNetCore.Routing;
+        using Microsoft.AspNetCore.SignalR;
+
+        namespace Microsoft.AspNetCore.Builder
+        {
+            public sealed class HubEndpointConventionBuilder { }
+
+            public static class HubEndpointRouteBuilderExtensions
+            {
+                public static HubEndpointConventionBuilder MapHub<THub>(this IEndpointRouteBuilder endpoints, string pattern) where THub : Hub => throw null!;
+            }
+        }
+
+        namespace Microsoft.Extensions.DependencyInjection
+        {
+            public static class SignalRDependencyInjectionExtensions
+            {
+                public static ISignalRServerBuilder AddSignalR(this IServiceCollection services) => throw null!;
+            }
+        }
+        """;
+
+    private const string RazorPagesSource = """
+        using Microsoft.AspNetCore.Routing;
+
+        namespace Microsoft.AspNetCore.Mvc.RazorPages
+        {
+            public abstract class PageModel { }
+        }
+
+        namespace Microsoft.AspNetCore.Builder
+        {
+            public sealed class PageActionEndpointConventionBuilder { }
+
+            public static class RazorPagesEndpointRouteBuilderExtensions
+            {
+                public static PageActionEndpointConventionBuilder MapRazorPages(this IEndpointRouteBuilder endpoints) => throw null!;
+            }
+        }
+        """;
+
     private const string MvcSource = """
         using System;
         using Microsoft.AspNetCore.Mvc;
@@ -1011,6 +1086,7 @@ public static class StubAssemblies
                 public static IMvcBuilder AddControllers(this IServiceCollection services, Action<MvcOptions>? configure) => throw null!;
                 public static IMvcBuilder AddControllersWithViews(this IServiceCollection services) => throw null!;
                 public static IMvcBuilder AddControllersWithViews(this IServiceCollection services, Action<MvcOptions>? configure) => throw null!;
+                public static IMvcBuilder AddRazorPages(this IServiceCollection services) => throw null!;
             }
         }
         """;

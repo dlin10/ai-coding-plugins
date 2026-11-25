@@ -77,7 +77,10 @@ internal sealed partial record HostedServiceProbe(string Service, string Types, 
                                Canonical(result.Accesses.Where(access => !access.IsConstructionLocal).Select(access => DescribeAccess(access, markers))),
                                Canonical(result.Roots.Select(root => $"{root.RootKind} {Member(root.Entry.Symbol)}")))
         {
-            Uncertainties = Canonical(result.Findings.SelectMany(finding => finding.Uncertainty))
+            Uncertainties = Canonical(result.Findings.SelectMany(finding => finding.Uncertainty)),
+            UncertaintiesByFinding = result.Findings.GroupBy(finding => Describe([finding], markers, false)[0], StringComparer.Ordinal)
+                                                    .ToDictionary(group => group.Key, group => Canonical(group.SelectMany(finding => finding.Uncertainty)),
+                                                                  StringComparer.Ordinal)
         };
     }
 
@@ -229,6 +232,10 @@ internal sealed record ProbeAnswer(string[] Findings, string[] Accesses, string[
 {
     /// <summary>Every line of uncertainty the findings carry, distinct and in ordinal order.</summary>
     public string[] Uncertainties { get; init; } = [];
+
+    /// <summary>The lines of uncertainty of each finding, by the finding as <see cref="HostedServiceProbe.Describe"/> writes it without
+    /// marks, distinct and in ordinal order.</summary>
+    public IReadOnlyDictionary<string, string[]> UncertaintiesByFinding { get; init; } = new Dictionary<string, string[]>();
 }
 
 /// <summary>What a probe's project holds besides its main source file.</summary>
