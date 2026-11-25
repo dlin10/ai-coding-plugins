@@ -978,7 +978,7 @@ Candidate подавляется, если доказано хотя бы одн
 
 ### 10.4. Ограниченная soundness
 
-Analyzer стремится не пропускать defects внутри supported subset. Неразрешённые gaps остаются `Unknown` и видны в coverage. Native/unsafe memory, runtime-generated code, `Channel<T>`, event-based ожидания это опубликованные ограничения.
+Analyzer стремится не пропускать defects внутри supported subset. Неразрешённые gaps остаются `Unknown` и видны в coverage. Native/unsafe memory, runtime-generated code, `Channel<T>`, event-based ожидания это опубликованные ограничения. К ним же относятся: поток finalizer — у finalizer нет root-а, и его accesses не собираются (пропуск); повторная выдача объекта пулом — `Rent` после `Return` даёт анализу два разных объекта (пропуск); `TaskCreationOptions.AttachedToParent` — ожидание родителя не упорядочивает присоединённую задачу (лишняя пара); длина последовательности — число элементов источника не моделируется, и делегат оператора может идти сколько угодно раз (лишняя пара на источнике из одного элемента).
 
 ### 10.5. Внутренние бюджеты
 
