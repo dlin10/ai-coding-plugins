@@ -4113,6 +4113,30 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionMemberEffectTests.Member_makes_the
 ConcurrencyHunter.Core.Tests.Engine.CollectionMemberEffectTests.Member_makes_the_accesses_the_table_gives_it(type: "System.Collections.Generic.Stack`1", member: "TryPop", structure: Write, element: Write, namesCell: False, atomic: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionMemberEffectTests.Member_makes_the_accesses_the_table_gives_it(type: "System.Collections.ICollection", member: "get_Count", structure: Read, element: None, namesCell: False, atomic: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionMemberEffectTests.Member_makes_the_accesses_the_table_gives_it(type: "System.Collections.IEnumerable", member: "GetEnumerator", structure: Read, element: Read, namesCell: False, atomic: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Marked_site_collected_what_the_record_names(name: "jagged-array-disjoint-rows")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Marked_site_collected_what_the_record_names(name: "jagged-array-same-row")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Marked_site_collected_what_the_record_names(name: "list-values-of-a-concurrent-map")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Marked_site_collected_what_the_record_names(name: "memory-slices-disjoint")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Marked_site_collected_what_the_record_names(name: "memory-span-against-an-index")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-read-only-view")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "contains-key-then-add")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "contains-key-then-try-add")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "count-then-index-against-clear")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "count-then-try-add")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "deferred-where-against-an-add")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "dictionary-key-from-a-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "jagged-array-disjoint-rows")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "jagged-array-same-row")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "list-values-of-a-concurrent-map")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-slices-disjoint")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-span-against-an-index")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "property-returning-the-list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "queue-enqueue-against-dequeue")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "static-array-disjoint-cells")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "static-readonly-dictionary")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "to-list-against-an-add")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionPatternProbeTests.Static_array_writes_are_collected_on_their_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionResourceTests.A_check_on_an_unproven_receiver_and_a_change_on_one_of_its_objects_are_one_sequence	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionResourceTests.A_collection_the_table_does_not_name_has_neither_resource	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionResourceTests.A_comparer_that_ignores_case_makes_two_keys_one_cell	Passed
@@ -11398,6 +11422,49 @@ ConcurrencyHunter.Core.Tests.Engine.ProofArgumentOrderTests.A_question_whose_las
 ConcurrencyHunter.Core.Tests.Engine.ProofArgumentOrderTests.Demo_questions_are_proven_alike_either_way_round	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProofArgumentOrderTests.EShop_questions_are_proven_alike_either_way_round	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProofArgumentOrderTests.Fixture_questions_are_proven_alike_either_way_round	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Frozen_dictionary_is_read_by_both_services_and_its_lookup_makes_no_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "add-or-update-on-a-present-key")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "add-or-update-on-an-empty-map")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "frozen-dictionary-read-by-both")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-boxed-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-string-literal")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-this-against-a-gate")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-this-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-two-types")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-typeof-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-scope-around-a-task-run")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-try-enter-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-try-enter-unchecked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "monitor-try-enter-ms-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "monitor-try-enter-ms-unchecked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "mutex-against-a-plain-write")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-around-a-task-run")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-class-of-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-one-of-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-wait-ms-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-wait-ms-unchecked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "semaphore-wait-token")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "spin-lock-in-a-readonly-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "synchronized-against-a-plain-write")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "synchronized-against-lock-this")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "synchronized-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "synchronized-static-and-instance")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "try-enter-write-lock-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "try-enter-write-lock-unchecked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-lock-objects")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-mutexes")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-reader-writer-locks")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "volatile-field-increment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "volatile-read-then-write")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "write-lock-against-a-plain-write")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "lock-on-this-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "lock-try-enter-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "monitor-try-enter-ms-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "semaphore-one-of-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "semaphore-wait-ms-checked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "semaphore-wait-token")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProtectionFailureProbeTests.Protected_writes_are_one_resource_under_a_sufficient_common_protection(name: "try-enter-write-lock-checked")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_folded_finding_reports_its_least_protected_occurrence	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_lock_around_only_the_write_of_a_read_modify_write_is_not_sufficient	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_lock_on_a_fresh_object_in_every_call_is_different_identity	Passed
