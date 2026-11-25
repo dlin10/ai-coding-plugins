@@ -1661,6 +1661,12 @@ ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Heap_and_executions_e
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Low_available_commit_cuts_with_reason_memory_in_any_step	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Peak_working_set_belongs_to_its_scope_window	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Steps_before_the_heap_have_no_deadline	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_catching_the_fault_a_helper_hands_on_from_work_leaving_its_child_keeps_the_pair(early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_catching_the_fault_a_helper_hands_on_from_work_leaving_its_child_keeps_the_pair(early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_waiting_for_a_helper_that_swallows_the_fault_of_work_leaving_its_child_keeps_the_pair(wait: "await h;", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_waiting_for_a_helper_that_swallows_the_fault_of_work_leaving_its_child_keeps_the_pair(wait: "await h;", early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_waiting_for_a_helper_that_swallows_the_fault_of_work_leaving_its_child_keeps_the_pair(wait: "h.Wait();", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_caller_waiting_for_a_helper_that_swallows_the_fault_of_work_leaving_its_child_keeps_the_pair(wait: "h.Wait();", early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: ContinueWithArgument, read: Cast)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: ContinueWithArgument, read: CastThroughObject)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: ContinueWithArgument, read: Current)	Passed
@@ -1681,6 +1687,10 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: TaskFactoryOfInt, read: Current)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: TaskFactoryOfInt, read: Direct)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_cast_of_the_default_scheduler_names_the_default_scheduler(named: TaskFactoryOfInt, read: New)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_catch_after_an_optional_blocking_join_of_work_leaving_its_child_keeps_the_pair(handler: "After();", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_catch_after_an_optional_blocking_join_of_work_leaving_its_child_keeps_the_pair(handler: "After();", early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_catch_after_an_optional_blocking_join_of_work_leaving_its_child_keeps_the_pair(handler: "await Task.Yield(); After();", early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_catch_after_an_optional_blocking_join_of_work_leaving_its_child_keeps_the_pair(handler: "await Task.Yield(); After();", early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_conversion_that_may_throw_before_the_wait_keeps_the_pair(cast: Downcast, form: Await, placement: Direct, side: After)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_conversion_that_may_throw_before_the_wait_keeps_the_pair(cast: Downcast, form: Await, placement: Direct, side: NextPass)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_conversion_that_may_throw_before_the_wait_keeps_the_pair(cast: Downcast, form: ConfiguredTask, placement: Direct, side: After)	Passed
@@ -1966,6 +1976,12 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_program_
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_program_call_feeding_the_wait_inside_the_try_keeps_the_pair(form: WhenAllWait, inside: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_program_call_feeding_wait_all_inside_the_try_keeps_the_next_pass_pair(inside: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_program_call_feeding_wait_all_inside_the_try_keeps_the_next_pass_pair(inside: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_after_catching_the_fault_of_work_leaving_its_child_keeps_the_pair(tail: "try { await outer; } catch (Exception) { } await T"···, early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_after_catching_the_fault_of_work_leaving_its_child_keeps_the_pair(tail: "try { await outer; } catch (Exception) { } await T"···, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_after_catching_the_fault_of_work_leaving_its_child_keeps_the_pair(tail: "try { await outer; } catch (Exception) { await Tas"···, early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_after_catching_the_fault_of_work_leaving_its_child_keeps_the_pair(tail: "try { await outer; } catch (Exception) { await Tas"···, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_in_a_catch_that_rethrows_the_fault_of_work_leaving_its_child_keeps_the_pair(early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_tail_a_helper_enters_in_a_catch_that_rethrows_the_fault_of_work_leaving_its_child_keeps_the_pair(early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch(waiter: ConfiguredGetResult, leave: Helper, join: Wait, paired: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch(waiter: ConfiguredGetResult, leave: Throw, join: Wait, paired: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch(waiter: GetResult, leave: Helper, join: Wait, paired: True)	Passed
@@ -2236,6 +2252,9 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_ski
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: Wait, early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: WhenAllWait, early: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: WhenAllWait, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_in_a_helper_of_a_task_leaving_before_its_child_join_keeps_the_pair_on_the_catch_path(leave: "after the join", exceptionalPathOrdered: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_in_a_helper_of_a_task_leaving_before_its_child_join_keeps_the_pair_on_the_catch_path(leave: "before the join", exceptionalPathOrdered: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_in_a_helper_of_a_task_leaving_before_its_child_join_keeps_the_pair_on_the_catch_path(leave: "nowhere", exceptionalPathOrdered: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_of_a_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_of_a_task_leaving_before_its_child_join_reads_as_before(leave: None, paired: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Another_operation_giving_a_group_or_its_listing_keeps_the_pair(shape: "element-read", inTry: "var all = new[] { t }; Task.WaitAll(new Task[] { a"···)	Passed
@@ -2798,6 +2817,8 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_instal
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_installer_body_is_reached_as_the_scope_says(scope: SetContextDeadBranch, reached: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.The_installer_body_is_reached_as_the_scope_says(scope: SetContextUnreached, reached: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.There_are_495_cells_covering_every_value_of_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Two_helpers_in_a_row_the_outer_catching_the_fault_of_the_inner_keep_the_pair(early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Two_helpers_in_a_row_the_outer_catching_the_fault_of_the_inner_keep_the_pair(early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Wait_all_of_a_partly_proven_set_caught_orders_nothing	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Wait_all_of_two_ordinary_tasks_caught_orders_both	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Wait_all_with_a_task_on_a_program_scheduler_caught_orders_neither(ownFirst: False)	Passed
@@ -2811,6 +2832,12 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.When_all_w
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.When_all_wait_of_two_ordinary_tasks_caught_orders_both	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.When_all_wait_with_a_task_on_a_program_scheduler_caught_orders_neither(ownFirst: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.When_all_wait_with_a_task_on_a_program_scheduler_caught_orders_neither(ownFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "await Helper();", helper: "private async Task Helper() { while (true) { var o"···, early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "await Helper();", helper: "private async Task Helper() { while (true) { var o"···, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "for (var pass = 0; pass < 3; pass++) { var h = Hel"···, helper: "private async Task Helper() { var outer = OUTER; t"···, early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "for (var pass = 0; pass < 3; pass++) { var h = Hel"···, helper: "private async Task Helper() { var outer = OUTER; t"···, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "for (var pass = 0; pass < 3; pass++) await Helper("···, helper: "private async Task Helper() { var outer = OUTER; t"···, early: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(body: "for (var pass = 0; pass < 3; pass++) await Helper("···, helper: "private async Task Helper() { var outer = OUTER; t"···, early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Continuation_without_a_body_touches_its_state	Passed
 ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Lambda_work_calling_a_member_without_a_body_keeps_its_effect_in_the_spawn	Passed
 ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Library_method_group_on_a_library_object_touches_the_array_it_is_handed	Passed

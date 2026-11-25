@@ -5995,3 +5995,189 @@ replays — в счёт. В копиях дизъюнкты обёрнуты в 
 - `check-docs`: выход 0 — на проверенном дереве и на итоговом.
 
 Логи — `scratch/ch492/trees/t3b/`. Гейты первой сдачи шли на дереве с правкой #495 (`41a6d665`) и здесь не в счёт.
+
+## #498 — proof site pass не берёт исключительный выход wait за завершение работы, которой ожидаемая задача не дождалась
+
+**Вход.** Hosted worker один раз ждёт helper: `var h = Helper(); await h;`. Helper запускает внешнюю работу (`Task.Run`), та —
+дочернюю с записью `First` и может бросить до `inner.Wait()`; helper ловит `await outer` и пишет `After`. Race есть: на
+исключительном пути `After` идёт, пока `First` ещё может работать. Finding `First` / `After` не было.
+
+**Два execution instances access `After`.**
+- В `ROOT` — путь через `catch`: исключительный путь первого `await` лежит в префиксе (D-0016 рана 5d H2b, `5d-H2b.md`, строка 21).
+- В async-продолжении `Helper` — вход продолжения читается как следующий за обычным завершением внешней работы.
+
+Пару с продолжением упорядочивает путь happens-before по D-0016; эту посылку для первого `await` в `try` ставит под вопрос #501,
+в этой правке путь не трогается. Пару с `ROOT` упорядочивал proof site pass — неверно. Два соседних случая того же пути заведены
+отдельно и здесь не чинятся: `await` с `SuppressThrowing` (#500) и продолжение `ContinueWith` (#502).
+
+**Путь не трогаем.** Ребро — join входа tail, который делает `AtResumptions` (`HappensBefore.cs` 1277); его исключительный
+выход читается как всегда, и `WithoutRunningWork` его не пересматривает — так решено в D-0016. D-0016 говорит, что флаг этого join
+«ничто не читает». Прямо его не читает ни один ответ: `FlowOf` кладёт wait под ключ `(instance, операция)` через `ThrowingAfter`
+(2218), flow ищет ключ по операции тела, которое проходит (2659), а у входа tail ключ `("", -1)` — `PointKey.Entry` (2378) — ни с
+одной операцией не совпадает. Косвенно читает: `ThrowingAfter` кладёт подходящие точки и в множества других waits (2236), а
+`Nodes` отображает `Entry` в starts. Неверного ответа от этого косвенного чтения не найдено. Флаг `Candidate` читают ещё
+`WithoutRunningWork` (1163, только точки `blocking`) и подъём к местам вызова (1386, 1397) — вход tail ни там, ни там. SPEC TD-065
+и XML `WithoutRunningWork` не менялись. Строки — по итоговому коду (`983c1700` с этой правкой).
+
+**Trace proof до правки** (зонд `Probe498Trace`, не сдаётся; 24.11 ~20:45). Пара `First` / access `After` в `ROOT`:
+
+| Шаг | `throw` до `inner.Wait()` (#498) | `throw` после (контроль) |
+|---|---|---|
+| `inner-pass-returns` дочерняя в внешней | normal-return=True, exceptional-return=False → True | normal-return=True, exceptional-return=True → True |
+| `climb` внешняя → продолжение | fault-follows=True, entry-task-waited=True → True | то же |
+| `parent-allows` `ROOT` | runs-once=True → True | то же |
+| `complete-before-access` внешняя → `ROOT` | before-destination=True, exceptional-return=False → True | before-destination=True, exceptional-return=True → True |
+
+Шаги различают вход и контроль только в `exceptional-return`, а итог один: `complete-before-access` принимает пару по
+`before-destination`. Trace называет шаг, а не место: что причина — `PassFlow`, установлено по коду и мутацией (ниже).
+
+**Первый круг правки.** При `faultCompletion = false` `CompleteBeforeAccess` ослаблял только joins `start` в своём списке, а
+`PassFlow` добавлял к ним waits, которые подъём записал для `start` в `_completions`, как есть: `await outer` там `true`, и flow
+по-прежнему считал путь через `catch` идущим после работы. `PassFlow` получил `faultCompletion` и при false читает каждый такой wait
+как wait, чей fault не следует за завершением.
+
+**Второй круг: тот же класс ещё в двух местах.** Ревью (Codex и Opus) вывело из кода три входа; фикстуры (зонд `Probe498b`, код
+первого круга) подтвердили два:
+
+| Вход | `throw` до `inner.Wait()` | Контроль: `throw` после |
+|---|---|---|
+| 1. tail helper: `catch { await Task.Yield(); After(); }` и `catch { }` затем `await Task.Yield(); After();` | пары нет: единственную `After` (в продолжении) упорядочивает proof | упорядочена proof |
+| 2. climb: worker `await h; After();` и `h.Wait(); After();`, helper `try { await outer; } catch { }` | пары нет: `After` в `ROOT` упорядочивает proof | упорядочена proof |
+| 3. helper повторяет `outer` из `catch`; worker в цикле зовёт helper с `catch` | **пара `First` с собой есть, не упорядочена** | упорядочена proof |
+
+**Правка второго круга** (`PassCompletionProof`).
+- **Вход 2 — флаг в `Frame` → `Climb`** (выбор координатора (а)). `Climb` решает, может ли тело, где `await` приостанавливает,
+  стоять за работу, по `bodyWaits`: каждый обычный возврат тела после этого `await`. Читал он сильное чтение `await outer`, и
+  обычный возврат helper через `catch` считался после wait — wait вызывающего (`await h`, `h.Wait()`) поднимался как обычный cut.
+  Теперь `Climb` получает `faultCompletion` и читает flow через `PassFlow(…, faultCompletion)`: при погашенном fault путь через
+  `catch` к обычному возврату обходит wait, подъём не идёт, `Frame` не находит join. Флаг передаётся и в подъём `Climb` к
+  вызывающему; рамки tail-ов, которые строит `Climb`, получали во втором круге исходный флаг — это поправил третий круг (ниже).
+- **Вход 1 — флаг в `TailCompletes` и `TailFollows`** (вариант (ii)): waits, записанные подъёмом, читаются ослабленно, и suspension
+  в `catch` или после него — в обход wait.
+- **Параметр `faultCompletion` обязательный** у `PassFlow`, `Frame`, `Climb`, `TailCompletes`, `TailFollows`: каждый вызов решает
+  явно, у каждого `true` — комментарий, почему (вопрос о собственной работе: `SequentialRuns`, `CompleteBefore`,
+  `CompleteBeforeNext`, рамка носителя handle, проход допущенного вызова, `OutersAllow`). `ParentAllows` передаёт `allCompletion`
+  и в `Frame`, и в `PassFlow`.
+- **Порядок `Frame` и флага.** Флаг уровня вычисляется на уровне ниже (`inner-pass-returns`) до рекурсии, поэтому `Frame`
+  получает его при первом вызове; второго прохода нет, и `Frame` на вопрос не больше, чем было: при погашенном fault подъём может
+  остановиться раньше, и рамки tail-ов выше не строятся. Отдельным счётчиком не мерил. Кеши: `_parentJoins` и `_handleOrigins` от
+  флага не зависят; ключ `_flows` содержит чтения после `&&`; `_completions` чистится перед каждым disjunct. Ответ остаётся
+  функцией графа и вопроса: `ProofArgumentOrderTests` и `ProofAnswerLimitTests` зелёные без правок.
+
+**Почему вход 3 не подтвердился** (trace, зонд `Probe498c`). В обеих формах join внешней работы — сам `await outer`, он в
+локальном списке joins. `ParentAllows` при `allCompletion = false` ослабляет этот список, а `PassFlow` сливает записи
+`_completions` с joins по точке через `All` — запись той же точки ослаблена вместе с ним. Шаг `own-pass-before-next` = False, и
+proof отказывает. Codex исходил из wait, записанного рамкой, но не входящего в joins (промежуточный, поднятый подъёмом); в обеих
+формах такого нет, и на них `allCompletion` и `true` в `ParentAllows` не различаются. Обе формы остались фактами: пара `First` с
+собой есть и не упорядочена. Вход, на котором `allCompletion` решает, нашёл третий круг (ниже).
+
+**Что теряет вариант (i)** (`faultCompletion && TailCompletes(...)`). Первая проверка `TailCompletes` — каждый выход тела,
+исключительные тоже, после waits; при ослабленных waits она ложна всякий раз, когда fault wait доходит до выхода. Значит, (i) и
+(ii) расходятся только на телах, где fault ни одного wait до выхода не доходит; такой вход не найден. На фикстурах второго круга
+флаг `TailCompletes` в одиночку не решает: tail после пойманного fault отказывает уже подъём (флаг `Climb`), а вместе снятые они
+красят вход 1 и tail в `catch` с повторным `throw`. Вход, где решает только `TailCompletes`, нашёл третий круг (ниже).
+
+**Третий круг: ещё одна передача и входы для трёх мест.** Ревью второй сдачи (Codex) нашло ещё одну передачу, где гарантия
+терялась, и вывело из кода входы для мест, которые на фикстурах второго круга в одиночку не решали. Фикстуры — зонд `Probe498f`
+на коде второго круга (`983c1700` с ним, дерево `2e5b617f`):
+
+| Вход | Ранний `throw` | Контроль: `throw` после join |
+|---|---|---|
+| 1. Два helper подряд: `A` запускает задачу с `First` и может бросить до `await t`; `B`: `var a = A(); try { await a; } catch { }`; worker: `var b = B(); await b; After();` | **пары нет: `After` в `ROOT` упорядочивает proof** | proof, `[]` |
+| 2. Helper: `if (probe) { try { outer.Wait(); } catch { } }`, затем `try { await outer; } catch { await Task.Yield(); After(); }` | не упорядочена, пара есть | proof, `[observers, thread-pool-entry]` |
+| 3. То же, `catch { After(); }`; `After` в `ROOT` | не упорядочена, пара есть | proof, `[observers, thread-pool-entry]` |
+| 4. Worker: `for (…) { var h = Helper(); h.Wait(); }`, helper `try { await outer; } catch { }`; `First` с собой | не упорядочена, пара есть | proof, `[observers, thread-pool-entry]` |
+
+Вход 1 — false negative кода второго круга. `Climb` строил рамку tail-а `A`, которую ждёт `await a` в `B`, с исходным
+`faultCompletion`. Ранний `throw` в `A` делает `faultFollows` ложным, но подъём этой рамки читал `await a` сильно, не видел пути
+`catch` → обычный возврат `B` и поднимал `await b` worker-а. Ослабление записей после рамки (`completion.Value && faultFollows`)
+снимало только исключительный выход уже поднятого wait, а обычный оставался cut. Правка: рамка tail-а строится с
+`faultCompletion && faultFollows` — с гарантией, установленной для тела. Вход 2 второго круга теряет гарантию раньше, в
+`CompleteBeforeAccess`, и эту передачу не проверял.
+
+Входы 2–4 код второго круга решал верно, и каждый решает одно место в одиночку: на зонде M-B, M-D и M-C делают свой вход
+упорядоченным proof без пары, а у своего контроля снимают assumptions; ответы на чужих входах не меняются. Блокирующий join держит рамку непустой: `Frame` успешен, если
+выжил хоть один join, так что неудавшийся подъём не делает дальнейшие проверки недостижимыми. Во входе 4 рамка `ParentAllows`
+поднимается от `await outer` к `h.Wait()` worker-а через проглоченный fault; это не цикл `await Helper()` второго круга, где
+локальным cut был сам `await outer`.
+
+**Маска после слияния.** `PassFlow` ослабляет при `faultCompletion = false` и waits, переданные явно, а не только записанные
+подъёмом: маска применяется после объединения обоих источников. Раньше явный wait слабел только через `All`, если у той же точки
+была слабая запись, — так выходило везде, где явный wait шёл из рамки, но свежие waits вызывающего из `TailFollows` такой записи
+не имеют. На фикстурах ответ не меняется: `Probe498f` даёт то же с маской до слияния и после, на коде второго круга и с правкой
+входа 1, и мутация M-F (маска до слияния) зелёная. Строка `CompleteBeforeAccess`, ослабляющая joins до `PassFlow`, была до #498
+и оставлена; с маской в `PassFlow` она ничего не меняет.
+
+**Тесты** (`BlockingWaitAssumptionMatrixTests`). Каждая пара execution instances — отдельно, с ветвью `OrderedBy` и набором
+assumptions; execution instance назван явно («`After` в корне», «в продолжении»):
+
+| Теория / факт | Ранний `throw` | Контроль |
+|---|---|---|
+| `catch` в helper, `After` после него (первый круг) | `ROOT`: не упорядочена; продолжение: путь | `ROOT`: proof, `[observers, thread-pool-entry]`; продолжение: путь, `[]` |
+| tail helper: `Yield` в `catch` и после `catch` | не упорядочена, finding | proof, `[observers, thread-pool-entry]` |
+| вызывающий после `await h` и `h.Wait()` | не упорядочена, finding | proof, `[observers, thread-pool-entry]` |
+| tail в `catch` с повторным `throw`, вызывающий ловит | не упорядочена, finding | proof, `[observers, thread-pool-entry]` |
+| helper не ловит, вызывающий ловит | не упорядочена, finding (как до #498) | proof, `[observers, thread-pool-entry]` |
+| повтор из `catch`, цикл worker-а с `await Helper()` (вход 3 второго круга), цикл с отдельным вызовом и `h.Wait()` (вход 4 третьего) | пара `First` с собой, не упорядочена | proof, `[observers, thread-pool-entry]` |
+| два helper подряд (вход 1 третьего круга) | не упорядочена, finding | proof, `[]` |
+| `catch` после необязательного блокирующего join: `Yield` в `catch`; `After` в `catch` (входы 2 и 3 третьего круга) | не упорядочена, finding | proof, `[observers, thread-pool-entry]`; `After` в продолжении — путь, `[]` |
+
+XML теории первого круга говорит, что строка о продолжении закрепляет D-0016 и что #501 ставит его под вопрос.
+
+**Assumptions контролей (R5).** Зонд `Probe498e`: до #498 контроли упорядочены без assumptions, после — с
+`[observers, thread-pool-entry]` (первый круг — `catch` в helper; второй — tail и вызывающий). Порядок держится на чтении
+блокирующего `inner.Wait()` внутренней работы на потоке пула: бросает только после завершения дочерней. Replay, снимающий это
+множество, гасит fault работы ниже, и proof отказывает — пара честно приписана этому множеству. Утверждено в тестах.
+
+Для пользователя это значит: пропуск такой упорядоченной пары pairing теперь считает в счётчиках `assumed` обоих assumptions,
+`observers` и `thread-pool-entry`, — и у пар, которые до #498 не считал ни в одном. Новые assumptions получают и входы совсем без `throw`: у
+внутренней работы, которая только ждёт дочернюю, `inner.Wait()` тоже может бросить, и proof держится на чтении этого join
+(строки `none` зонда `Probe498e`: до #498 — `[]` у шести форм из девяти, после второго круга — `[observers, thread-pool-entry]`
+у всех девяти). Finding и неуверенность решателя от этого не меняются: pairing считает пропуск и выходит, когда witness не
+остался.
+
+**Мутации** — на итоговом коде и итоговых тестах, все заново: дерево индекса `08461234` (`src` `534841ec`), scratch-копия
+`ch492-p`, Debug, четыре класса (`BlockingWaitAssumptionMatrixTests`, `ProofArgumentOrderTests`, `ProofAnswerLimitTests`,
+`AwaitLeavingWorkMatrixTests`, 1 593 теста) на приоритете Idle, 25.11 01:21–01:33; без мутации — 1 593 из 1 593. Каждая — одно
+место, вернувшее `true` или код второго круга; диффы и их хеши записаны. Ранний случай краснеет на ветви (`PassCompletion` вместо
+«не упорядочена»), контроль — на assumptions (`[]` вместо `[observers, thread-pool-entry]`).
+
+| Мутация | Что снимает | Красные |
+|---|---|---|
+| M-A | флаг в `Frame` из `CompleteBeforeAccess` (`true`) | 4: вызывающий после `await h` и `h.Wait()`, ранний и контроль |
+| M-B | флаг в `TailCompletes` (`true`) | 2: `catch` после необязательного блокирующего join, `Yield` в `catch`, ранний и контроль |
+| M-A+B | оба | 12: те шесть, tail helper (`Yield` в `catch` и после, четыре), tail в `catch` с `throw` (два) |
+| M-C | `allCompletion` в `ParentAllows` (`true` в `Frame` и `PassFlow`) | 2: цикл с отдельным вызовом и `h.Wait()`, ранний и контроль |
+| M-D | флаг в `PassFlow` из `CompleteBeforeAccess` (`true`) | 2: `catch` после необязательного блокирующего join, `After` в `catch`, ранний и контроль |
+| M-A+D | M-A и M-D | 9: шесть M-A и M-D, `catch` в helper первого круга (три) |
+| M-E | гарантию тела в рамке tail-а (`faultCompletion` вместо `faultCompletion && faultFollows`) | 1: два helper подряд, ранний |
+| M-F | маску после слияния (код второго круга: явные waits не ослабляются) | 0 — ни один вход их не различает |
+
+Каждое место теперь закреплено своим тестом, кроме маски после слияния: вход, где она решает, не найден.
+
+**Потеря точности** (Codex). Внешняя работа бросает `EarlyException` до `inner.Wait()` и `LateException` после, `After` — только в
+`catch (LateException)`: `First` предшествует каждому настоящему `After`, но один ложный бит открывает и путь обработчика раннего
+fault. Консервативно; сильный бит возвращать не надо.
+
+**SPEC §12.3** требует минимальный demo case на каждый подтверждённый false negative. Он меняет findings demo и модели, поэтому —
+отдельным шагом после этого патча, с `record-demo-models` и зондом, где ожидаемая разница — ровно новые findings.
+
+**Зонд findings demo и eShop до и после** — против вершины `983c1700` (#495 и pairing census внутри), на итоговом коде трёх
+кругов. Все восемь пар файлов побайтно равны: ни одного нового finding, ни одной ушедшей упорядоченной пары, счётчики skip и
+`assumed` pairing те же. Разбирать нечего. На demo и eShop нет пары, которую proof упорядочивал через подъём, рамку tail-а или
+tail при погашенном fault работы ниже, и нет пары, чьё приписывание сдвинул R5 (выше). Больших корпусов зонд не касался.
+
+**Гейты** по правилу 23.11; правка меняет timing, а не collection, поэтому без `CH_ACCESS_WORKERS`. Под corpus-lock 25.11
+01:34–01:47, каждый гейт в своём процессе, на коде индекса `b1e42bee` (`src` `534841ec`; `983c1700` с этой правкой), рабочее
+дерево равно индексу:
+- зонд findings demo и eShop против `983c1700`: восемь пар файлов побайтно равны;
+- `check-test-baseline` с `CH_ESHOP_ROOT`, без `CH_ACCESS_WORKERS`: Cli 178/178, Core 17 529 прошли, 39 пропущены, 0 упали;
+  каждый случай, который baseline записал как прошедший, проходит (это вердикт скрипта; его счёт «17 511 из 17 550 прогнанных» —
+  случаи baseline среди прогнанных, а не число прошедших тестов);
+- `record-demo-models -Check`: выход 0;
+- `check-docs`: выход 0, записан в лог вместе с деревом.
+
+Итоговое дерево отличается от прогнанного только этим абзацем и зондом выше; `src` тот же. Прогон на коде второго круга (`498d/`)
+остановлен по PID, когда пришло третье ревью: зонд findings там успел и совпал, baseline и `-Check` не в счёт. Логи —
+`scratch/ch492/trees/` (в репозиторий не входят): `498e/` — гейты, `probe498*` и `p498/` — зонды, `targeted-498*` — классы,
+`mutations-498m2.txt` и `targeted-498m2-*` — мутации, `mutation-498-*.diff` — их состояния.

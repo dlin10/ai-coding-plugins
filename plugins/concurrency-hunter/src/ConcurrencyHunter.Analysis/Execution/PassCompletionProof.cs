@@ -222,7 +222,8 @@ internal sealed partial class HappensBefore
                         return false;
                     var point = new PointKey(instance.Id, wait.Id, false);
                     waits.Add((point, order.ThrowsAfterCompletion(anchor.ExecutionId, instance.Id, waited, proven: true)));
-                    var flow = PassFlow(anchor, waits);
+                    // The call's own runs: no work below them whose fault could be lost on the way up.
+                    var flow = PassFlow(anchor, waits, faultCompletion: true);
                     PointKey[] cuts = [point];
                     // Every path from the call back to the call passes the wait, and from the call to what the parent does after it.
                     next = flow.BeforeNext(after, cuts) && (!inParent || flow.BeforeDestination(after, target, cuts, overlappingRuns: true));
@@ -232,8 +233,9 @@ internal sealed partial class HappensBefore
                 allowed &= next && ParentAllows(anchor.ExecutionId, normal, exceptional, creator, []);
                 if (!allowed)
                     break;
-                // The tail runs after a suspension of its body, which the body reaches only through the wait for the work.
-                if (inTail && !TailFollows(anchor, instance, after, waits, other.ExecutionId, []))
+                // The tail runs after a suspension of its body, which the body reaches only through the wait for the work. The wait is
+                // for the call's own runs, with no work below them whose fault could be lost on the way up.
+                if (inTail && !TailFollows(anchor, instance, after, waits, other.ExecutionId, faultCompletion: true, []))
                 {
                     Steps?.Add(PassStepEvidence.Of("sequential-runs", continuation.ExecutionId, other.ExecutionId, false,
                         ("awaited-at-once", true), ("next-call-after-wait", nextCall), ("parent-allows", allowed), ("tail-follows-wait", false)));
@@ -319,16 +321,18 @@ internal sealed partial class HappensBefore
         /// <param name="waits">The waits at this level for the work of the call or the task of the body below, with whether a faulted
         /// outcome of each still follows the work's completion; none for a call whose work is done when it returns.</param>
         /// <param name="tail">The execution running the code after a suspension of a body in the chain.</param>
+        /// <param name="faultCompletion">Whether a fault of the work below still follows its completion (<see cref="PassFlow"/>): where
+        /// it does not, a suspension reached through a wait's exceptional exit is reached around that wait.</param>
         /// <param name="seen">The bodies already asked on the way down to this one, which the chain does not come back to.</param>
         private bool TailFollows(SpawnAnchor anchor, MethodInstance body, PointKey start, List<(PointKey Point, bool CompletedFault)> waits, string tail,
-                                 HashSet<string> seen)
+                                 bool faultCompletion, HashSet<string> seen)
         {
             WorkCancellation.Check();
             if (!seen.Add(body.Id))
                 return false;
             if (waits.Count != 0)
             {
-                var flow = PassFlow(anchor, waits);
+                var flow = PassFlow(anchor, waits, faultCompletion);
                 var cuts = waits.Select(wait => wait.Point).ToArray();
                 foreach (var suspension in order.PrefixAwaits(body).Select(operation => new PointKey(body.Id, operation, false))
                                                 .Where(point => !cuts.Contains(point)))
@@ -353,7 +357,7 @@ internal sealed partial class HappensBefore
                 if (order._awaitedCalls.FirstOrDefault(call => call.Instance == callerId && call.Operation == operation) is not { } runner ||
                     WaitOfCall(anchor.ExecutionId, runner) is not { } outer || !outer.Done && outer.Wait is null)
                     continue;
-                if (TailFollows(anchor, outer.Caller, outer.After, outer.Wait is { } wait ? [wait] : [], tail, [.. seen]))
+                if (TailFollows(anchor, outer.Caller, outer.After, outer.Wait is { } wait ? [wait] : [], tail, faultCompletion, [.. seen]))
                     return true;
             }
             // A body that a caller awaits at once in its prefix has its tail joined to the caller's: the caller suspends at that await,
@@ -363,7 +367,7 @@ internal sealed partial class HappensBefore
                 WorkCancellation.Check();
                 if (AwaitedAtOnce(anchor.ExecutionId, callerId, operation) is { } awaited &&
                     order._heap.Instances.TryGetValue(callerId, out var awaiting) &&
-                    TailFollows(anchor, awaiting, new PointKey(callerId, operation, true), [awaited], tail, [.. seen]))
+                    TailFollows(anchor, awaiting, new PointKey(callerId, operation, true), [awaited], tail, faultCompletion, [.. seen]))
                     return true;
             }
             // A body entered whole runs inside its caller's visit before the caller goes on, so the caller reaches its own suspensions
@@ -371,7 +375,7 @@ internal sealed partial class HappensBefore
             foreach (var caller in calls.Where(step => step.CalleeSegment == BodySegment.Whole && !TaskEntry(anchor.ExecutionId, step)).Select(step => step.Caller).Distinct(StringComparer.Ordinal))
             {
                 WorkCancellation.Check();
-                if (order._heap.Instances.TryGetValue(caller, out var inline) && TailFollows(anchor, inline, start, waits, tail, [.. seen]))
+                if (order._heap.Instances.TryGetValue(caller, out var inline) && TailFollows(anchor, inline, start, waits, tail, faultCompletion, [.. seen]))
                     return true;
             }
             foreach (var ((caller, operation), starts) in tails)
@@ -390,7 +394,7 @@ internal sealed partial class HappensBefore
                     }
                     aboveWaits.AddRange(joins.Concat(suspended.Select(join => (join.Point, join.CompletedFault))).Where(join => join.Point.Instance == caller));
                 }
-                if (aboveWaits.Count != 0 && TailFollows(anchor, above, new PointKey(caller, operation, true), aboveWaits.Distinct().ToList(), tail, [.. seen]))
+                if (aboveWaits.Count != 0 && TailFollows(anchor, above, new PointKey(caller, operation, true), aboveWaits.Distinct().ToList(), tail, faultCompletion, [.. seen]))
                     return true;
             }
 
@@ -481,9 +485,10 @@ internal sealed partial class HappensBefore
             {
                 WorkCancellation.Check();
                 List<OuterPass>? outers = admittedPass ? [] : null;
-                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins, admittedPass, outers))
+                // The work of the execution itself, not work below it climbed from: its own fault is all the waits read.
+                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins, faultCompletion: true, admittedPass, outers))
                     return false;
-                var flow = PassFlow(anchor, joins);
+                var flow = PassFlow(anchor, joins, faultCompletion: true);
                 var start = StartPoint(anchor, spawn);
                 var cuts = joins.Select(join => join.Point).ToArray();
                 if (!destinations.All(destination => flow.BeforeDestination(start, destination, cuts, overlappingRuns: true)) ||
@@ -506,7 +511,8 @@ internal sealed partial class HappensBefore
             {
                 WorkCancellation.Check();
                 List<OuterPass>? outers = admittedPass ? [] : null;
-                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins, admittedPass, outers) ||
+                // The question's own work, against its next pass: no work below it on the way up.
+                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins, faultCompletion: true, admittedPass, outers) ||
                     !CompleteBeforeNext(execution, creator, anchor, spawn, joins, outers))
                     return false;
             }
@@ -525,7 +531,8 @@ internal sealed partial class HappensBefore
         private bool CompleteBeforeNext(string execution, string? creator, SpawnAnchor anchor, PassStart spawn,
                                         List<(PointKey Point, bool CompletedFault)> joins, IReadOnlyList<OuterPass>? outers = null)
         {
-            var flow = PassFlow(anchor, joins);
+            // The question's own work, as its frame was made.
+            var flow = PassFlow(anchor, joins, faultCompletion: true);
             var start = StartPoint(anchor, spawn);
             var cuts = joins.Select(join => join.Point).ToArray();
             if (!BeforeNextPass(flow, anchor, spawn, start, cuts, overlappingRuns: true))
@@ -601,14 +608,17 @@ internal sealed partial class HappensBefore
             foreach (var (anchor, spawn, handle) in starts)
             {
                 WorkCancellation.Check();
-                Frame(anchor, overlappingWork: false, out _, out var joins);
+                // The pass's own work, whose join the question is about: no work below it on the way up.
+                Frame(anchor, overlappingWork: false, out _, out var joins, faultCompletion: true);
                 if (handle is ({ } carrier, { } carried))
                 {
                     var completedFault = order.ThrowsAfterCompletion(anchor.ExecutionId, join, carrier.Id, [carried], proven: true);
                     var suspends = join.Kind == SummaryJoinKind.Await &&
                                    (order._visits.GetValueOrDefault(anchor.ExecutionId) ?? []).Any(visit => visit.InstanceId == instanceId &&
                                        visit.Segment == BodySegment.Prefix && order._segments.Runs(instance.BodyId, visit.Segment, operation));
-                    foreach (var above in suspends ? Climb(anchor, spawn, instance, point, completedFault, admittedPass: false) : [(point, completedFault)])
+                    // The climb from the carried join is of the same pass's own work, with no work below it either.
+                    foreach (var above in suspends ? Climb(anchor, spawn, instance, point, completedFault, faultCompletion: true, admittedPass: false)
+                                                   : [(point, completedFault)])
                     {
                         WorkCancellation.Check();
                         if (!joins.Contains(above))
@@ -694,6 +704,7 @@ internal sealed partial class HappensBefore
         private bool CompleteBeforeAccess(Access source, Access destination, string? creator)
         {
             WorkCancellation.Check();
+            // The source's own work, where the question starts: no work below it yet.
             return CompleteBeforeAccess(source.ExecutionId, destination, creator, faultCompletion: true, new HashSet<string>(StringComparer.Ordinal));
         }
 
@@ -712,7 +723,7 @@ internal sealed partial class HappensBefore
             foreach (var anchor in starts)
             {
                 WorkCancellation.Check();
-                if (!Frame(anchor, overlappingWork: true, out var spawn, out var joins) ||
+                if (!Frame(anchor, overlappingWork: true, out var spawn, out var joins, faultCompletion) ||
                     !CompleteBeforeAccess(anchor, spawn, joins, destination, creator, faultCompletion, seen))
                     return false;
             }
@@ -735,7 +746,7 @@ internal sealed partial class HappensBefore
             if (!faultCompletion)
                 joins = joins.Select(join => (join.Point, false)).ToList();
             var start = StartPoint(anchor, spawn);
-            var flow = PassFlow(anchor, joins);
+            var flow = PassFlow(anchor, joins, faultCompletion);
             var cuts = joins.Select(join => join.Point).ToArray();
             if (!BeforeNextPass(flow, anchor, spawn, start, cuts, overlappingRuns: false))
             {
@@ -759,7 +770,7 @@ internal sealed partial class HappensBefore
             }
             // The caller may resume in a separate async tail of the same execution. The waits passed on the climb prove which
             // suspensions of its body follow this work; a fault that can leave the work running proves no such completion.
-            if (TailCompletes(anchor, start, destination.ExecutionId) &&
+            if (TailCompletes(anchor, start, destination.ExecutionId, faultCompletion) &&
                 ParentAllows(anchor.ExecutionId, flow.BeforeReturn(start, cuts, exceptionalExits: false),
                              flow.BeforeReturn(start, cuts, exceptionalExits: true), creator, []))
                 return true;
@@ -779,11 +790,14 @@ internal sealed partial class HappensBefore
             return CompleteBeforeAccess(anchor.ExecutionId, destination, creator, faultCompletion, [.. seen]);
         }
 
-        /// <summary>Whether a tail resumes only after a completion of this pass's work.</summary>
+        /// <summary>Whether a tail resumes only after a completion of this pass's work. Where a fault of the work below does not follow
+        /// its completion, the waits the climb passed stop no path on their exceptional exits, so a tail entered after such a fault —
+        /// a suspension in a <c>catch</c>, or after one — does not follow the work (#498).</summary>
         /// <param name="anchor">The pass's start.</param>
         /// <param name="start">Its point in the parent's flow.</param>
         /// <param name="tail">The resumed execution or work it starts.</param>
-        private bool TailCompletes(SpawnAnchor anchor, PointKey start, string tail)
+        /// <param name="faultCompletion">Whether a fault of the work below still follows its completion (<see cref="PassFlow"/>).</param>
+        private bool TailCompletes(SpawnAnchor anchor, PointKey start, string tail, bool faultCompletion)
         {
             var tails = new HashSet<string>(StringComparer.Ordinal);
             for (string? current = tail; current is not null && current != anchor.ExecutionId && tails.Add(current);
@@ -796,8 +810,8 @@ internal sealed partial class HappensBefore
                 WorkCancellation.Check();
                 var waits = group.Select(wait => (Point: wait.Key, CompletedFault: wait.Value)).ToList();
                 if (order._heap.Instances.TryGetValue(group.Key, out var body) &&
-                    PassFlow(anchor, waits).BeforeReturn(start, waits.Select(wait => wait.Point).ToArray(), exceptionalExits: true) &&
-                    tails.Any(candidate => TailFollows(anchor, body, start, waits, candidate, [])))
+                    PassFlow(anchor, waits, faultCompletion).BeforeReturn(start, waits.Select(wait => wait.Point).ToArray(), exceptionalExits: true) &&
+                    tails.Any(candidate => TailFollows(anchor, body, start, waits, candidate, faultCompletion, [])))
                     return true;
             }
             return false;
@@ -842,7 +856,8 @@ internal sealed partial class HappensBefore
             foreach (var anchor in starts)
             {
                 WorkCancellation.Check();
-                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins))
+                // The parent's waits for the work complete it on a fault only where every exit of the parent waited for it.
+                if (!Frame(anchor, overlappingWork: false, out var spawn, out var joins, allCompletion))
                 {
                     Steps?.Add(PassStepEvidence.Of("parent-allows", parent, null, false, ("runs-once", false), ("serialized-after-every-exit", false),
                         ("normal-return", normalCompletion)));
@@ -850,7 +865,7 @@ internal sealed partial class HappensBefore
                 }
                 if (!allCompletion)
                     joins = joins.Select(join => (join.Point, false)).ToList();
-                var flow = PassFlow(anchor, joins);
+                var flow = PassFlow(anchor, joins, allCompletion);
                 var start = StartPoint(anchor, spawn);
                 var cuts = joins.Select(join => join.Point).ToArray();
                 if (!BeforeNextPass(flow, anchor, spawn, start, cuts, overlappingRuns: true))
@@ -877,13 +892,18 @@ internal sealed partial class HappensBefore
         /// calling such a join where the hoisting of <see cref="AtCallSites"/> says the call throws only after it: a path asking about
         /// the pass's work stops there. The intermediate waits the climb passed keep that reading of their exceptions without cutting
         /// the caller's paths. The exception of an <c>await</c> that is no join of the pass is a step of the exits as it is. Only the waits
-        /// recorded for this start are read: another start's waits classify none of its edges (ADR 0035).</summary>
+        /// recorded for this start are read: another start's waits classify none of its edges (ADR 0035). Where a fault of the work below
+        /// does not follow its completion, no wait's exception does, so none of the waits — those given and those recorded alike — stops a
+        /// path asking about the work on its exceptional exit (#498).</summary>
         /// <param name="anchor">The start of the pass.</param>
         /// <param name="joins">The pass's joins, with whether a faulted outcome of each still follows the work's completion.</param>
-        private Flow PassFlow(SpawnAnchor anchor, List<(PointKey Point, bool CompletedFault)> joins)
+        /// <param name="faultCompletion">Whether a fault of the work below still follows its completion; false reads every wait, given or
+        /// recorded for the start by the climb, as one whose fault does not. Every call says which: true where the proof starts from its
+        /// question's own work, the inherited value where it climbs from work below.</param>
+        private Flow PassFlow(SpawnAnchor anchor, List<(PointKey Point, bool CompletedFault)> joins, bool faultCompletion)
         {
-            var local = joins.Concat((_completions.GetValueOrDefault(anchor) ?? [])
-                .Select(wait => (Point: wait.Key, CompletedFault: wait.Value))).ToArray();
+            var local = joins.Concat((_completions.GetValueOrDefault(anchor) ?? []).Select(wait => (Point: wait.Key, CompletedFault: wait.Value)))
+                             .Select(wait => (wait.Point, CompletedFault: faultCompletion && wait.CompletedFault)).ToArray();
             var key = anchor.ChildId + "|" + string.Join(";", local.Select(join => $"{join.Point}:{join.CompletedFault}").Order(StringComparer.Ordinal));
             if (_flows.TryGetValue(key, out var flow))
                 return flow;
@@ -904,13 +924,15 @@ internal sealed partial class HappensBefore
         /// timer's callbacks — has a frame.</param>
         /// <param name="spawn">Receives how the pass starts its work.</param>
         /// <param name="joins">Receives the pass's joins, with whether a faulted outcome of each still follows the work's completion.</param>
+        /// <param name="faultCompletion">Whether a fault of the work below still follows its completion: where it does not, the climb lifts
+        /// no wait of a caller above a body whose normal return a fault of the pass can reach (<see cref="Climb"/>, #498).</param>
         /// <param name="admittedPass">Whether the pass is that of an admitted call. Where its work is inside a delegate another admitted
         /// call runs, the delegate's <c>await</c> ends it for that call's next run, but for what follows the call's return only where the
         /// call's own task is waited at once (<see cref="ClimbRuns"/>); other work keeps the <c>await</c> as its join.</param>
         /// <param name="outers">Receives, for an admitted pass, the passes of the admitted calls whose delegates the work is in, each
         /// completing the work for what follows its call (<see cref="OutersAllow"/>); null for other work.</param>
         private bool Frame(SpawnAnchor anchor, bool overlappingWork, out PassStart spawn, out List<(PointKey Point, bool CompletedFault)> joins,
-                           bool admittedPass = false, List<OuterPass>? outers = null)
+                           bool faultCompletion, bool admittedPass = false, List<OuterPass>? outers = null)
         {
             WorkCancellation.Check();
             var execution = anchor.ChildId;
@@ -928,7 +950,7 @@ internal sealed partial class HappensBefore
             foreach (var (point, completedFault, instance) in suspended)
             {
                 WorkCancellation.Check();
-                foreach (var above in Climb(anchor, spawn, instance, point, completedFault, admittedPass, outers))
+                foreach (var above in Climb(anchor, spawn, instance, point, completedFault, faultCompletion, admittedPass, outers))
                 {
                     WorkCancellation.Check();
                     if (!joins.Contains(above))
@@ -1079,18 +1101,24 @@ internal sealed partial class HappensBefore
         /// done unless that task is waited. A caller that awaits the body at once, whose tail is joined to the body's, suspends at that
         /// await, and the climb goes on from it. Nothing stands for the <c>await</c> when some entry's task is not waited, or the body
         /// may leave around it. An entry's async call whose execution has several starts is waited only when every start whose call
-        /// reaches the suspending instance (<see cref="CallReaches"/>) is, each with its own frame (ADR 0035).</summary>
+        /// reaches the suspending instance (<see cref="CallReaches"/>) is, each with its own frame (ADR 0035). Where a fault of the work
+        /// below does not follow its completion, a path through the <c>await</c>'s exceptional exit has not waited for that work, so a body
+        /// that returns normally on such a path — catching the fault — does not leave its prefix only through the <c>await</c>, and
+        /// nothing above it stands for the work (#498). The frame of the body's tail reads the same guarantee for the body's task: where
+        /// the body may leave by exception around the <c>await</c>, a caller that catches the task's fault and returns normally has not
+        /// waited for the work either.</summary>
         /// <param name="anchor">The start of the pass.</param>
         /// <param name="spawn">How the pass starts its work.</param>
         /// <param name="instance">The instance whose body holds the <c>await</c>.</param>
         /// <param name="point">The <c>await</c>.</param>
         /// <param name="completedFault">Whether a faulted outcome of the <c>await</c> still follows the work's completion.</param>
+        /// <param name="faultCompletion">Whether a fault of the work below the pass still follows its completion (<see cref="PassFlow"/>).</param>
         /// <param name="admittedPass">Whether the pass is that of an admitted call (<see cref="Frame"/>).</param>
         /// <param name="outers">Receives, for an admitted pass, the passes of the admitted calls the climb meets (<see cref="ClimbRuns"/>);
         /// null for other work.</param>
         private IReadOnlyList<(PointKey Point, bool CompletedFault)> Climb(SpawnAnchor anchor, PassStart spawn, MethodInstance instance,
-                                                                           PointKey point, bool completedFault, bool admittedPass,
-                                                                           List<OuterPass>? outers = null)
+                                                                           PointKey point, bool completedFault, bool faultCompletion,
+                                                                           bool admittedPass, List<OuterPass>? outers = null)
         {
             WorkCancellation.Check();
             Completion(anchor, point, completedFault);
@@ -1125,7 +1153,7 @@ internal sealed partial class HappensBefore
                 awaiting.Add((calling, awaited.Point, awaited.CompletedFault));
             }
 
-            var flow = PassFlow(anchor, [(point, completedFault)]);
+            var flow = PassFlow(anchor, [(point, completedFault)], faultCompletion);
             var start = StartPoint(anchor, spawn);
             var bodyWaits = flow.BeforeReturn(start, [point], exceptionalExits: false);
             if (!bodyWaits)
@@ -1151,7 +1179,10 @@ internal sealed partial class HappensBefore
                         foreach (var tailStart in through)
                         {
                             WorkCancellation.Check();
-                            if (!Frame(tailStart, overlappingWork: false, out _, out var waits, admittedPass, outers))
+                            // The tail's task is the work below for the frame, and its fault follows the work's completion only where the
+                            // body's does: a body that may throw around the wait hands its caller a task whose fault the work has not
+                            // completed before.
+                            if (!Frame(tailStart, overlappingWork: false, out _, out var waits, faultCompletion && faultFollows, admittedPass, outers))
                             {
                                 waited = false;
                                 break;
@@ -1188,7 +1219,7 @@ internal sealed partial class HappensBefore
                 {
                     try
                     {
-                        climbed = Climb(anchor, spawn, calling, awaitPoint, awaitFault && faultFollows, admittedPass, outers);
+                        climbed = Climb(anchor, spawn, calling, awaitPoint, awaitFault && faultFollows, faultCompletion, admittedPass, outers);
                     }
                     finally
                     {
@@ -1248,7 +1279,8 @@ internal sealed partial class HappensBefore
             if (WaitOfCall(anchor.ExecutionId, runner) is not { } outer)
                 return false;
             IReadOnlyList<(PointKey Point, bool CompletedFault)> joins = outer.Done || outer.Wait is not { } wait ? []
-                : outer.Suspends ? Climb(anchor, spawn, outer.Caller, wait.Point, wait.CompletedFault, admittedPass: true, outers) : [wait];
+                // The admitted call's own task: no work below it on the way up.
+                : outer.Suspends ? Climb(anchor, spawn, outer.Caller, wait.Point, wait.CompletedFault, faultCompletion: true, admittedPass: true, outers) : [wait];
             outers.Add(new OuterPass(outer.After, joins, outer.Done));
             return true;
         }
@@ -1326,7 +1358,8 @@ internal sealed partial class HappensBefore
                     allowed &= !destinations.Any(destination => plain.Reaches(outer.After, destination, overlappingRuns: true));
                     continue;
                 }
-                var flow = PassFlow(anchor, [.. outer.Joins]);
+                // The admitted call's pass for what follows the call: the question's own work, nothing below it.
+                var flow = PassFlow(anchor, [.. outer.Joins], faultCompletion: true);
                 var cuts = outer.Joins.Select(join => join.Point).ToArray();
                 allowed &= destinations.All(destination => flow.BeforeDestination(outer.After, destination, cuts, overlappingRuns: true));
                 normal &= flow.BeforeReturn(outer.After, cuts, exceptionalExits: false);

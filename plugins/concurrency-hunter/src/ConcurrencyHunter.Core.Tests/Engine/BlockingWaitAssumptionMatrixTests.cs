@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
 using Microsoft.CodeAnalysis;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -997,6 +999,251 @@ public sealed class BlockingWaitAssumptionMatrixTests
 
         Assert.True(Pairs(run, "First", "After"));
     }
+
+    /// <summary>The same <c>await</c> in a helper the worker awaits once (#498). The write after the helper's <c>catch</c> runs in two
+    /// execution instances: in the worker's root, on the exceptional path of the helper's first <c>await</c>, which lies in the prefix,
+    /// and in the helper's continuation. Where the outer task may leave by exception before its join of the child, the child's write is
+    /// not ordered with the write in the root, since the completion proof does not take the outer wait's exceptional exit as
+    /// completing the child; where it cannot leave before the join, the proof orders it. The pair with the write in the continuation is
+    /// ordered by the happens-before path in every case: the start of the continuation is read as following the outer task's normal
+    /// completion (D-0016 of run 5d H2b), which #501 puts in question for a first <c>await</c> inside a <c>try</c>.</summary>
+    /// <param name="leave">Where the outer task may throw: before its join of the child, nowhere, or after the join.</param>
+    /// <param name="exceptionalPathOrdered">Whether the child's write is ordered with the write in the root.</param>
+    [Theory]
+    [InlineData("before the join", false)]
+    [InlineData("nowhere", true)]
+    [InlineData("after the join", true)]
+    public void An_await_in_a_helper_of_a_task_leaving_before_its_child_join_keeps_the_pair_on_the_catch_path(string leave, bool exceptionalPathOrdered)
+    {
+        var outer = leave switch
+        {
+            "before the join" => Outer(early: true),
+            "nowhere" => Nested(Leave.None, InnerJoin.Wait),
+            _ => Outer(early: false)
+        };
+        var run = Analyze(Worker("var h = Helper(); await h;",
+                                 FAIL + $"private async Task Helper() {{ var outer = {outer}; try {{ await outer; }} catch (Exception) {{ }} After(); }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var afters = run.Of("Value").Where(access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal)).ToArray();
+        var inRoot = Assert.Single(afters, access => !access.ExecutionId.Contains('>'));
+        var inContinuation = Assert.Single(afters, access => access.ExecutionId.Contains(">async:", StringComparison.Ordinal));
+
+        Assert.Equal(exceptionalPathOrdered ? TimingBranch.PassCompletion : (TimingBranch?)null, Branch(run, child, inRoot));
+        Assert.Equal(exceptionalPathOrdered ? PoolEntryAssumptions : [], Assumed(run, child, inRoot));
+        Assert.Equal(TimingBranch.HappensBeforePath, Branch(run, child, inContinuation));
+        Assert.Empty(Assumed(run, child, inContinuation));
+        Assert.Equal(!exceptionalPathOrdered, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A helper the worker awaits once enters a tail after catching the fault of outer work that may leave before it joins its
+    /// child — a suspension inside the <c>catch</c>, or after it — and writes there (#498). The write runs only in the helper's
+    /// continuation, which the fault reaches without the child having completed, so where the outer task may throw before the join the
+    /// completion proof does not order the child's write with it and the pair is reported; where it throws only after the join, the
+    /// proof orders them.</summary>
+    /// <param name="tail">The helper's code after the outer work is started.</param>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData("try { await outer; } catch (Exception) { await Task.Yield(); After(); }", true)]
+    [InlineData("try { await outer; } catch (Exception) { await Task.Yield(); After(); }", false)]
+    [InlineData("try { await outer; } catch (Exception) { } await Task.Yield(); After();", true)]
+    [InlineData("try { await outer; } catch (Exception) { } await Task.Yield(); After();", false)]
+    public void A_tail_a_helper_enters_after_catching_the_fault_of_work_leaving_its_child_keeps_the_pair(string tail, bool early)
+    {
+        var run = Analyze(Worker("var h = Helper(); await h;", FAIL + $"private async Task Helper() {{ var outer = {Outer(early)}; {tail} }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.Contains(">async:", write.ExecutionId, StringComparison.Ordinal);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, write));
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A helper catches the fault of outer work that may leave before it joins its child and returns normally, and the worker
+    /// writes after it waits for the helper's task — by <c>await</c> or by <c>Wait()</c> (#498). The helper's task completes while the
+    /// child may still run, so where the outer task may throw before the join the completion proof lifts no wait of the worker as the
+    /// child's completion, and the pair is reported; where it throws only after the join, the proof orders them.</summary>
+    /// <param name="wait">How the worker waits for the helper's task before its write.</param>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData("await h;", true)]
+    [InlineData("await h;", false)]
+    [InlineData("h.Wait();", true)]
+    [InlineData("h.Wait();", false)]
+    public void A_caller_waiting_for_a_helper_that_swallows_the_fault_of_work_leaving_its_child_keeps_the_pair(string wait, bool early)
+    {
+        var run = Analyze(Worker($"var h = Helper(); {wait} After(); await Task.CompletedTask;",
+                                 FAIL + $"private async Task Helper() {{ var outer = {Outer(early)}; try {{ await outer; }} catch (Exception) {{ }} }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.False(write.ExecutionId.Contains('>'), write.ExecutionId);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, write));
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A helper that does not catch the fault of outer work that may leave before it joins its child hands the fault to the
+    /// worker, which catches it and writes after: the worker's wait for the helper completes the child only on its normal exit, so where
+    /// the outer task may throw before the join the pair is reported, as it was before #498; where it throws only after the join, the
+    /// completion proof orders them.</summary>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_caller_catching_the_fault_a_helper_hands_on_from_work_leaving_its_child_keeps_the_pair(bool early)
+    {
+        var run = Analyze(Worker("var h = Helper(); try { await h; } catch (Exception) { } After();",
+                                 FAIL + $"private async Task Helper() {{ var outer = {Outer(early)}; await outer; }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.False(write.ExecutionId.Contains('>'), write.ExecutionId);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, write));
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A helper catches the fault of outer work that may leave before it joins its child, suspends in the <c>catch</c>, writes in
+    /// the tail and rethrows, and the worker catches what it rethrows (#498). Every normal return of the helper comes after the outer
+    /// work completed normally, but its tail in the <c>catch</c> follows the fault, so where the outer task may throw before the join the
+    /// pair is reported; where it throws only after the join, the completion proof orders them.</summary>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_tail_a_helper_enters_in_a_catch_that_rethrows_the_fault_of_work_leaving_its_child_keeps_the_pair(bool early)
+    {
+        var run = Analyze(Worker("var h = Helper(); try { await h; } catch (Exception) { }",
+                                 FAIL + $"private async Task Helper() {{ var outer = {Outer(early)}; try {{ await outer; }} catch (Exception) {{ await Task.Yield(); After(); throw; }} }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.Contains(">async:", write.ExecutionId, StringComparison.Ordinal);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, write));
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>Outer work that may leave before it joins its child, started again after its fault is caught — by the helper's own
+    /// retry loop, by the worker awaiting a catching helper in a loop, or by the worker calling it in a loop and blocking on its task:
+    /// the child of one pass may overlap the child of the next, and the pair of the child's write with itself is reported. The
+    /// completion proof does not order it, since a fault of the outer work reaches the next pass without its join of the child (#498);
+    /// where the outer task throws only after the join, the proof orders the passes. In the last form the climb of the outer work's
+    /// pass reaches the worker's <c>h.Wait()</c> above the helper, which stands for the child only where every exit of the outer work
+    /// followed its join of the child.</summary>
+    /// <param name="body">The worker's body.</param>
+    /// <param name="helper">The helper.</param>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData("await Helper();", "private async Task Helper() { while (true) { var outer = OUTER; try { await outer; return; } catch (Exception) { continue; } } }", true)]
+    [InlineData("await Helper();", "private async Task Helper() { while (true) { var outer = OUTER; try { await outer; return; } catch (Exception) { continue; } } }", false)]
+    [InlineData("for (var pass = 0; pass < 3; pass++) await Helper();", "private async Task Helper() { var outer = OUTER; try { await outer; } catch (Exception) { } }", true)]
+    [InlineData("for (var pass = 0; pass < 3; pass++) await Helper();", "private async Task Helper() { var outer = OUTER; try { await outer; } catch (Exception) { } }", false)]
+    [InlineData("for (var pass = 0; pass < 3; pass++) { var h = Helper(); h.Wait(); }", "private async Task Helper() { var outer = OUTER; try { await outer; } catch (Exception) { } }", true)]
+    [InlineData("for (var pass = 0; pass < 3; pass++) { var h = Helper(); h.Wait(); }", "private async Task Helper() { var outer = OUTER; try { await outer; } catch (Exception) { } }", false)]
+    public void Work_leaving_its_child_started_again_after_its_fault_is_caught_keeps_the_childs_pair_with_itself(string body, string helper, bool early)
+    {
+        var run = Analyze(Worker(body, FAIL + helper.Replace("OUTER", Outer(early), StringComparison.Ordinal)));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, child));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, child));
+        Assert.Equal(early, Pairs(run, "First", "First"));
+    }
+
+    /// <summary>Two helpers in a row (#498): the inner one starts a task writing in <c>First</c> and may throw before it awaits it, the
+    /// outer one awaits the inner one's task and catches its fault, and the worker awaits the outer one's task and writes. The outer
+    /// helper returns normally while the task may still run, so the frame of the inner helper's tail, which the outer helper's
+    /// <c>await</c> joins, does not take the inner helper's fault as following the task's completion, and the pair is reported; where
+    /// the inner helper throws only after its <c>await</c>, the completion proof orders them.</summary>
+    /// <param name="early">Whether the inner helper may throw before its <c>await</c> of the task, rather than after it.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Two_helpers_in_a_row_the_outer_catching_the_fault_of_the_inner_keep_the_pair(bool early)
+    {
+        const string THROW = "if (Environment.TickCount % 2 == 0) throw new InvalidOperationException();";
+        var inner = early ? $"{THROW} await t;" : $"await t; {THROW}";
+        var run = Analyze(Worker("var b = B(); await b; After();",
+                                 $"private async Task A() {{ var t = Task.Run(() => {{ First(); return 1; }}); {inner} }} " +
+                                 "private async Task B() { var a = A(); try { await a; } catch (InvalidOperationException) { } }"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var write = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal));
+        Assert.False(write.ExecutionId.Contains('>'), write.ExecutionId);
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, write));
+        Assert.Empty(Assumed(run, child, write));
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A helper that may block on outer work leaving before it joins its child, catching its fault, then awaits the work in a
+    /// <c>try</c> and writes in the <c>catch</c> — after a suspension there, or at once (#498). The blocking join keeps the outer work's
+    /// frame from being empty, while a run that does not block keeps the race: the <c>catch</c> of the <c>await</c> follows a fault
+    /// the child has not completed before. Where the outer task may throw before its join of the child the pair is reported; where it
+    /// throws only after the join, the completion proof orders the child's write with the write after the suspension, or with the
+    /// write the root runs in the <c>catch</c>; the same write in the helper's continuation is ordered by the happens-before path
+    /// (D-0016, #501).</summary>
+    /// <param name="handler">The code of the <c>catch</c> of the helper's <c>await</c>.</param>
+    /// <param name="early">Whether the outer task may throw before its join of the child, rather than after it.</param>
+    [Theory]
+    [InlineData("await Task.Yield(); After();", true)]
+    [InlineData("await Task.Yield(); After();", false)]
+    [InlineData("After();", true)]
+    [InlineData("After();", false)]
+    public void A_catch_after_an_optional_blocking_join_of_work_leaving_its_child_keeps_the_pair(string handler, bool early)
+    {
+        var run = Analyze(Worker("var h = Helper(Environment.TickCount % 3 == 0); await h;",
+                                 FAIL + $"private async Task Helper(bool probe) {{ var outer = {Outer(early)}; " +
+                                 "if (probe) { try { outer.Wait(); } catch (Exception) { } } " +
+                                 $"try {{ await outer; }} catch (Exception) {{ {handler} }} }}"));
+        var child = Assert.Single(run.Of("Value"), access => access.Symbol.EndsWith(".First()", StringComparison.Ordinal));
+        var afters = run.Of("Value").Where(access => access.Symbol.EndsWith(".After()", StringComparison.Ordinal)).ToArray();
+        var proven = handler.StartsWith("await", StringComparison.Ordinal)
+            ? Assert.Single(afters)
+            : Assert.Single(afters, access => !access.ExecutionId.Contains('>'));
+
+        Assert.Equal(early ? null : (TimingBranch?)TimingBranch.PassCompletion, Branch(run, child, proven));
+        Assert.Equal(early ? [] : PoolEntryAssumptions, Assumed(run, child, proven));
+        foreach (var write in afters.Where(access => access != proven))
+        {
+            Assert.Contains(">async:", write.ExecutionId, StringComparison.Ordinal);
+            Assert.Equal(TimingBranch.HappensBeforePath, Branch(run, child, write));
+            Assert.Empty(Assumed(run, child, write));
+        }
+        Assert.Equal(early, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>A <c>Task.Run</c> whose task starts a child writing in <c>First</c> and may throw before its join of the child, or only
+    /// after it.</summary>
+    /// <param name="early">Whether the task may throw before the join, rather than after it.</param>
+    private static string Outer(bool early) => early
+        ? Nested(Leave.Throw, InnerJoin.Wait)
+        : "Task.Run(() => { var inner = Task.Run(() => { First(); return 1; }); inner.Wait(); " +
+          "if (Environment.TickCount % 2 == 0) throw new InvalidOperationException(); return 1; })";
+
+    /// <summary>What decides the order of two accesses on the run's happens-before graph: a path, the completion proof, or nothing.</summary>
+    /// <param name="run">The run.</param>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    private static TimingBranch? Branch(EngineRun run, Access first, Access second) =>
+        ((HappensBefore)typeof(ExecutionAnalysis).GetField("_order", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(run.Execution.Analysis)!)
+            .OrderedBy(first, second);
+
+    /// <summary>The assumptions a pair's order rests on, in ordinal order.</summary>
+    /// <param name="run">The run.</param>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    private static string[] Assumed(EngineRun run, Access first, Access second)
+    {
+        run.Execution.Analysis.Timing(first, second, out var assumed);
+        return [.. assumed.Order(StringComparer.Ordinal)];
+    }
+
+    /// <summary>What a completion proof through the outer work's blocking join of its child rests on (R5): that join, on a thread-pool
+    /// thread, throws only after the child completed; withheld, the outer work's fault no longer carries the child's completion, and the
+    /// proof refuses (#498).</summary>
+    private static readonly string[] PoolEntryAssumptions = [OrderingAssumptions.OBSERVERS, OrderingAssumptions.THREAD_POOL_ENTRY];
 
     /// <summary>A <c>Task.Run</c> whose task starts a child writing in <c>First</c>, may leave as given, then joins the child as given and
     /// completes with a value.</summary>
