@@ -1266,7 +1266,7 @@ public sealed class BlockingWaitAssumptionMatrixTests
     /// <param name="run">The run.</param>
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
-    private static TimingBranch? Branch(EngineRun run, Access first, Access second) =>
+    internal static TimingBranch? Branch(EngineRun run, Access first, Access second) =>
         ((HappensBefore)typeof(ExecutionAnalysis).GetField("_order", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(run.Execution.Analysis)!)
             .OrderedBy(first, second);
 
@@ -1274,7 +1274,7 @@ public sealed class BlockingWaitAssumptionMatrixTests
     /// <param name="run">The run.</param>
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
-    private static string[] Assumed(EngineRun run, Access first, Access second)
+    internal static string[] Assumed(EngineRun run, Access first, Access second)
     {
         run.Execution.Analysis.Timing(first, second, out var assumed);
         return [.. assumed.Order(StringComparer.Ordinal)];
