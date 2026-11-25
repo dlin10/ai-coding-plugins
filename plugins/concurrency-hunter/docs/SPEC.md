@@ -1118,7 +1118,7 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 ### 12.3. Regression policy
 
-Любой подтверждённый false positive/negative получает минимальный demo case. Изменение finding set на demo или снапшота корпуса блокирует release без reviewed expectation update. Изменение provider тестируется отдельно. Изменение генератора перегенерирует встроенные модели и прогоняет model evals; расхождение сгенерированной модели с эталоном в сторону сужения блокирует release. Prompt/schema upgrade прогоняет resolver и composer evals заново.
+Любой подтверждённый false positive/negative получает тест на минимальном входе. Demo case он получает, когда его решает supported construct или правило, у которых demo case ещё нет (12.2); варианты одной альтернативы правила остаются в тестах. Изменение finding set на demo или снапшота корпуса блокирует release без reviewed expectation update. Изменение provider тестируется отдельно. Изменение генератора перегенерирует встроенные модели и прогоняет model evals; расхождение сгенерированной модели с эталоном в сторону сужения блокирует release. Prompt/schema upgrade прогоняет resolver и composer evals заново.
 
 ### 12.4. Технические acceptance checks
 
