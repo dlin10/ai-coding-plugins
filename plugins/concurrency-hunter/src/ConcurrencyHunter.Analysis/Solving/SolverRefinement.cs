@@ -50,7 +50,7 @@ public static class SolverRefinement
         var witnesses = pairs.Pairs.Select((pair, index) => (pair.Candidate, Index: index)).Where(item => item.Candidate is not null)
                              .GroupBy(item => item.Candidate!.Value)
                              .ToDictionary(group => group.Key, group => group.Select(item => item.Index).ToArray());
-        var asked = new HashSet<int>();
+        var asked = new HashSet<long>();
         foreach (var index in Ordered(pairs.Pairs))
         {
             WorkCancellation.Check();
@@ -108,11 +108,14 @@ public static class SolverRefinement
 
         // The pairs keep the order they were found in: only the solver's verdict changes, never where a candidate stands.
         var remaining = kept.OfType<AccessPair>().ToArray();
-        var skips = new SortedDictionary<string, int>(pairs.Skips.ToDictionary(), StringComparer.Ordinal);
-        if (counters.GetValueOrDefault(SolverCounters.UNSAT) is var unsat and > 0)
+        var skips = new SortedDictionary<string, long>(pairs.Skips.ToDictionary(), StringComparer.Ordinal);
+        var unsat = counters.GetValueOrDefault(SolverCounters.UNSAT);
+        if (unsat > 0)
             skips[SKIP_UNSATISFIABLE_QUERY] = skips.GetValueOrDefault(SKIP_UNSATISFIABLE_QUERY) + unsat;
 
-        return new SolverRefinementResult(pairs with { Pairs = remaining, Skips = skips }, counters, traces);
+        // Each unsatisfiable answer drops one candidate, every witness of it.
+        return new SolverRefinementResult(pairs with { Pairs = remaining, Skips = skips, Candidates = pairs.Candidates - unsat }, counters,
+                                          traces);
     }
 
     /// <summary>A candidate that stands because nothing decided it, with the reason on the finding: an answer that decides

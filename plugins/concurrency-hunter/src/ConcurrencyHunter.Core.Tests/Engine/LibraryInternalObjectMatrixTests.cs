@@ -293,10 +293,10 @@ public sealed class LibraryInternalObjectMatrixTests
     private static PairAnalysis Cross(Access[] accesses, ScopeRun run)
     {
         var pairs = new List<AccessPair>();
-        var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var comparisons = 0;
-        var suppressed = 0;
+        var skips = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var assumed = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var comparisons = 0L;
+        var suppressed = 0L;
         for (var i = 0; i < accesses.Length; i++)
         for (var j = i + 1; j < accesses.Length; j++)
         {
@@ -315,8 +315,8 @@ public sealed class LibraryInternalObjectMatrixTests
         Assert.True(comparisons > 0);
         return new(pairs, comparisons, suppressed, skips) { Assumed = assumed };
 
-        static void Add(SortedDictionary<string, int> target, IReadOnlyDictionary<string, int> both,
-                        IReadOnlyDictionary<string, int> one, IReadOnlyDictionary<string, int> other)
+        static void Add(SortedDictionary<string, long> target, IReadOnlyDictionary<string, long> both,
+                        IReadOnlyDictionary<string, long> one, IReadOnlyDictionary<string, long> other)
         {
             foreach (var key in both.Keys.Union(one.Keys).Union(other.Keys))
             {

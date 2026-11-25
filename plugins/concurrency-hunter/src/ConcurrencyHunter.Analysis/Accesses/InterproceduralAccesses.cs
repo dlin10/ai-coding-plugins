@@ -6090,12 +6090,13 @@ public static class InterproceduralPairing
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
         var found = new List<(AccessPair Pair, WitnessOrder Order)>();
-        var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var counted = 0;
-        var suppressed = 0;
+        // Every count is 64-bit: a scope's pairs of accesses outnumber an int (issue 499).
+        var skips = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var assumed = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var counted = 0L;
+        var suppressed = 0L;
         // The candidates numbered so far: every witness of one carries its number (ADR 0042).
-        var numbered = 0;
+        var numbered = 0L;
         var sides = new Dictionary<Access, PairingSide>(ReferenceEqualityComparer.Instance);
         // The views the found pairs hold, numbered as pairing first keeps them and placed in collection order once it is done.
         var kept = new KeptViews();
@@ -6190,7 +6191,7 @@ public static class InterproceduralPairing
             // The witnesses of one pair of path roots and one orientation are one candidate, which keeps every one of them (ADR 0042). A
             // pair that stands is counted once for each candidate it gives, so every comparison is still a skip, a suppression or a
             // candidate.
-            var numbers = new Dictionary<CandidateKey, int>();
+            var numbers = new Dictionary<CandidateKey, long>();
             foreach (var (taken, key) in witnesses)
             {
                 WorkCancellation.Check();
@@ -6269,9 +6270,10 @@ public static class InterproceduralPairing
                                           $"timing {(timingCounters is null ? "none" : timingCounters.Since(timingBefore!))}"]);
         return new PairAnalysis(pairs, counted, suppressed, skips)
         {
-            CartesianBound = (int)((long)candidates.Length * (candidates.Length + 1) / 2),
+            CartesianBound = (long)candidates.Length * (candidates.Length + 1) / 2,
             Buckets = index.Buckets,
             LargestBucket = index.LargestBucket,
+            Candidates = numbered,
             Assumed = assumed
         };
     }

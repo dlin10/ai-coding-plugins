@@ -6533,3 +6533,78 @@ tail при погашенном fault работы ниже, и нет пары
 остановлен по PID, когда пришло третье ревью: зонд findings там успел и совпал, baseline и `-Check` не в счёт. Логи —
 `scratch/ch492/trees/` (в репозиторий не входят): `498e/` — гейты, `probe498*` и `p498/` — зонды, `targeted-498*` — классы,
 `mutations-498m2.txt` и `targeted-498m2-*` — мутации, `mutation-498-*.diff` — их состояния.
+
+## #499 — счёты пар pairing в 64 битах
+
+Отдельный пункт проекта #492 версии 4, до среза 0.
+- **Что показал run `orchard-492-census`.** На первом process scope OrchardCore 1 791 158 263 пары accesses. n(n+1)/2 его 4 392 046
+  candidates — 9 645 036 229 081.
+- **Что было в коде.** `Pair` сужал `CartesianBound` в `int`, а сравнения, skips, suppressed и assumptions считал в `int`. Один bucket
+  из 65 536 accesses уже даёт больше `Int32.MaxValue` пар.
+- **Что из этого шло дальше.** Арифметика не проверяется. Счёты уходили в строку `pairing-end`, отчёт, run-metadata, metrics и
+  coverage и обернулись бы молча.
+
+### Изменение
+
+- **`PairAnalysis`.** `Comparisons`, `Suppressed`, `Skips`, `Assumed` и `CartesianBound` — `long`; номер candidate у witness
+  (`AccessPair.Candidate`) — `long?`.
+- **`Candidates` — число, а не пересчёт списка witnesses.**
+  - Pairing отдаёт его, нумеруя candidates. Число не требует ни одного witness в списке; это нужно срезу 3, который не перечисляет
+    witnesses.
+  - Где число не дано, оно, как прежде, считается по `Pairs`.
+  - Копия с другими парами хранит данное число. Единственное место, где candidates пропадают, — `SolverRefinement.Refine`: каждый
+    ответ Unsat снимает один candidate со всеми его witnesses, и `Refine` отдаёт `pairs.Candidates − unsat`.
+- **`Pair`** считает в `long`; `CartesianBound` — произведение в `long` без приведения.
+- **Суммы и выдача.**
+  - `PhaseOneAnalyzer` суммирует scopes в `long`.
+  - В `long` — `PairCounters`, `OccurrenceCount` finding и группы, счёты metrics (`PairCountsInfo`, `MeasurementCounts.Occurrences`)
+    и digest MCP (`DigestFinding`, `GroupDigest`).
+  - `ReportRenderer` пишет числа через `Number(long)`, а `Counts` — для `int` и `long`.
+- **Формат чисел не меняется:** JSON пишет `long` так же, как `int`, отчёт — тем же форматом.
+
+### Тесты
+
+- **`CandidateIndexTests.Cartesian_bound_past_an_int_is_given_whole`** — граница из самого `Pair`.
+  - 65 536 чтений, каждое на своём регионе. Pairing сравнивает каждое только с собой, 65 536 сравнений, а n(n+1)/2 —
+    2 147 516 416, выше `Int32.MaxValue`.
+  - Со старым приведением к `int`, возвращённым в `Pair`, тест красный, и только он: 16 из 17 тестов класса прошли
+    (`scratch/ch499/boundary/`).
+  - Тест добавлен по ревью Codex: синтетический тест ниже задаёт `CartesianBound` после `Pair` и приведения не видит.
+- **`CandidateIndexTests.Counts_of_pairs_past_an_int_are_summed_over_scopes_and_written_whole`.**
+  - Два scope, каждому pairing дополнен синтетическими счётами выше `Int32.MaxValue`: `int.MaxValue + 2` сравнений, suppressed,
+    candidates, skips `ordered` и assumptions `observers`; `CartesianBound` — тот, что у OrchardCore. Witnesses за ними нет.
+  - Суммы `PhaseOneAnalyzer` по двум scope точны.
+  - Отчёт пишет их строками coverage и diagnostics; run-metadata — в `pairs` и `orderedPairs`.
+  - findings.json несёт `occurrenceCount` finding и группы выше `int`.
+- **`MetricsCommandTests.Measurement_carries_counts_of_pairs_and_occurrences_past_an_int`** — те же счёты и `occurrences` в
+  `counts` measurement.
+- **`RunToolsTests.Group_digest_carries_occurrence_counts_past_an_int`** — `occurrenceCount` группы и findings в digest
+  `get_groups`, в бюджете 1 536 байт.
+- **Помощники тестов, которые строят `PairAnalysis` сами, переведены на `long`:** `EngineFixture.ReferencePair`,
+  `LibraryInternalObjectMatrixTests.Cross`, `SolverTests.Analysis`, ожидаемые словари `AssumptionAttributionMatrixTests`.
+
+### Гейты
+
+Под corpus-lock 07:44–08:05 25.11, по правилу 23.11, на дереве `583eb5c8` поверх `5ac61677`. Сбор не тронут, прогона с
+`CH_ACCESS_WORKERS=4` нет.
+- **Зонд findings demo и eShop против `5ac61677`.** `findings.json` совпадают байт в байт. В `summary.json` различается только
+  `seconds`, в `metrics.json` — времена, `recordedAt` и память.
+- **Целевые классы** — Core 183 из 183, Cli 33 из 33.
+- **`check-test-baseline`** без `CH_ACCESS_WORKERS`:
+  - Cli 180/180; Core 17 530 passed, 39 skipped, 0 failed;
+  - каждый случай, который baseline записал как прошедший, проходит. Это вердикт скрипта; его «17 514 из 17 553 прогнанных» —
+    случаи baseline среди прогнанных, а не число прошедших тестов.
+- **`record-demo-models -Check`** — exit 0.
+
+**Ревью Codex** (один круг, xhigh) — needs-attention, одна находка уровня medium: синтетический тест не ловит приведения в `Pair`.
+Отсюда тест границы выше. Устаревшего числа candidates при копиях (`GapDecisions.Mark`, круги допуска, решатель) Codex не нашёл.
+
+**Итоговое дерево** отличается от прогнанного гейтами тестом границы, его строкой baseline и этим разделом; `src` без тестов тот же.
+Тест границы и весь класс прогнаны отдельно (Debug, 17 из 17).
+
+### Что не проверено
+
+- **`OccurrenceCount` finding** — по-прежнему `Occurrences.Count` списка. Тип `long`, но число ограничено списком, пока срез 3 не
+  даст счёт без перечисления.
+- **Не тронуты счётчики coverage scope (`CoverageCounters`) и решателя.** Это счёты сбора и запросов: число запросов ограничено
+  бюджетом решателя в 1 200 пределов.

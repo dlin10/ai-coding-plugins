@@ -300,7 +300,7 @@ public sealed class SolverTests
     private static ValueTerm Narrowed(ValueTerm term) => new ConvertTerm(term, 8, false);
 
     internal static PairAnalysis Analysis(params AccessPair[] pairs) =>
-        new(pairs, pairs.Length, 0, new SortedDictionary<string, int>(StringComparer.Ordinal));
+        new(pairs, pairs.Length, 0, new SortedDictionary<string, long>(StringComparer.Ordinal));
 
     internal static AccessPair Pair(SolverQuery query, string resource = "R", bool wildcard = false) =>
         new(Access(query.FirstSelector, resource, wildcard), Access(query.SecondSelector, resource, wildcard), PairProtection.UNPROTECTED)

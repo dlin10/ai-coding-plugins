@@ -199,7 +199,10 @@ internal static class MetricsCommand
                                 loaded);
     }
 
-    private static SortedDictionary<string, int> Sorted(IReadOnlyDictionary<string, int> values) => new(values.ToDictionary(), StringComparer.Ordinal);
+    /// <summary>Counts by name in ordinal order of the name.</summary>
+    /// <typeparam name="T">The counts' type: an int, or a long for counts of pairs (issue 499).</typeparam>
+    /// <param name="values">The counts by name.</param>
+    private static SortedDictionary<string, T> Sorted<T>(IReadOnlyDictionary<string, T> values) => new(values.ToDictionary(), StringComparer.Ordinal);
 
     private static SortedDictionary<string, int> Sum(IEnumerable<IReadOnlyDictionary<string, int>> values)
     {
@@ -338,12 +341,12 @@ internal sealed record TimingsInfo(IReadOnlyList<StepSeconds> Steps, double Tota
 
 internal sealed record ScopeAnalyses(string Scope, int Count, IReadOnlyList<double> Seconds);
 
-internal sealed record PairCountsInfo(int Comparisons, long CartesianBound, int LargestBucket, int Buckets, IReadOnlyDictionary<string, int> Skips,
-                                      IReadOnlyDictionary<string, int> Assumed, int Suppressed, int Candidates);
+internal sealed record PairCountsInfo(long Comparisons, long CartesianBound, int LargestBucket, int Buckets, IReadOnlyDictionary<string, long> Skips,
+                                      IReadOnlyDictionary<string, long> Assumed, long Suppressed, long Candidates);
 
 internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoaded, int Scopes, int Roots, IReadOnlyDictionary<string, int> RootsPerProvider,
                                          int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses, int AccessExecutions, PairCountsInfo Pairs,
-                                         int Findings, int Occurrences, int Groups, IReadOnlyList<string> Fingerprints);
+                                         int Findings, long Occurrences, int Groups, IReadOnlyList<string> Fingerprints);
 
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,
                                         IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering,

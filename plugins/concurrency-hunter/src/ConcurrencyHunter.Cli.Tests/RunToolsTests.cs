@@ -99,6 +99,32 @@ public sealed class RunToolsTests
         Assert.Equal(Enumerable.Range(2, findings.Length), findings.Select(finding => finding.GetProperty("occurrenceCount").GetInt32()));
     }
 
+    /// <summary>Occurrence counts past an int, a finding's and its group's, reach the digest whole (issue 499).</summary>
+    [Fact]
+    public async Task Group_digest_carries_occurrence_counts_past_an_int()
+    {
+        const long PAST_AN_INT = int.MaxValue + 2L;
+        using var environment = new RunTestEnvironment();
+        var analysis = CreateAnalysis("High", findingsPerGroup: 4);
+        var counted = analysis with
+        {
+            Findings = analysis.Findings.Select((finding, index) => finding with { OccurrenceCount = PAST_AN_INT + index }).ToArray(),
+            Groups = analysis.Groups.Select(group => group with { OccurrenceCount = 4 * PAST_AN_INT + 6 }).ToArray()
+        };
+        var registry = environment.Registry((_, _, _) => Task.FromResult(Success(counted)));
+        var runId = Start(registry, environment.SolutionPath);
+        await registry.WaitForAnalysisAsync(runId);
+
+        var digest = Assert.Single(Parse(RunTools.get_groups(registry, runId)).GetProperty("items").EnumerateArray());
+
+        Assert.True(Encoding.UTF8.GetByteCount(digest.GetRawText()) <= 1536);
+        Assert.Equal(4 * PAST_AN_INT + 6, digest.GetProperty("occurrenceCount").GetInt64());
+        var findings = digest.GetProperty("findings").EnumerateArray().ToArray();
+        Assert.NotEmpty(findings);
+        Assert.Equal(Enumerable.Range(0, findings.Length).Select(index => PAST_AN_INT + index),
+                     findings.Select(finding => finding.GetProperty("occurrenceCount").GetInt64()));
+    }
+
     /// <summary>The digest keeps the whole path, the selector inside it, and names the field a finding names: the last one, or the
     /// boxed struct's type for a box's whole storage, whose path is empty (R10).</summary>
     [Fact]

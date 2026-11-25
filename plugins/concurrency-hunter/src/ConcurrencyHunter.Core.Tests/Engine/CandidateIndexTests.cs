@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
@@ -5,6 +6,7 @@ using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Reporting;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -195,6 +197,19 @@ public sealed class CandidateIndexTests
         Assert.Equal(counts.Sum(count => count * (count + 1) / 2), result.Pairs.CartesianBound);
     }
 
+    /// <summary>A scope's Cartesian bound past an int is the one pairing gives, whole: 65,536 reads, each on a region of its own, are compared
+    /// each with itself only, and n(n+1)/2 over them is 2,147,516,416 (issue 499).</summary>
+    [Fact]
+    public void Cartesian_bound_past_an_int_is_given_whole()
+    {
+        var accesses = Enumerable.Range(0, 65_536).Select(at => Read($"r{at}", "X")).ToArray();
+
+        var analysis = InterproceduralPairing.Pair(accesses, Executions(), Heap(accesses.Select(access => Static(access.Resource.RegionId!)).ToArray()));
+
+        Assert.Equal(2_147_516_416L, analysis.CartesianBound);
+        Assert.Equal(65_536, analysis.Comparisons);
+    }
+
     [Fact]
     public void Comparisons_are_below_the_cartesian_bound_with_two_regions()
     {
@@ -221,6 +236,70 @@ public sealed class CandidateIndexTests
         Assert.Equal(analyses.Sum(analysis => analysis.Suppressed), result.Pairs.Suppressed);
         Assert.True(result.Pairs.Candidates <= result.Pairs.Comparisons);
         Assert.True(result.Pairs.Buckets > 0);
+    }
+
+    /// <summary>Counts of pairs past an int, as pairing gives them with no witness behind them, are summed over the scopes in 64 bits and
+    /// written whole: the report's pairs and diagnostics lines, the run metadata's pair counts, and a finding's and a group's occurrence
+    /// counts in findings.json (issue 499). The Cartesian bound is that of the first process scope of OrchardCore, 4,392,046 accesses.</summary>
+    [Fact]
+    public async Task Counts_of_pairs_past_an_int_are_summed_over_scopes_and_written_whole()
+    {
+        const long PAST_AN_INT = int.MaxValue + 2L;
+        const long ORCHARD_BOUND = 4_392_046L * 4_392_047 / 2;
+        var (result, scopes) = await AnalyzeTwoScopes(analysis => analysis with
+        {
+            Comparisons = analysis.Comparisons + PAST_AN_INT,
+            Suppressed = analysis.Suppressed + PAST_AN_INT,
+            Skips = new Dictionary<string, long>(analysis.Skips)
+            {
+                [InterproceduralPairing.SKIP_ORDERED] = analysis.Skips.GetValueOrDefault(InterproceduralPairing.SKIP_ORDERED) + PAST_AN_INT
+            },
+            CartesianBound = ORCHARD_BOUND,
+            Candidates = analysis.Candidates + PAST_AN_INT,
+            Assumed = new Dictionary<string, long> { [OrderingAssumptions.OBSERVERS] = PAST_AN_INT }
+        });
+        var analyses = scopes.Select(scope => scope.Analysis).ToArray();
+        var pairs = result.Pairs;
+
+        Assert.Equal(2, analyses.Length);
+        Assert.Equal(analyses.Sum(analysis => analysis.Comparisons), pairs.Comparisons);
+        Assert.True(pairs.Comparisons > 2L * int.MaxValue);
+        Assert.Equal(2 * ORCHARD_BOUND, pairs.CartesianBound);
+        Assert.Equal(analyses.Sum(analysis => analysis.Suppressed), pairs.Suppressed);
+        Assert.Equal(analyses.Sum(analysis => analysis.Candidates), pairs.Candidates);
+        Assert.Equal(analyses.Sum(analysis => analysis.Skips[InterproceduralPairing.SKIP_ORDERED]), pairs.Skips[InterproceduralPairing.SKIP_ORDERED]);
+        Assert.Equal(2 * PAST_AN_INT, pairs.Assumed[OrderingAssumptions.OBSERVERS]);
+        Assert.NotEmpty(result.Findings);
+
+        var counted = result with
+        {
+            Findings = result.Findings.Select(finding => finding with { OccurrenceCount = PAST_AN_INT }).ToArray(),
+            Groups = result.Groups.Select(group => group with { OccurrenceCount = PAST_AN_INT * group.FindingIds.Count }).ToArray()
+        };
+        var rendered = ReportRenderer.Render(ReportingTestData.CreateReport(counted));
+
+        Assert.Contains($"- Pairs: comparisons {pairs.Comparisons} of a Cartesian bound {pairs.CartesianBound}; ", rendered.ReportMarkdown,
+                        StringComparison.Ordinal);
+        Assert.Contains($"candidates {pairs.Candidates}, suppressed {pairs.Suppressed}\n", rendered.ReportMarkdown, StringComparison.Ordinal);
+        Assert.Contains($"- pairs ordered by happens-before: {pairs.Skips[InterproceduralPairing.SKIP_ORDERED]}\n", rendered.ReportMarkdown,
+                        StringComparison.Ordinal);
+        Assert.Contains($"- Candidate pairs: {pairs.Candidates}\n", rendered.ReportMarkdown, StringComparison.Ordinal);
+        Assert.Contains($"{InterproceduralPairing.SKIP_ORDERED} {pairs.Skips[InterproceduralPairing.SKIP_ORDERED]}", rendered.ReportMarkdown,
+                        StringComparison.Ordinal);
+        using var metadata = JsonDocument.Parse(rendered.RunMetadataJson);
+        var written = metadata.RootElement.GetProperty("pairs");
+        Assert.Equal(pairs.Comparisons, written.GetProperty("comparisons").GetInt64());
+        Assert.Equal(pairs.CartesianBound, written.GetProperty("cartesianBound").GetInt64());
+        Assert.Equal(pairs.Candidates, written.GetProperty("candidates").GetInt64());
+        Assert.Equal(pairs.Suppressed, written.GetProperty("suppressed").GetInt64());
+        Assert.Equal(pairs.Skips[InterproceduralPairing.SKIP_ORDERED],
+                     written.GetProperty("skips").GetProperty(InterproceduralPairing.SKIP_ORDERED).GetInt64());
+        Assert.Equal(pairs.Skips[InterproceduralPairing.SKIP_ORDERED], metadata.RootElement.GetProperty("orderedPairs").GetInt64());
+        using var findings = JsonDocument.Parse(rendered.FindingsJson);
+        Assert.All(findings.RootElement.GetProperty("findings").EnumerateArray(),
+                   finding => Assert.Equal(PAST_AN_INT, finding.GetProperty("occurrenceCount").GetInt64()));
+        Assert.All(findings.RootElement.GetProperty("groups").EnumerateArray(),
+                   group => Assert.True(group.GetProperty("occurrenceCount").GetInt64() >= PAST_AN_INT));
     }
 
     [Fact]
@@ -348,7 +427,9 @@ public sealed class CandidateIndexTests
 
     /// <summary>Two executable projects, each a scope: the first writes one static from three actions, the second from one; each scope's
     /// pairing is recorded with its non-construction-local access count.</summary>
-    private static async Task<(AnalysisResult Result, IReadOnlyList<(int Accesses, PairAnalysis Analysis)> Scopes)> AnalyzeTwoScopes()
+    /// <param name="change">What a test makes of each scope's pairing before the analysis goes on with it; null for nothing.</param>
+    private static async Task<(AnalysisResult Result, IReadOnlyList<(int Accesses, PairAnalysis Analysis)> Scopes)> AnalyzeTwoScopes(
+        Func<PairAnalysis, PairAnalysis>? change = null)
     {
         const string startup = """
             using Microsoft.AspNetCore.Builder;
@@ -381,6 +462,7 @@ public sealed class CandidateIndexTests
         var result = await PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, ProviderRegistry.BuiltIn, (accesses, executions, heap) =>
         {
             var analysis = InterproceduralPairing.Pair(accesses, executions, heap);
+            analysis = change?.Invoke(analysis) ?? analysis;
             scopes.Add((accesses.Count(access => !access.IsConstructionLocal), analysis));
             return analysis;
         }, CancellationToken.None);

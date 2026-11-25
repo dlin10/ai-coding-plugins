@@ -15,7 +15,7 @@ internal sealed record DigestAccess(string Role, string Symbol, string Operation
 
 internal sealed record DigestFinding(string FindingId, string ProtectionResult, IReadOnlyList<string> EvidenceIds,
                                      IReadOnlyList<DigestAccess> Accesses, IReadOnlyList<string> BindingEvidence,
-                                     IReadOnlyList<string> OverlapEvidence, int OccurrenceCount);
+                                     IReadOnlyList<string> OverlapEvidence, long OccurrenceCount);
 
 /// <summary>One group as <c>get_groups</c> shows it to a composer (SPEC 9.2).</summary>
 /// <param name="GroupId">The group's id.</param>
@@ -28,10 +28,10 @@ internal sealed record DigestFinding(string FindingId, string ProtectionResult, 
 /// <param name="FindingCount">How many findings the group holds.</param>
 /// <param name="Findings">The findings listed, as many as the budget allows.</param>
 /// <param name="Scenario">The scenario of its first finding.</param>
-/// <param name="OccurrenceCount">How many pairs of roots reach its findings.</param>
+/// <param name="OccurrenceCount">How many pairs of roots reach its findings, 64-bit as every count of pairs (issue 499).</param>
 internal sealed record GroupDigest(string GroupId, string RuleId, string ConfidenceLabel, string Region,
                                    IReadOnlyList<string> AccessPath, string Field, string Ownership, int FindingCount,
-                                   IReadOnlyList<DigestFinding> Findings, IReadOnlyList<string> Scenario, int OccurrenceCount);
+                                   IReadOnlyList<DigestFinding> Findings, IReadOnlyList<string> Scenario, long OccurrenceCount);
 
 internal sealed record GroupsResult(string? Error, IReadOnlyList<GroupDigest> Groups);
 

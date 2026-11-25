@@ -71,7 +71,7 @@ public sealed record EngineRun(ExecutionRun Execution, InterproceduralCollection
     public IReadOnlyList<Access> Of(string member) =>
         Collection.Accesses.Where(access => access.Resource.Member.Name == member && !access.IsConstructionLocal).ToArray();
 
-    public int Skipped(string reason) => Pairs.Skips.GetValueOrDefault(reason);
+    public long Skipped(string reason) => Pairs.Skips.GetValueOrDefault(reason);
 
     public int Counter(string name) => Collection.Coverage.Counters.GetValueOrDefault(name, Collection.Coverage.Ordering.GetValueOrDefault(name));
 }
@@ -247,10 +247,10 @@ public static class EngineFixture
                             .Select((execution, number) => (execution, number)).ToDictionary(item => item.execution, item => item.number, StringComparer.Ordinal);
         var candidates = listed.OrderBy(view => numbers[view.ExecutionId]).ThenBy(view => view, Comparer<Access>.Create(PairContent.CompareViews)).ToArray();
         var pairs = new List<AccessPair>();
-        var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var counted = 0;
-        var suppressed = 0;
+        var skips = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var assumed = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var counted = 0L;
+        var suppressed = 0L;
         for (var i = 0; i < candidates.Length; i++)
         {
             for (var j = i; j < candidates.Length; j++)
@@ -260,7 +260,7 @@ public static class EngineFixture
             }
         }
 
-        return new PairAnalysis(pairs, counted, suppressed, skips) { CartesianBound = candidates.Length * (candidates.Length + 1) / 2, Assumed = assumed };
+        return new PairAnalysis(pairs, counted, suppressed, skips) { CartesianBound = (long)candidates.Length * (candidates.Length + 1) / 2, Assumed = assumed };
 
         void Consider(Access first, Access second, AccessResource reported, IReadOnlyList<string> uncertainties)
         {

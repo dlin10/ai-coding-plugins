@@ -495,28 +495,40 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
 
     /// <summary>The candidate this pair is a witness of, by its number among its scope's candidates (ADR 0042): the witnesses of one pair
     /// of accesses, one pair of path roots and one orientation are one candidate, which the solver asks once. Null for a pair that is a
-    /// candidate of its own.</summary>
-    internal int? Candidate { get; init; }
+    /// candidate of its own. A number, as every count of pairs, is 64-bit: a scope's pairs of accesses outnumber an int (issue 499).</summary>
+    internal long? Candidate { get; init; }
 }
 
 /// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the
 /// scope's non-construction-local accesses; <see cref="Candidates"/> counts the candidates the compared pairs that survived the filters
-/// gave, each with one or more witnesses in <see cref="Pairs"/> (ADR 0042).</summary>
+/// gave, each with one or more witnesses in <see cref="Pairs"/> (ADR 0042). Every count is 64-bit: one bucket of 65,536 accesses already
+/// holds more pairs than an int, and the first process scope of OrchardCore holds 1,791,158,263 pairs of accesses whose n(n+1)/2 over its
+/// 4,392,046 accesses is 9,645,036,229,081 (issue 499).</summary>
 /// <param name="Pairs">The witnesses of the candidates.</param>
 /// <param name="Comparisons">How many pairs were compared.</param>
 /// <param name="Suppressed">The compared pairs a sufficient protection suppressed.</param>
 /// <param name="Skips">The compared pairs a filter skipped, by the filter.</param>
-public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int Comparisons, int Suppressed,
-                                  IReadOnlyDictionary<string, int> Skips)
+public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, long Comparisons, long Suppressed,
+                                  IReadOnlyDictionary<string, long> Skips)
 {
-    public int CartesianBound { get; init; }
+    /// <summary>The count <see cref="Candidates"/> was given, or null where it is counted from <see cref="Pairs"/>.</summary>
+    private readonly long? _candidates;
+
+    public long CartesianBound { get; init; }
     public int Buckets { get; init; }
     public int LargestBucket { get; init; }
-    /// <summary>How many candidates the pairs are witnesses of: a pair with no candidate's number is one of its own.</summary>
-    public int Candidates =>
-        Pairs.Count(pair => pair.Candidate is null) + Pairs.Where(pair => pair.Candidate is not null).Select(pair => pair.Candidate).Distinct().Count();
+
+    /// <summary>How many candidates the pairs are witnesses of: the count pairing gave as it numbered them, which needs no witness
+    /// listed, or, where none was given, the count of <see cref="Pairs"/>, a pair with no candidate's number one of its own. A copy with
+    /// other pairs keeps a given count: one that drops candidates gives the count it leaves.</summary>
+    public long Candidates
+    {
+        get => _candidates ?? Pairs.LongCount(pair => pair.Candidate is null) +
+                              Pairs.Where(pair => pair.Candidate is not null).Select(pair => pair.Candidate).Distinct().LongCount();
+        init => _candidates = value;
+    }
 
     /// <summary>The ordered pairs, by each assumption (<see cref="OrderingAssumptions"/>) their ordering rests on alone (R5): a pair is
     /// counted once under every assumption it rests on, and is among the <c>ordered</c> skips as well. Empty unless given.</summary>
-    public IReadOnlyDictionary<string, int> Assumed { get; init; } = new Dictionary<string, int>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, long> Assumed { get; init; } = new Dictionary<string, long>(StringComparer.Ordinal);
 }

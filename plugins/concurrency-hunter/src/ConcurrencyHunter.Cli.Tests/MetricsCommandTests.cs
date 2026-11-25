@@ -117,6 +117,40 @@ public sealed class MetricsCommandTests
         Assert.All(assumed.EnumerateObject(), key => Assert.Equal(0, key.Value.GetInt32()));
     }
 
+    /// <summary>Counts of pairs and of occurrences past an int, with no witness or occurrence listed behind them, reach the measurement
+    /// whole (issue 499).</summary>
+    [Fact]
+    public async Task Measurement_carries_counts_of_pairs_and_occurrences_past_an_int()
+    {
+        const long PAST_AN_INT = int.MaxValue + 2L;
+        using var directory = new TemporaryDirectory();
+        var target = directory.Write("Fixture.slnx", "<Solution />");
+        var (measurement, analysis) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, FixtureLoad, ModelGeneration.None, CancellationToken.None);
+        var wide = analysis with
+        {
+            Pairs = new PairCounters(PAST_AN_INT, 3 * PAST_AN_INT, 1, 1, PAST_AN_INT + 1, PAST_AN_INT + 2,
+                                     new Dictionary<string, long> { [InterproceduralPairing.SKIP_ORDERED] = PAST_AN_INT + 3 })
+            {
+                Assumed = new Dictionary<string, long> { [OrderingAssumptions.OBSERVERS] = PAST_AN_INT + 4 }
+            },
+            Findings = analysis.Findings.Select(finding => finding with { OccurrenceCount = PAST_AN_INT }).ToArray()
+        };
+
+        var counts = MetricsCommand.Counts(await FixtureLoad(target, CancellationToken.None), wide);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement with { Counts = counts }, MetricsJsonContext.Default.Measurement));
+        var written = json.RootElement.GetProperty("counts");
+        var pairs = written.GetProperty("pairs");
+
+        Assert.NotEmpty(analysis.Findings);
+        Assert.Equal(PAST_AN_INT, pairs.GetProperty("comparisons").GetInt64());
+        Assert.Equal(3 * PAST_AN_INT, pairs.GetProperty("cartesianBound").GetInt64());
+        Assert.Equal(PAST_AN_INT + 1, pairs.GetProperty("candidates").GetInt64());
+        Assert.Equal(PAST_AN_INT + 2, pairs.GetProperty("suppressed").GetInt64());
+        Assert.Equal(PAST_AN_INT + 3, pairs.GetProperty("skips").GetProperty(InterproceduralPairing.SKIP_ORDERED).GetInt64());
+        Assert.Equal(PAST_AN_INT + 4, pairs.GetProperty("assumed").GetProperty(OrderingAssumptions.OBSERVERS).GetInt64());
+        Assert.Equal(PAST_AN_INT * analysis.Findings.Count, written.GetProperty("occurrences").GetInt64());
+    }
+
     [Fact]
     public async Task Analyses_name_every_scope_and_count_the_first_analysis()
     {

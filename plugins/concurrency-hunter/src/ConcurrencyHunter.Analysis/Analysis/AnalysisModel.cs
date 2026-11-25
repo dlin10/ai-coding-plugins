@@ -97,7 +97,9 @@ public sealed record Finding(string FindingId, string Fingerprint, string GroupI
                              IReadOnlyList<EvidenceItem> Evidence)
 {
     public string GroupFingerprint { get; init; } = "";
-    public int OccurrenceCount { get; init; } = 1;
+
+    /// <summary>How many pairs of roots reach the finding's sites: 64-bit, as every count of pairs (issue 499).</summary>
+    public long OccurrenceCount { get; init; } = 1;
     public IReadOnlyList<FindingOccurrence> Occurrences { get; init; } = [];
 
     /// <summary>What the solver said about the two paths meeting, null where it was never asked (TD-093).</summary>
@@ -118,7 +120,7 @@ public sealed record FindingGroup(string GroupId, string Fingerprint, string Rul
                                   IReadOnlyList<string> FindingIds)
 {
     /// <summary>The sum of the findings' occurrence counts.</summary>
-    public int OccurrenceCount { get; init; }
+    public long OccurrenceCount { get; init; }
 }
 
 /// <summary>What one process scope's analysis saw: roots by provider, diagnostics from scope discovery, providers, the
@@ -185,7 +187,8 @@ public sealed record GenerationRefusal(string Member, string MemberId, string Fi
 /// <param name="FileKey">The key of the generated file that would hold the answer: its path below the generated folder.</param>
 public sealed record WantedGeneration(string MemberId, string FileKey);
 
-/// <summary>The pair counters summed over scopes; <see cref="LargestBucket"/> is the largest bucket of any scope.</summary>
+/// <summary>The pair counters summed over scopes; <see cref="LargestBucket"/> is the largest bucket of any scope. The counts of pairs are
+/// 64-bit, as a scope's are (<see cref="PairAnalysis"/>).</summary>
 /// <param name="Comparisons">How many pairs were compared.</param>
 /// <param name="CartesianBound">The sum over scopes of n(n+1)/2 over each scope's non-construction-local accesses.</param>
 /// <param name="Buckets">How many buckets the candidate index made.</param>
@@ -193,14 +196,14 @@ public sealed record WantedGeneration(string MemberId, string FileKey);
 /// <param name="Candidates">The compared pairs that survived the filters.</param>
 /// <param name="Suppressed">The compared pairs a sufficient protection suppressed.</param>
 /// <param name="Skips">The compared pairs a filter skipped, by the filter.</param>
-public sealed record PairCounters(int Comparisons, int CartesianBound, int Buckets, int LargestBucket, int Candidates, int Suppressed,
-                                  IReadOnlyDictionary<string, int> Skips)
+public sealed record PairCounters(long Comparisons, long CartesianBound, int Buckets, int LargestBucket, long Candidates, long Suppressed,
+                                  IReadOnlyDictionary<string, long> Skips)
 {
-    public static PairCounters None { get; } = new(0, 0, 0, 0, 0, 0, new Dictionary<string, int>());
+    public static PairCounters None { get; } = new(0, 0, 0, 0, 0, 0, new Dictionary<string, long>());
 
     /// <summary>The ordered pairs counted under each assumption their ordering rests on alone (<see cref="PairAnalysis.Assumed"/>),
     /// summed over scopes.</summary>
-    public IReadOnlyDictionary<string, int> Assumed { get; init; } = new Dictionary<string, int>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, long> Assumed { get; init; } = new Dictionary<string, long>(StringComparer.Ordinal);
 }
 
 /// <summary>A root provider the analysis ran, with its supported assembly ranges as <c>name min..max</c> (max exclusive).</summary>

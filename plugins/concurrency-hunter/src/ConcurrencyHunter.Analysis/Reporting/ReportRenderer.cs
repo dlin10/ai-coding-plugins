@@ -143,7 +143,7 @@ public static class ReportRenderer
 
     private sealed record TimerCounts(int Disabled, int OneShot, int Periodic);
 
-    private sealed record OrderingCounts(int OrderedPairs, IReadOnlyDictionary<string, int> SpawnSites, TimerCounts Timers, int UnprovenJoins);
+    private sealed record OrderingCounts(long OrderedPairs, IReadOnlyDictionary<string, int> SpawnSites, TimerCounts Timers, int UnprovenJoins);
 
     /// <summary>The phase-3 ordering counters over the scopes' sites, not their numbers: comparisons happens-before removed, then each
     /// spawn site, timer creation site and join without proven identity counted once by source however many scopes reach it, a timer site
@@ -261,10 +261,14 @@ public static class ReportRenderer
         return list.Length == 0 ? "none" : string.Join("; ", list);
     }
 
-    private static string Counts(IReadOnlyDictionary<string, int> counts) =>
+    /// <summary>Counts by name as the report writes them, in ordinal order of the name, or <c>none</c>.</summary>
+    /// <typeparam name="T">The counts' type: an int, or a long for counts of pairs (issue 499).</typeparam>
+    /// <param name="counts">The counts by name.</param>
+    private static string Counts<T>(IReadOnlyDictionary<string, T> counts) where T : IFormattable =>
         counts.Count == 0
             ? "none"
-            : string.Join(", ", counts.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key} {Number(pair.Value)}"));
+            : string.Join(", ", counts.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                      .Select(pair => $"{pair.Key} {pair.Value.ToString(null, CultureInfo.InvariantCulture)}"));
 
     private static void AppendFindingSection(StringBuilder markdown, RunReport report, string label)
     {
@@ -786,7 +790,9 @@ public static class ReportRenderer
 
     private static string Seconds(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
 
-    private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
+    /// <summary>A count as the report writes it; a count of pairs is a long (issue 499).</summary>
+    /// <param name="value">The count.</param>
+    private static string Number(long value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static decimal DecimalSeconds(double value) => decimal.Parse(Seconds(value), CultureInfo.InvariantCulture);
 

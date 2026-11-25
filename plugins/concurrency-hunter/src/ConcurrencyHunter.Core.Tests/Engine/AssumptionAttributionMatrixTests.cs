@@ -361,7 +361,7 @@ public sealed class AssumptionAttributionMatrixTests
         Assert.Equal(PairTiming.Ordered, timing);
         Assert.Equal([OrderingAssumptions.OBSERVERS, OrderingAssumptions.THREAD_CONTEXT, OrderingAssumptions.THREAD_POOL_ENTRY],
                      assumed.Order(StringComparer.Ordinal));
-        Assert.Equal(new Dictionary<string, int>
+        Assert.Equal(new Dictionary<string, long>
                      {
                          [OrderingAssumptions.OBSERVERS] = 1, [OrderingAssumptions.THREAD_CONTEXT] = 1, [OrderingAssumptions.THREAD_POOL_ENTRY] = 1
                      },
@@ -386,7 +386,7 @@ public sealed class AssumptionAttributionMatrixTests
 
         Assert.Equal(PairTiming.Ordered, timing);
         Assert.Equal([OrderingAssumptions.OBSERVERS, OrderingAssumptions.THREAD_CONTEXT], assumed.Order(StringComparer.Ordinal));
-        Assert.Equal(new Dictionary<string, int> { [OrderingAssumptions.OBSERVERS] = 1, [OrderingAssumptions.THREAD_CONTEXT] = 1 },
+        Assert.Equal(new Dictionary<string, long> { [OrderingAssumptions.OBSERVERS] = 1, [OrderingAssumptions.THREAD_CONTEXT] = 1 },
                      run.Pairs.Assumed.ToDictionary());
         var reference = ReferencePair(run.Collection.Accesses, run.Execution.Analysis, run.Execution.Heap.Heap);
         Assert.Equal(reference.Assumed, run.Pairs.Assumed);
@@ -466,7 +466,7 @@ public sealed class AssumptionAttributionMatrixTests
         Assert.Equal(PairTiming.Ordered, timing);
         Assert.Equal([OrderingAssumptions.OBSERVERS, OrderingAssumptions.THREAD_CONTEXT, OrderingAssumptions.THREAD_POOL_ENTRY],
                      assumed.Order(StringComparer.Ordinal));
-        Assert.Equal(new Dictionary<string, int>
+        Assert.Equal(new Dictionary<string, long>
                      {
                          [OrderingAssumptions.OBSERVERS] = 1, [OrderingAssumptions.THREAD_CONTEXT] = 1, [OrderingAssumptions.THREAD_POOL_ENTRY] = 1
                      },

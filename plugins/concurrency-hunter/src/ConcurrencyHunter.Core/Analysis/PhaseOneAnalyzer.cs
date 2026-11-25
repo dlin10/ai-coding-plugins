@@ -248,14 +248,15 @@ public static class PhaseOneAnalyzer
         var pairs = new List<AccessPair>();
         var coverage = new List<ScopeCoverage>();
         var gapSources = new Dictionary<string, IReadOnlyDictionary<OperationSite, CoveragePlace>>(StringComparer.Ordinal);
-        var comparisons = 0;
-        var cartesianBound = 0;
+        // The counts of pairs are summed in 64 bits, as each scope's are (issue 499).
+        var comparisons = 0L;
+        var cartesianBound = 0L;
         var buckets = 0;
         var largestBucket = 0;
-        var candidates = 0;
-        var suppressed = 0;
-        var pairSkips = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var pairAssumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var candidates = 0L;
+        var suppressed = 0L;
+        var pairSkips = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        var pairAssumed = new SortedDictionary<string, long>(StringComparer.Ordinal);
         // One out-of-range diagnostic per project and assembly in the whole report (R5): a project two scopes share is reported in
         // the first of them.
         var outOfRangeReported = new HashSet<(ProjectId, string)>();
