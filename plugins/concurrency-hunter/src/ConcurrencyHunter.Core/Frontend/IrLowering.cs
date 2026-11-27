@@ -3642,15 +3642,19 @@ public static class IrLowering
         }
 
         /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
-        /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor; or a member of a
-        /// framework awaiter the lowering recognizes by itself (<see cref="RecognizerOf(IMethodSymbol)"/>).</summary>
+        /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c>, the <c>Span</c> of a <c>Memory</c> or <c>ReadOnlyMemory</c>, or a
+        /// <c>Span</c> or <c>ReadOnlySpan</c> constructor; or a member of a framework awaiter the lowering recognizes by itself
+        /// (<see cref="RecognizerOf(IMethodSymbol)"/>). A <c>Memory</c> or <c>ReadOnlyMemory</c> constructor is not one: the window it
+        /// makes is an allocation of its own to the heap, which nothing ties to the array, so where windows over two arrays are
+        /// merged its unknown effect is all that reaches the array.</summary>
         /// <param name="method">The method called.</param>
         private static bool IsRecognized(IMethodSymbol method) =>
             Bcl.TypeOf(method) is { } type &&
             (LibraryModels.IsRecognizedType(type) ||
              SpanTypes.Names(type) && (method.MethodKind == MethodKind.Constructor
                                            ? type is "System.Span`1" or "System.ReadOnlySpan`1"
-                                           : method.Name is "AsSpan" or "AsMemory" or "Slice")) ||
+                                           : method.Name is "AsSpan" or "AsMemory" or "Slice" ||
+                                             method.Name == "get_Span" && type is "System.Memory`1" or "System.ReadOnlyMemory`1")) ||
             IsFrameworkAwaiterMember(method);
 
         /// <summary>Whether a call is of a member of a framework awaiter or configured awaitable, or of a default-comparer factory, that the

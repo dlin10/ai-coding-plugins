@@ -8893,6 +8893,68 @@ ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field-control")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-the-list-it-replaces")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.A_string_window_is_only_read	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Marked_site_collected_what_the_record_names(name: "memory-in-a-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-index-and-window-in-one-iteration")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-from-a-start")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-index-from-the-end-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-index-from-the-end")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-range-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-range")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-whole-array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "as-memory-window-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "conversion-and-as-memory-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "implicit-conversion-of-a-segment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "implicit-conversion-of-the-array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-constructor-over-the-array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-constructor-window-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-constructor-window")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-constructors-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-constructors-of-two-arrays-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-field-from-a-conversion-handed-to-a-callee")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-field-from-a-conversion")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-handed-to-a-callee-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-handed-to-a-callee")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-in-a-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-in-a-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-over-an-array-a-method-returns")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-over-an-array-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-slice-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "memory-slice")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "object-read-through-a-memory-constructor")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "object-read-through-a-memory")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "object-read-through-a-span")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "read-only-memory-constructor")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "read-only-memory-from-a-memory")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slice-of-a-window-from-a-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slice-start-from-a-field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slice-start-from-a-parameter-against-an-index")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slice-start-from-a-parameter-against-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slice-start-from-a-parameter-both-sides")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slices-that-do-not-meet")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "slices-that-overlap")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-constructor-window")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-cut-at-a-parameter-handed-to-a-callee")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-index-inside-the-window")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-index-outside-the-window")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-of-a-memory-in-a-local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-read")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-slices-from-a-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-slices-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "span-slices-of-two-arrays-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "string-as-memory")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-cut-at-a-parameter-handed-to-a-callee")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-index-moving-with-the-iteration")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-index-of-the-iteration")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-re-sliced-in-a-loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "windows-at-two-starts-in-one-iteration")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "windows-of-two-lengths-in-the-iteration")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "windows-of-two-lengths-merged")	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Windows_cut_at_a_parameter_are_collected_on_their_cells(name: "slice-of-a-window-from-a-parameter", cells: ["Write _cells.[1] Registry.Fill", "Write _cells.[2] Registry.Fill"])	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Windows_cut_at_a_parameter_are_collected_on_their_cells(name: "span-cut-at-a-parameter-handed-to-a-callee", cells: ["Write _cells.[1] Registry.Write", "Write _cells.[3] Registry.Set"])	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Windows_cut_at_a_parameter_are_collected_on_their_cells(name: "span-slices-from-a-parameter", cells: ["Write _cells.[0] Registry.Fill", "Write _cells.[2] Registry.Fill"])	Passed
+ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Windows_cut_at_a_parameter_are_collected_on_their_cells(name: "window-cut-at-a-parameter-handed-to-a-callee", cells: ["Write _cells.[1] Registry.Write", "Write _cells.[3] Registry.Set"])	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_copy_is_overwritten_only_by_a_store_before_every_other_use_of_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_store_past_the_64th_block_runs_under_the_branches_that_dominate_it_in_their_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.A_store_runs_under_the_branches_of_the_blocks_that_dominate_it_in_their_order	Passed

@@ -122,6 +122,20 @@ public static class MethodSummaryBuilder
         private Dictionary<int, List<IrOperation>>? _uses;
         private Dictionary<string, List<IrValue>>? _versions;
         private HashSet<int?>? _cellBindings;
+        private Dictionary<int, IrCallOperation>? _constructors;
+
+        /// <summary>The merges <see cref="Slice"/> is unwinding, so that a loop round one ends there.</summary>
+        private readonly HashSet<int> _mergesUnwound = [];
+
+        /// <summary>The slice each merge of windows is at each depth it was met at, where no loop round it decided the answer.</summary>
+        private readonly Dictionary<(int Merge, int Depth), SliceOf> _mergesMet = [];
+
+        /// <summary>How many times a walk of <see cref="Slice"/> met a merge it was already inside or ran out of budget: an answer that
+        /// changed this count depends on the walk it was reached by.</summary>
+        private int _mergeCycles;
+
+        /// <summary>How many more merges the current walk of <see cref="Slice"/> may unwind (<see cref="MERGE_BUDGET"/>).</summary>
+        private int _mergeBudget;
         private ulong[][]? _dominators;
 
         /// <summary>The state of the <see cref="Producers"/> walks, one for each depth a walk nests in another, and that depth.</summary>
@@ -376,8 +390,8 @@ public static class MethodSummaryBuilder
                             Atomic = atomic.TryGetValue(element.Id, out var storeElementMark) ? storeElementMark.Effect : null,
                             ComparandLoad = Comparand(atomic, element.Id),
                             Selector = storeCell.Selector,
-                            SelectorParameter = element.IndexValues.Count == 1 && element.NamesOneCell ? ParameterOf(element.IndexValues[0]).Ordinal : null,
-                            SelectorWidth = element.IndexValues.Count == 1 && element.NamesOneCell ? ParameterOf(element.IndexValues[0]).Width : null,
+                            SelectorParameter = IndexParameter(element.ReceiverValue, element.IndexValues, element.NamesOneCell).Ordinal,
+                            SelectorWidth = IndexParameter(element.ReceiverValue, element.IndexValues, element.NamesOneCell).Width,
                             SelectorTerm = storeCell.Term,
                             IsOnCollection = true
                         });
@@ -390,12 +404,12 @@ public static class MethodSummaryBuilder
                         {
                             Atomic = atomic.TryGetValue(loadElement.Id, out var loadElementMark) ? loadElementMark.Effect : null,
                             Selector = loadCell.Selector,
-                            SelectorParameter = loadElement.IndexValues.Count == 1 && loadElement.NamesOneCell ? ParameterOf(loadElement.IndexValues[0]).Ordinal : null,
-                            SelectorWidth = loadElement.IndexValues.Count == 1 && loadElement.NamesOneCell ? ParameterOf(loadElement.IndexValues[0]).Width : null,
+                            SelectorParameter = IndexParameter(loadElement.ReceiverValue, loadElement.IndexValues, loadElement.NamesOneCell).Ordinal,
+                            SelectorWidth = IndexParameter(loadElement.ReceiverValue, loadElement.IndexValues, loadElement.NamesOneCell).Width,
                             SelectorTerm = loadCell.Term,
                             IsOnCollection = true
                         });
-                        elements.Add(new ElementTransfer(loadElement.Id, ElementOperationKind.Load, Final(Points(loadElement.ReceiverValue), delegates),
+                        elements.Add(new ElementTransfer(loadElement.Id, ElementOperationKind.Load, Final(Points(Slice(loadElement.ReceiverValue).Array), delegates),
                                                          Final(Points(loadElement.ResultValue), delegates)));
                         break;
                     case IrStoreElementOperation element:
@@ -420,7 +434,7 @@ public static class MethodSummaryBuilder
                         else if (!IsFresh(Slice(element.ReceiverValue).Array))
                             argumentEffects.Add(StandingElement(element.Id, element.ReceiverValue, element.IndexValues, element.NamesOneCell, ELEMENT_READ,
                                                                 element.Provenance, locks, delegates, new HashSet<ValueDependency>()));
-                        elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Load, Final(Points(element.ReceiverValue), delegates),
+                        elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Load, Final(Points(Slice(element.ReceiverValue).Array), delegates),
                                                          Final(Points(element.ResultValue), delegates)));
                         break;
                     case IrYieldOperation { Value: int yielded }:
@@ -933,7 +947,8 @@ public static class MethodSummaryBuilder
                 return [];
             }
 
-            return [new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
+            // A cell written through a slice is a cell of the storage the slice is cut from (TD-043).
+            return [new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(Slice(element.ReceiverValue).Array), delegates),
                                         Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) }];
         }
 
@@ -2581,7 +2596,8 @@ public static class MethodSummaryBuilder
                                                                                       allocate.SiteOrdinal))],
                 IrLoadFieldOperation { Field.IsStatic: true } load => [new StaticFieldValue(load.Field)],
                 IrLoadFieldOperation { ReceiverValue: int receiver } load => Extend(_points[receiver], FieldSlot.Key(load.Field)),
-                IrLoadElementOperation load => Extend(_points[load.ReceiverValue], PathValue.ELEMENT),
+                // What a cell holds is held by the storage a slice of it is cut from (TD-043).
+                IrLoadElementOperation load => Extend(_points[Slice(load.ReceiverValue).Array], PathValue.ELEMENT),
                 // A load through a reference reads the place it names, and, through a `ref` or `out` parameter, also what a write through it
                 // left on the way there: what the caller passed is a local as often as not, whose storage the heap does not hold (R6).
                 IrLoadReferenceOperation load => [.. References(load.AddressValue).Select(target => (AbstractValue)new ReferenceLocationValue(target, Read: true)),
@@ -2758,9 +2774,8 @@ public static class MethodSummaryBuilder
                 switch (Definition(current))
                 {
                     case IrAddressElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } cell:
-                        var oneCell = element.IndexValues.Count == 1 && element.NamesOneCell;
-                        return [new StorageCellOf(cell.Selector, cell.Term, oneCell ? ParameterOf(element.IndexValues[0]).Ordinal : null,
-                                                  oneCell ? ParameterOf(element.IndexValues[0]).Width : null)];
+                        var (parameter, width) = IndexParameter(element.ReceiverValue, element.IndexValues, element.NamesOneCell);
+                        return [new StorageCellOf(cell.Selector, cell.Term, parameter, width)];
                     case IrAddressFieldOperation { ReceiverValue: int holder }:
                         value = holder;
                         break;
@@ -2899,7 +2914,7 @@ public static class MethodSummaryBuilder
             // it is stays unknown, so two indices of it are never proven disjoint (TD-043).
             var selector = indices.Count == 1 && namesOneCell ? Selector(indices[0]) : ElementSelector.Unknown;
             return new ElementCell(load.Field, load.ReceiverValue ?? slice.Array, selector.InSlice(slice.Shift, slice.Length),
-                                   indices.Count == 1 && namesOneCell ? Shifted(Term(indices[0]), slice.Shift) : null);
+                                   indices.Count == 1 && namesOneCell ? Shifted(Term(indices[0]), slice) : null);
         }
 
         /// <summary>The cell an element address takes of a collection this body got by value: which cell, in the coordinates of the
@@ -2917,7 +2932,7 @@ public static class MethodSummaryBuilder
             var oneCell = indices.Count == 1 && namesOneCell;
             var selector = oneCell ? Selector(indices[0]) : ElementSelector.Unknown;
             return new ReferenceParameterElement(ordinal, selector.InSlice(slice.Shift, slice.Length),
-                                                 oneCell ? Shifted(Term(indices[0]), slice.Shift) : null);
+                                                 oneCell ? Shifted(Term(indices[0]), slice) : null);
         }
 
         /// <summary>An element read of an array, as the member of the table an interface call on the array is.</summary>
@@ -2951,9 +2966,9 @@ public static class MethodSummaryBuilder
             {
                 Member = member,
                 MemberSelector = (oneCell ? Selector(indices[0]) : ElementSelector.Unknown).InSlice(slice.Shift, slice.Length),
-                MemberSelectorTerm = oneCell ? Shifted(Term(indices[0]), slice.Shift) : null,
-                MemberSelectorParameter = oneCell ? ParameterOf(indices[0]).Ordinal : null,
-                MemberSelectorWidth = oneCell ? ParameterOf(indices[0]).Width : null,
+                MemberSelectorTerm = oneCell ? Shifted(Term(indices[0]), slice) : null,
+                MemberSelectorParameter = IndexParameter(receiver, indices, namesOneCell).Ordinal,
+                MemberSelectorWidth = IndexParameter(receiver, indices, namesOneCell).Width,
                 MemberValueDependencies = dependencies,
                 ValueId = slice.Array
             };
@@ -2981,10 +2996,10 @@ public static class MethodSummaryBuilder
                 return Collection(dictionary);
             if (Definition(slice.Array) is IrLoadFieldOperation load)
                 return new ArgumentCollection(new ReferenceCell(load.Field, AccessBases(Points(load.ReceiverValue ?? slice.Array)), null, null, true),
-                                              slice.Shift, slice.Length);
+                                              slice.Shift, slice.Length) { Offset = slice.Offset };
             if (ParameterElement(value, [], false) is { } parameter)
-                return new ArgumentCollection(parameter with { Selector = ElementSelector.Unknown }, slice.Shift, slice.Length);
-            return CallCollection(value) is { } call ? new ArgumentCollection(call, slice.Shift, slice.Length) : null;
+                return new ArgumentCollection(parameter with { Selector = ElementSelector.Unknown }, slice.Shift, slice.Length) { Offset = slice.Offset };
+            return CallCollection(value) is { } call ? new ArgumentCollection(call, slice.Shift, slice.Length) { Offset = slice.Offset } : null;
         }
 
         private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0)
@@ -3098,15 +3113,19 @@ public static class MethodSummaryBuilder
 
         /// <summary>The cell's expression in the coordinates of the collection it is cut from, which is where the selector already
         /// is: an index of a slice names the cell that many places further along, and handing the solver the index of the window
-        /// would make <c>span(4, 8)[1]</c> and <c>array[5]</c> two cells although they are one. An offset nothing proves keeps the
-        /// unknown it is rather than passing the window's own index off as the array's (TD-092).</summary>
+        /// would make <c>span(4, 8)[1]</c> and <c>array[5]</c> two cells although they are one. An offset that is no constant is
+        /// added as the expression it is, so that it binds where the call stands as an index does and two windows a caller cuts
+        /// at different places stay two; an offset with no expression keeps the unknown it is rather than passing the window's
+        /// own index off as the array's (TD-092).</summary>
         /// <param name="term">The index expression in the slice's coordinates.</param>
-        /// <param name="shift">The offset the slice starts at, or null when nothing proves it.</param>
-        private static ValueTerm? Shifted(ValueTerm term, long? shift) => shift switch
+        /// <param name="slice">The slice the index is of.</param>
+        private static ValueTerm? Shifted(ValueTerm term, SliceOf slice) => slice.Shift switch
         {
-            null => null,
             0 => term,
-            { } offset => new SumTerm(term, new ConstantTerm(offset, term.Width))
+            { } offset => new SumTerm(term, new ConstantTerm(offset, term.Width)),
+            null => slice.Offset is { } expression && expression.Width == term.Width && expression.Signed == term.Signed
+                ? new SumTerm(term, expression)
+                : null
         };
 
         /// <summary>The member a call names, without the type that declares it, its generic arguments or its parameters:
@@ -3132,41 +3151,171 @@ public static class MethodSummaryBuilder
             SpanTypes.Names(key.IndexOf(':') is var assembly && assembly >= 0 ? key[(assembly + 1)..] : key);
 
         /// <summary>A slice reduces to the region it is cut from and the offset it starts at, so two slices are compared by those
-        /// and never by the slice objects (TD-043).</summary>
+        /// and never by the slice objects (TD-043). A slice is cut by <c>AsSpan</c> or <c>AsMemory</c> of an array, by the
+        /// <c>Slice</c> of a span or a memory, or by the constructor of a span or a memory over an array; the <c>Span</c> of a
+        /// memory is the window that memory is, from its first cell.</summary>
         /// <param name="value">The value that may be a slice.</param>
-        /// <param name="depth">How many slices of the chain have been unwound so far.</param>
+        /// <param name="depth">How many calls of the chain have been unwound so far.</param>
         private SliceOf Slice(int value, int depth = 0)
         {
             WorkCancellation.Check();
             var origin = Origin(value);
-            if (depth < SLICE_DEPTH && Definition(origin) is IrCallOperation { Method: var method } call && call.ResultValue == origin &&
-                MemberOf(method) is "AsSpan" or "Slice" && DeclaresKnownSlices(call) && call.ArgumentValues.Count != 0)
+            if (depth >= SLICE_DEPTH)
+                return new SliceOf(origin, 0, null);
+
+            switch (Definition(origin))
             {
-                // `AsSpan(array, start, ...)` is a static extension whose array is its first parameter, `Slice(start, ...)` an
-                // instance member of the span it cuts. Each is read by the parameter it is bound to: a named argument may stand
-                // anywhere in the call, and a position names a different parameter for every caller who writes them differently.
-                var isExtension = call.ReceiverValue is null;
-                var (arrayOrdinal, startOrdinal, lengthOrdinal) = isExtension ? (0, 1, 2) : (-1, 0, 1);
-                if ((isExtension ? call.ArgumentAt(arrayOrdinal) : call.ReceiverValue) is not { } array)
+                case IrCallOperation { Method: var method, ReceiverValue: int memory, ArgumentValues.Count: 0 } span
+                    when span.ResultValue == origin && MemberOf(method) == "get_Span" && DeclaresKnownSlices(span):
+                    return Slice(memory, depth + 1);
+                // `AsSpan(array, start, ...)` and `AsMemory(array, start, ...)` are static extensions whose array is their first
+                // parameter, `Slice(start, ...)` an instance member of the span or the memory it cuts.
+                case IrCallOperation { Method: var method } call
+                    when call.ResultValue == origin && MemberOf(method) is "AsSpan" or "AsMemory" or "Slice" && DeclaresKnownSlices(call) &&
+                         call.ArgumentValues.Count != 0:
+                    return call.ReceiverValue is null
+                        ? call.ArgumentAt(0) is { } array ? Window(call, array, 1, depth) : new SliceOf(origin, 0, null)
+                        : Window(call, call.ReceiverValue.Value, 0, depth);
+                // `new Span<T>(array, start, length)` and `new Memory<T>(array, start, length)` take the array they cover first; a
+                // span made from a pointer or a reference covers no array.
+                case IrAllocateOperation when Constructors.GetValueOrDefault(origin) is { } constructor && DeclaresKnownSlices(constructor) &&
+                                              constructor.ArgumentAt(0) is { } covered && TypeOf(covered) is { } type &&
+                                              type.EndsWith("[]", StringComparison.Ordinal):
+                    return Window(constructor, covered, 1, depth);
+                // A merge of arrays is the array each of its values is, from its first cell; only a merge of windows can start
+                // anywhere else.
+                case IrPhiOperation phi when SpanTypes.Names(TypeOf(origin)):
+                    return Merged(phi, origin, depth);
+                default:
                     return new SliceOf(origin, 0, null);
+            }
+        }
 
-                var start = depth < SELECTOR_BUDGET
-                    ? call.ArgumentAt(startOrdinal) is { } written ? Constant(written) : 0
-                    : null;
-                var inner = Slice(array, depth + 1);
-                // Past the budget, and where an offset is not a constant, the chain is still unwound to the collection it cuts; only
-                // the offset is given up, so the cell widens to unknown rather than falling away (TD-043).
-                if (start is not { } offset || inner.Shift is not { } shift)
-                    return new SliceOf(inner.Array, null, null);
-
-                var length = call.ArgumentAt(lengthOrdinal) is { } given
-                    ? Constant(given)
-                    : inner.Length is { } outer ? outer - offset : null;
-                return new SliceOf(inner.Array, shift + offset, length);
+        /// <summary>The slice a merge of windows is: every value it joins, unwound. Where each reaches the same field of the same
+        /// object, the merge is a slice of that collection, and a value cut from this very merge round a loop is one too, at an offset
+        /// the loop moves; the offset and the length are each the one every value agrees on, and one they do not agree on is unknown
+        /// rather than the first cell or the whole collection. A value that only carries the merge round a loop adds nothing. A merge
+        /// is unwound once for every depth it is met at, unless a loop round it decided the answer, and past a budget of merges for
+        /// one walk its offset is unknown.</summary>
+        /// <param name="phi">The merge.</param>
+        /// <param name="origin">The value the merge defines.</param>
+        /// <param name="depth">How many calls of the chain have been unwound so far.</param>
+        private SliceOf Merged(IrPhiOperation phi, int origin, int depth)
+        {
+            if (_mergesMet.TryGetValue((origin, depth), out var met))
+                return met;
+            if (_mergesUnwound.Count == 0)
+                _mergeBudget = MERGE_BUDGET;
+            if (_mergeBudget-- <= 0 || !_mergesUnwound.Add(origin))
+            {
+                _mergeCycles++;
+                return new SliceOf(origin, null, null);
             }
 
-            return new SliceOf(origin, 0, null);
+            var cycles = _mergeCycles;
+            SliceOf merged;
+            try
+            {
+                var joined = phi.Inputs.Select(input => input.Value).Where(input => !_mergesUnwound.Contains(Origin(input))).ToArray();
+                if (joined.Length != phi.Inputs.Count)
+                    _mergeCycles++;
+                merged = joined.Length is 0 or > MERGE_INPUTS ? new SliceOf(origin, null, null) : Joined(joined, origin, depth);
+            }
+            finally
+            {
+                _mergesUnwound.Remove(origin);
+            }
+
+            if (cycles == _mergeCycles)
+                _mergesMet[(origin, depth)] = merged;
+            return merged;
         }
+
+        /// <summary>The slice the values a merge joins are together (<see cref="Merged"/>).</summary>
+        /// <param name="joined">The values the merge joins, those that only carry it round a loop left out.</param>
+        /// <param name="origin">The value the merge defines.</param>
+        /// <param name="depth">How many calls of the chain have been unwound so far.</param>
+        private SliceOf Joined(int[] joined, int origin, int depth)
+        {
+            var inputs = joined.Select(input => Slice(input, depth + 1)).ToArray();
+            var cut = inputs.Where(input => input.Array != origin).ToArray();
+            if (cut.Length == 0)
+                return new SliceOf(origin, null, null);
+
+            var first = cut[0];
+            var array = cut.All(input => IsSameCollection(input.Array, first.Array)) ? first.Array : origin;
+            if (cut.Length != inputs.Length)
+                return new SliceOf(array, null, null);
+            var shift = inputs.All(input => input.Shift == first.Shift) ? first.Shift : null;
+            return new SliceOf(array, shift, inputs.All(input => input.Length == first.Length) ? first.Length : null,
+                               shift is null && inputs.All(input => Equals(input.Offset, first.Offset)) ? first.Offset : null);
+        }
+
+        /// <summary>How many values a merge may join for <see cref="Merged"/> to unwind each of them.</summary>
+        private const int MERGE_INPUTS = 8;
+
+        /// <summary>How many merges one walk of <see cref="Slice"/> unwinds before the offset of the rest is unknown.</summary>
+        private const int MERGE_BUDGET = 64;
+
+        /// <summary>Whether two values are one collection: one value, or loads of one field of one object.</summary>
+        /// <param name="first">The first collection value.</param>
+        /// <param name="second">The second collection value.</param>
+        private bool IsSameCollection(int first, int second) =>
+            first == second ||
+            Definition(first) is IrLoadFieldOperation one && Definition(second) is IrLoadFieldOperation two && one.Field == two.Field &&
+            (one.ReceiverValue is { } receiver ? two.ReceiverValue is { } other && Origin(receiver) == Origin(other) : two.ReceiverValue is null);
+
+        /// <summary>The slice a call cuts from <paramref name="cut"/> at the start and for the length its parameters name. Each is
+        /// read by the parameter it is bound to: a named argument may stand anywhere in the call, and a position names a different
+        /// parameter for every caller who writes them differently.</summary>
+        /// <param name="call">The call that cuts the slice.</param>
+        /// <param name="cut">The value of the collection or the slice it is cut from.</param>
+        /// <param name="startOrdinal">The ordinal of the parameter naming the start; the length's is the next one.</param>
+        /// <param name="depth">How many calls of the chain have been unwound so far.</param>
+        private SliceOf Window(IrCallOperation call, int cut, int startOrdinal, int depth)
+        {
+            var written = call.ArgumentAt(startOrdinal);
+            var start = depth < SELECTOR_BUDGET
+                ? written is { } given ? Constant(given) : 0
+                : null;
+            var inner = Slice(cut, depth + 1);
+            // Past the budget, and where an offset is not a constant, the chain is still unwound to the collection it cuts; only
+            // the offset's number is given up, so the cell widens to unknown rather than falling away (TD-043). An offset that is
+            // an integer keeps its expression within the budget, to be bound where the call stands (TD-092).
+            if (start is not { } offset || inner.Shift is not { } shift)
+                return new SliceOf(inner.Array, null, null, depth < SELECTOR_BUDGET ? OffsetTerm(inner, written) : null);
+
+            var length = call.ArgumentAt(startOrdinal + 1) is { } counted
+                ? Constant(counted)
+                : inner.Length is { } outer ? outer - offset : null;
+            return new SliceOf(inner.Array, shift + offset, length);
+        }
+
+        /// <summary>The expression of the offset a slice starts at when it is no constant: the offset of what it is cut from plus
+        /// its own start, where both are integers. A start of another type, an <c>Index</c> or a <c>Range</c>, has none.</summary>
+        /// <param name="inner">The slice it is cut from.</param>
+        /// <param name="start">The start value, or null where the call names none.</param>
+        private ValueTerm? OffsetTerm(SliceOf inner, int? start)
+        {
+            ValueTerm? own = start is not { } written ? new ConstantTerm(0, INDEX_WIDTH)
+                : TypeOf(written) is "int" or "System.Int32" ? Term(written)
+                : null;
+            var cut = inner.Shift is { } shift ? new ConstantTerm(shift, INDEX_WIDTH) : inner.Offset;
+            return own is null || cut is null ? null
+                : cut is ConstantTerm { Value: 0 } ? own
+                : new SumTerm(cut, own);
+        }
+
+        /// <summary>The width of the <c>int</c> a span or a memory is indexed and cut with.</summary>
+        private const int INDEX_WIDTH = 32;
+
+        /// <summary>The constructor call of each value this body allocates, by the value it allocates, built once per body for
+        /// <see cref="Slice"/>.</summary>
+        private Dictionary<int, IrCallOperation> Constructors =>
+            _constructors ??= _operations.OfType<IrCallOperation>()
+                                         .Where(call => call is { CallKind: IrCallKind.Constructor, ReceiverValue: int })
+                                         .GroupBy(call => call.ReceiverValue!.Value)
+                                         .ToDictionary(group => group.Key, group => group.First());
 
         /// <summary>What an index or a key names: a proven constant, a constant key, or the value's own identity, which proves
         /// nothing until a solver reads it but keeps two indices apart from a third.</summary>
@@ -3651,6 +3800,16 @@ public static class MethodSummaryBuilder
             _ => _values.TryGetValue(value, out var named) ? named.Name : $"%{value}"
         };
 
+        /// <summary>The parameter the one index of an element operation comes from (<see cref="ParameterOf"/>), where that index names
+        /// the cell itself: two iterations that differ in it touch two cells. In a slice that starts anywhere but the first cell the
+        /// cell is the index plus the offset, and the shortcut that skips a pair of two iterations compares the indices alone, so two
+        /// windows cut at different places would be taken apart where they meet.</summary>
+        /// <param name="receiver">The collection value the element operation is on.</param>
+        /// <param name="indices">The index values of the element operation.</param>
+        /// <param name="namesOneCell">Whether the indices name one cell.</param>
+        private (int? Ordinal, int? Width) IndexParameter(int receiver, IReadOnlyList<int> indices, bool namesOneCell) =>
+            indices.Count == 1 && namesOneCell && Slice(receiver).Shift == 0 ? ParameterOf(indices[0]) : (null, null);
+
         /// <summary>The parameter a value comes from, when it comes from one, through the numeric conversions on the way, with
         /// the narrowest width it passes through — null where it passes through none. A conversion narrower than the range of the
         /// values the parameter takes maps two of them to one cell, and a cell two iterations may share proves nothing about
@@ -3858,7 +4017,8 @@ public static class MethodSummaryBuilder
         /// <param name="Array">The value of the underlying collection.</param>
         /// <param name="Shift">The offset the slice starts at, or null when not proven.</param>
         /// <param name="Length">The slice's length, or null when it is not a constant.</param>
-        private readonly record struct SliceOf(int Array, long? Shift, long? Length);
+        /// <param name="Offset">The expression of the offset where <paramref name="Shift"/> is null and one is kept (TD-092).</param>
+        private readonly record struct SliceOf(int Array, long? Shift, long? Length, ValueTerm? Offset = null);
 
         /// <summary>One cell of one collection: the field it was read from, the object holding that field, which cell, and the
         /// expression naming that cell in the collection's own coordinates (TD-092).</summary>

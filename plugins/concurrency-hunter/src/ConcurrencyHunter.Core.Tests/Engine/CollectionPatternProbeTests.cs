@@ -131,13 +131,6 @@ public sealed class CollectionPatternProbeTests
         "slot): the holder boundary of TD-043 and ADR 0010; whether StandingTargets resolves the inner collection at all is not " +
         "established";
 
-    /// <summary>Why a store through <c>Memory&lt;T&gt;.Span</c> over an array makes no access.</summary>
-    private const string MEMORY_SPAN_UNWOUND =
-        "issue 537: MethodSummaryBuilder.Slice unwinds only AsSpan and Slice to the array they cover, not AsMemory nor " +
-        "Memory<T>.Span, so the store through the span names no cell of _cells and becomes a standing element of the get_Span " +
-        "result, which the standing-element resolution (InterproceduralAccesses.StandingMemberAccesses and StandingTargets) turns " +
-        "into no access; whether the heap resolves that result to any region is not established";
-
     /// <summary>Why a check-then-act on a plain dictionary is classed DCA1004 rather than the lost update PRD FR-07 names.</summary>
     private const string DCA1004_ON_A_PLAIN_COLLECTION =
         "issue 539: a rule mismatch, an owner question: PRD FR-07 gives DCA1004 to a non-atomic sequence of " +
@@ -183,7 +176,6 @@ public sealed class CollectionPatternProbeTests
                                          "DCA1001 unprotected _map structure: Write Registry.Add | Write Registry.Add"], DCA1004_ON_A_PLAIN_COLLECTION),
         ["list-values-of-a-concurrent-map"] = new([], NO_FIELD_HOLDER),
         ["jagged-array-same-row"] = new([], NO_FIELD_HOLDER),
-        ["memory-span-against-an-index"] = new([], MEMORY_SPAN_UNWOUND),
         ["contains-key-then-try-add"] = new(["DCA1004 unprotected _map.[\"a\"]: CompoundOperation Registry.Add | CompoundOperation Registry.Add"],
                                             TRY_ADD_AS_OVERWRITE),
         ["dictionary-key-from-a-parameter"] = new(["DCA1001 unprotected _map structure: Write Registry.Set | Write Registry.Set",
@@ -202,8 +194,8 @@ public sealed class CollectionPatternProbeTests
         ["list-values-of-a-concurrent-map"] = ("@add", ["AtomicReadModifyWrite _map.[\"k\"] Registry.Add @add", "AtomicWrite _map structure Registry.Add @add"]),
         ["jagged-array-same-row"] = ("@cell", ["Read _grid Registry.Set @cell", "Read _grid.[0] Registry.Set @cell"]),
         ["jagged-array-disjoint-rows"] = ("@cell", ["Read _grid Registry.Set @cell", "Read _grid.[0] Registry.Set @cell", "Read _grid.[1] Registry.Set @cell"]),
-        ["memory-span-against-an-index"] = ("@fill", ["Read _cells Registry.Fill @fill"]),
-        ["memory-slices-disjoint"] = ("@fill", ["Read _cells Registry.Fill @fill"])
+        ["memory-span-against-an-index"] = ("@fill", ["Read _cells Registry.Fill @fill", "Write _cells.[0] Registry.Fill @fill"]),
+        ["memory-slices-disjoint"] = ("@fill", ["Read _cells Registry.Fill @fill", "Write _cells.[0] Registry.Fill @fill", "Write _cells.[2] Registry.Fill @fill"])
     };
 
     /// <summary>The names of the probes.</summary>
@@ -230,13 +222,12 @@ public sealed class CollectionPatternProbeTests
         HostedServiceProbe.AssertDifferences(Probes.ToDictionary(probe => probe.Key, probe => probe.Value.Truth, StringComparer.Ordinal), Differences);
         Assert.Equal(17, Probes.Count);
         Assert.Equal(2, Differences.Count(difference => difference.Value.Reason == NO_FIELD_HOLDER));
-        Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == MEMORY_SPAN_UNWOUND));
         Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == TRY_ADD_AS_OVERWRITE));
         Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == KEY_NOT_BOUND));
         Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == ESCAPED_SEQUENCE));
         Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == AS_READ_ONLY_UNMODELLED));
         Assert.Equal(1, Differences.Count(difference => difference.Value.Reason == DCA1004_ON_A_PLAIN_COLLECTION));
-        Assert.Equal(8, Differences.Count);
+        Assert.Equal(7, Differences.Count);
     }
 
     /// <summary>The names of the probes whose marked site the record describes access by access.</summary>

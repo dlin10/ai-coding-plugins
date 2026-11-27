@@ -2720,9 +2720,13 @@ public static partial class InterproceduralAccesses
                             CheckCancellation();
                             var collection = argument.Collection;
                             var selector = collection is not null ? element.Selector.InSlice(collection.Shift, collection.Length) : ElementSelector.Unknown;
-                            var shifted = term is null || collection?.Shift is not { } shift ? null
-                                : shift == 0 ? term
-                                : BindSum(term, new ConstantTerm(shift, term.Width, term.Signed));
+                            // An offset the caller computes is bound where the call stands, as the callee's index is where it is
+                            // written (TD-092).
+                            var shifted = term is null ? null
+                                : collection?.Shift is { } shift ? shift == 0 ? term : BindSum(term, new ConstantTerm(shift, term.Width, term.Signed))
+                                : collection?.Offset is { } offset && offset.Width == term.Width && offset.Signed == term.Signed
+                                    ? BindSum(term, Bind(offset, bound.Instance, bound.Node))
+                                    : null;
                             var outer = collection?.Collection switch
                             {
                                 ReferenceCell cell => selector == ElementSelector.Unknown && shifted is null ? UnknownCell(cell)

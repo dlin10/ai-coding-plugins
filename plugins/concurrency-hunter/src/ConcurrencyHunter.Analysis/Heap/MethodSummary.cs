@@ -715,7 +715,13 @@ public sealed record CreatedElement(int ValueId, string? ObjectTypeKey, bool IsR
 /// <param name="Collection">The field cell or parameter element the collection comes from.</param>
 /// <param name="Shift">The cell the handed-over collection starts at, null when unknown.</param>
 /// <param name="Length">The number of cells handed over, null when unknown.</param>
-public sealed record ArgumentCollection(ReferenceTarget Collection, long? Shift, long? Length);
+public sealed record ArgumentCollection(ReferenceTarget Collection, long? Shift, long? Length)
+{
+    /// <summary>The expression of the cell the handed-over collection starts at, in the caller's own values, where
+    /// <see cref="Shift"/> is null and one is kept: bound where the call stands, it says which cells a callee's index names
+    /// (TD-092).</summary>
+    public ValueTerm? Offset { get; init; }
+}
 
 public abstract record ReferenceTarget;
 
