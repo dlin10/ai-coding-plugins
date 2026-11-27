@@ -331,14 +331,17 @@ internal sealed class SsaPlan
                 Scan(assignment.Value, blockOrdinal);
                 ScanTarget(assignment.Target, blockOrdinal, Binds(assignment));
                 return;
+            // An instance operator called on its target assigns nothing to it (InstanceOperators).
             case ICompoundAssignmentOperation compound:
                 Scan(compound.Target, blockOrdinal);
                 Scan(compound.Value, blockOrdinal);
-                DefineTarget(compound.Target, blockOrdinal);
+                if (InstanceOperators.InPlace(compound) is null)
+                    DefineTarget(compound.Target, blockOrdinal);
                 return;
             case IIncrementOrDecrementOperation increment:
                 Scan(increment.Target, blockOrdinal);
-                DefineTarget(increment.Target, blockOrdinal);
+                if (InstanceOperators.InPlace(increment) is null)
+                    DefineTarget(increment.Target, blockOrdinal);
                 return;
             case IDeconstructionAssignmentOperation deconstruction:
                 Scan(deconstruction.Value, blockOrdinal);

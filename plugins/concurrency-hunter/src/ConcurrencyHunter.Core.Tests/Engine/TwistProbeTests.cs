@@ -14,13 +14,6 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// in <see cref="Differences"/> with its answer and why.</summary>
 public sealed class TwistProbeTests
 {
-    /// <summary>Why a C# 14 instance compound assignment or increment pairs the variable and not the object.</summary>
-    private const string IN_PLACE_OPERATOR_IS_ASSIGNMENT =
-        "issue 512: x += y with an instance operator += on a reference type calls the operator on x and stores nothing (C# 14 feature " +
-        "specification), but the lowering routes it as a static operator call (IrLowering.OperatorCall): it loads x, calls the operator " +
-        "with no receiver and the loaded value and y as its arguments, and stores the result back into x, so the variable is read and " +
-        "written, and the body, where it is entered at all, has no this to name Value through";
-
     /// <summary>Why an async method that awaits only completed tasks overlaps its caller.</summary>
     private const string SYNCHRONOUS_COMPLETION_IS_NOT_MODELLED =
         "limit: every await suspends in the model, so what an async method does after awaiting a completed task runs, for the " +
@@ -66,10 +59,6 @@ public sealed class TwistProbeTests
     /// <summary>The lost update of <c>Value</c> in two runs of <paramref name="member"/>.</summary>
     /// <param name="member">The member that increments it.</param>
     private static string ValueIncrementedIn(string member) => $"DCA1002 unprotected Value: ReadModifyWrite {member} | ReadModifyWrite {member}";
-
-    /// <summary>The pairs on the variable <c>_meter</c> the analysis reads into <c>_meter += 1</c> and <c>_meter++</c>.</summary>
-    private static readonly string[] MeterVariablePairs =
-        ["DCA1001 unprotected _meter: Read Holder.Run | Write Holder.Run", "DCA1001 unprotected _meter: Write Holder.Run | Write Holder.Run"];
 
     /// <summary>The race of <c>Dispose</c>'s write of <c>_closed</c> with <c>Write</c>'s read of it.</summary>
     private const string CLOSED_WHILE_WRITING = "DCA1001 unprotected _closed: Read Resource.Write | Write Resource.Dispose";
@@ -187,8 +176,6 @@ public sealed class TwistProbeTests
     /// <summary>The probes the analysis answers otherwise than run time calls for, with the answer it gives and why.</summary>
     private static readonly Dictionary<string, ProbeDifference> Differences = new(StringComparer.Ordinal)
     {
-        ["user-defined-compound-assignment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
-        ["user-defined-increment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
         ["await-of-tasks-that-completed-synchronously"] = new(["DCA1001 unprotected _x: Write Holder.RunAsync | Write Holder.WorkAsync"],
                                                               SYNCHRONOUS_COMPLETION_IS_NOT_MODELLED)
     };

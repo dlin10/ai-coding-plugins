@@ -1915,6 +1915,8 @@ public static class IrLowering
 
         private int LowerCompoundAssignment(ICompoundAssignmentOperation compound)
         {
+            if (InstanceOperators.InPlace(compound) is { } inPlace)
+                return CallInPlace(compound, inPlace, compound.Target, compound.Value);
             if (ReferenceTarget(compound.Target))
             {
                 var address = LowerAddress(compound.Target);
@@ -1989,7 +1991,8 @@ public static class IrLowering
         }
 
         /// <summary>What a compound assignment computes from the target's value and the right-hand side: the combination or removal of
-        /// delegates where it is one (R3), the operator's compute otherwise.</summary>
+        /// delegates where it is one (R3), the copy an instance operator updates where C# stores the copy back
+        /// (<see cref="CallOnCopy"/>), the operator's compute otherwise.</summary>
         /// <param name="compound">The compound assignment.</param>
         /// <param name="loaded">The target's value before the assignment.</param>
         /// <param name="right">The right-hand side's value.</param>
@@ -1998,6 +2001,8 @@ public static class IrLowering
             var provenance = Provenance(compound, "compound-assignment");
             if (DelegateCombination.Of(compound) is { } combination)
                 return CombineDelegates(combination.Removes, [loaded, right], compound.Type, provenance);
+            if (InstanceOperators.Of(compound) is { } instance)
+                return CallOnCopy(compound, instance, loaded, [right]);
             if (SourceOperator(compound.OperatorMethod) is { } method)
                 return OperatorCall(compound, method, [loaded, right]);
 
@@ -2054,6 +2059,8 @@ public static class IrLowering
 
         private int LowerIncrement(IIncrementOrDecrementOperation increment)
         {
+            if (InstanceOperators.InPlace(increment) is { } inPlace)
+                return CallInPlace(increment, inPlace, increment.Target, null);
             if (ReferenceTarget(increment.Target))
             {
                 var address = LowerAddress(increment.Target);
@@ -2110,12 +2117,14 @@ public static class IrLowering
             return increment.IsPostfix ? loaded : result;
         }
 
-        /// <summary>The value an increment or a decrement computes from the value it read: the call of the operator the source declares,
-        /// or the arithmetic.</summary>
+        /// <summary>The value an increment or a decrement computes from the value it read: the copy an instance operator updates where C#
+        /// stores the copy back (<see cref="CallOnCopy"/>), the call of the static operator the source declares, or the arithmetic.</summary>
         /// <param name="increment">The increment or decrement.</param>
         /// <param name="loaded">The value read from its target.</param>
         private int Incremented(IIncrementOrDecrementOperation increment, int loaded)
         {
+            if (InstanceOperators.Of(increment) is { } instance)
+                return CallOnCopy(increment, instance, loaded, []);
             if (SourceOperator(increment.OperatorMethod) is { } method)
                 return OperatorCall(increment, method, [loaded]);
             var one = Constant(increment, 1, "increment");
@@ -2703,7 +2712,9 @@ public static class IrLowering
         /// built by <see cref="LowerCapturedStorePlace"/> for a target an assignment only writes, by <see cref="LowerLongFormRead"/> or
         /// <see cref="LowerCapturedStorageRead"/> for one a compound assignment or <c>??=</c> reads first, and by the unknowns of a
         /// <c>dynamic</c> target; <see cref="LowerDeconstruction"/> builds one for each target of a deconstruction, which Roslyn does not
-        /// take. Only a local, a parameter or a target none of them models is lowered again where it is written.</summary>
+        /// take. Only a local, a parameter or a target none of them models is lowered again where it is written. The struct storage an
+        /// instance operator updates in place is taken as a reference, as a conditional <c>ref</c> is, and nothing writes it back
+        /// (<see cref="InPlaceStructOperator"/>).</summary>
         /// <param name="capture">The capture.</param>
         private int LowerCapture(IFlowCaptureOperation capture)
         {
@@ -2742,6 +2753,14 @@ public static class IrLowering
                 // and indices are evaluated here, before the value, and the store after the value goes through them (R2, R8).
                 _capturedLongForms[capture.Id] = LowerCapturedStorePlace(capture.Value);
                 sourceValue = Constant(capture.Value, null, "assignment-target");
+            }
+            else if (InPlaceStructOperator(capture) is { } inPlace && StructOperandOf(capture.Value) is { } named &&
+                     StructStorage.IsPlace(named.Operand, StructUse.MemberCall, named.IsReadOnly, inPlace.IsReadOnly))
+            {
+                // An instance operator C# calls on struct storage in place takes the storage here, before the branch, as the receiver
+                // of a member call is taken, and the call after the branch goes through it as through a reference (CallInPlace).
+                sourceValue = LowerStructOperand(capture.Value, StructUse.MemberCall, inPlace.IsReadOnly);
+                _referenceCaptures[capture.Id] = named.IsReadOnly;
             }
             else if (IsCapturedLongFormTarget(capture.Value))
             {
@@ -4366,13 +4385,76 @@ public static class IrLowering
                 : null;
 
         /// <summary>A user-defined operator as the static call of its method it is (question 157): <c>a == b</c> on a type that declares
-        /// the operator runs its body, as a conversion, a compound assignment and an increment through one do.</summary>
+        /// the operator runs its body, as a conversion, a compound assignment and an increment through a static one do.</summary>
         /// <param name="source">The operation that applies the operator.</param>
         /// <param name="method">The operator method.</param>
         /// <param name="operands">The operand values in parameter order.</param>
         private int OperatorCall(IOperation source, IMethodSymbol method, IReadOnlyList<int> operands) =>
-            AddCall(source, method, null, new LoweredArguments(operands, operands.Select((_, ordinal) => ordinal).ToArray(), new Dictionary<int, int>()),
-                    method.ReturnType);
+            AddCall(source, method, null, Positional(operands), method.ReturnType);
+
+        /// <summary>Argument values bound to the parameters in their order.</summary>
+        /// <param name="values">The values, one per parameter.</param>
+        private static LoweredArguments Positional(IReadOnlyList<int> values) =>
+            new(values, values.Select((_, ordinal) => ordinal).ToArray(), new Dictionary<int, int>());
+
+        /// <summary>An instance compound assignment or increment operator called where C# calls it, on its target
+        /// (<see cref="InstanceOperators.InPlace"/>): the target evaluated once as the receiver of a member call — the object a target
+        /// of a reference type holds, a struct's storage itself, as <see cref="LowerStructOperand"/> lowers the receiver of any member
+        /// call — then the right-hand side, then the call, dispatched as the method is. Nothing is stored: the variable keeps the object
+        /// it held. Hands back that object where the result is used, no value where it is not. An operator an extension block declares
+        /// takes the same receiver: <see cref="Call"/> passes it as the first argument of the block's implementation, which C# lets take
+        /// a class only by value and a struct only by <c>ref</c>, so it gets the object or the storage itself as an operator the type
+        /// declares does.</summary>
+        /// <param name="source">The compound assignment or increment.</param>
+        /// <param name="method">The instance operator.</param>
+        /// <param name="target">Its target.</param>
+        /// <param name="value">The right-hand side of a compound assignment; <c>null</c> for an increment.</param>
+        private int CallInPlace(IOperation source, IMethodSymbol method, IOperation target, IOperation? value)
+        {
+            var receiver = LowerStructOperand(target, StructUse.MemberCall, method.IsReadOnly);
+            var arguments = value is null ? LoweredArguments.None : Positional([LowerValue(value)]);
+            var result = AddCall(source, method, receiver, arguments, null, receiverType: target.Type);
+            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], isVirtual: true);
+            return source.Type is null or { SpecialType: SpecialType.System_Void } ? result : receiver;
+        }
+
+        /// <summary>An instance operator called on the copy C# makes of a target it assigns back, one not known to be a reference type
+        /// whose result is used (<see cref="InstanceOperators"/>): the call on the copy read from the target, dispatched as the method
+        /// is, handing back the copy, which the caller's long form writes to the target and gives as the result. For an operator an
+        /// extension block declares, <see cref="Call"/> passes the copy as the first argument of the block's implementation, whose
+        /// receiver parameter is <c>ref</c>, as the copy's value itself rather than as a reference to it, the form
+        /// <see cref="LowerPassed"/> gives a value no variable holds: no probe tells the two apart.</summary>
+        /// <param name="source">The compound assignment or increment.</param>
+        /// <param name="method">The instance operator.</param>
+        /// <param name="copy">The value read from the target.</param>
+        /// <param name="arguments">The right-hand side's value for a compound assignment, none for an increment.</param>
+        private int CallOnCopy(IOperation source, IMethodSymbol method, int copy, IReadOnlyList<int> arguments)
+        {
+            // Roslyn types an operation whose result is used as its target's type: the receiver's type here.
+            AddCall(source, method, copy, Positional(arguments), null, receiverType: source.Type);
+            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], isVirtual: true);
+            return copy;
+        }
+
+        /// <summary>The instance operator a compound assignment calls on the struct storage a capture takes, which C# takes before a
+        /// right-hand side that branches and calls the operator on in place (<see cref="CallInPlace"/>); <c>null</c> for any other
+        /// capture, whose value is what it reads.</summary>
+        /// <param name="capture">The capture.</param>
+        private IMethodSymbol? InPlaceStructOperator(IFlowCaptureOperation capture)
+        {
+            if (!IsPlaceOrCopy(capture.Value.Type))
+                return null;
+            var syntax = capture.Syntax;
+            while (syntax.Parent is ParenthesizedExpressionSyntax parenthesized)
+            {
+                WorkCancellation.Check();
+                syntax = parenthesized;
+            }
+            if (syntax.Parent is not AssignmentExpressionSyntax assignment || assignment.Left != syntax)
+                return null;
+            var model = _context.Compilation.GetSemanticModel(assignment.SyntaxTree);
+            return model.GetOperation(assignment, _cancellationToken) is ICompoundAssignmentOperation compound ? InstanceOperators.InPlace(compound) : null;
+        }
 
         private int LowerUnary(IUnaryOperation unary)
         {

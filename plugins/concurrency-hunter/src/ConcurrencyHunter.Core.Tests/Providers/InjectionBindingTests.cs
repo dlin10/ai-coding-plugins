@@ -241,6 +241,34 @@ public sealed class InjectionBindingTests
     }
 
     [Fact]
+    public void Primary_constructor_parameter_an_instance_operator_updates_binds()
+    {
+        // C# 14 calls an instance compound assignment or increment operator on the object a class-typed variable holds and assigns
+        // nothing to the variable.
+        var result = Bind("Holder", """
+            public sealed class Meter { public int Value; public void operator +=(int amount) { Value += amount; } public void operator ++() { Value++; } }
+            public sealed class Holder(Meter meter)
+            {
+                public void Add() => meter += 1;
+                public void Bump() => meter++;
+            }
+            """, "services.AddSingleton<Meter>();");
+
+        Assert.Equal("meter", Assert.Single(result.Bindings).Member);
+    }
+
+    [Fact]
+    public void Primary_constructor_parameter_a_static_operator_updates_is_not_bound()
+    {
+        var result = Bind("Holder", """
+            public sealed class Plain { public static Plain operator +(Plain plain, int amount) => new(); }
+            public sealed class Holder(Plain plain) { public void Add() => plain += 1; }
+            """, "services.AddSingleton<Plain>();");
+
+        Assert.Empty(result.Bindings);
+    }
+
+    [Fact]
     public void Field_initialized_from_an_uncaptured_primary_constructor_parameter_binds_the_field()
     {
         var result = Bind("Holder", """

@@ -525,6 +525,14 @@ public static class InjectionBindings
                 expression = (ExpressionSyntax)expression.Parent;
             }
 
+            // An instance operator a compound assignment or an increment calls on the member reads it and assigns nothing to it.
+            if (expression.Parent is AssignmentExpressionSyntax { Left: var left } && left == expression ||
+                expression.Parent is PrefixUnaryExpressionSyntax or PostfixUnaryExpressionSyntax)
+            {
+                if (model.GetOperation(expression.Parent, cancellationToken) is { } operation && InstanceOperators.InPlace(operation) is not null)
+                    return new Reference(identifier, Use.Read, null);
+            }
+
             switch (expression.Parent)
             {
                 case AssignmentExpressionSyntax assignment when assignment.Left == expression:
