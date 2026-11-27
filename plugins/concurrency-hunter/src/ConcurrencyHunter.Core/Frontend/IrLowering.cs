@@ -80,6 +80,10 @@ public static class IrLowering
                                         IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null, CallSiteAdmission? admission = null)
     {
         WorkCancellation.Check();
+        // The accesses name the member calls bind, a partial one's defining part: its implementing part may name its parameters
+        // and type parameters otherwise.
+        var ownerSymbol = SymbolNames.Method(method);
+        method = Implementation(method);
         var plan = Plan(method, compilation, cancellationToken);
         var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
         var functions = new List<(ControlFlowGraph Graph, IMethodSymbol[] LocalFunctions, IFlowAnonymousFunctionOperation[] AnonymousFunctions)>();
@@ -102,7 +106,6 @@ public static class IrLowering
             Admission = admission,
             ClosureSlots = new ClosureSlots(method, plan.Roots, compilation, cancellationToken)
         };
-        var ownerSymbol = SymbolNames.Method(method);
         var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
         var nestedBodies = new List<IrBody>();
         foreach (var (graph, localFunctions, anonymousFunctions) in functions)
@@ -121,7 +124,7 @@ public static class IrLowering
     public static IReadOnlyDictionary<(SyntaxTree Tree, TextSpan Span), string> NestedBodyIds(
         IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
     {
-        var plan = Plan(method, compilation, cancellationToken);
+        var plan = Plan(Implementation(method), compilation, cancellationToken);
         var ids = new Dictionary<(SyntaxTree, TextSpan), string>();
         var outerIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
         var lambdas = 0;
@@ -281,14 +284,27 @@ public static class IrLowering
     internal static string RootBodyId(IMethodSymbol method) =>
         $"body:{method.ContainingAssembly.Name}:{method.GetDocumentationCommentId() ?? method.ToDisplayString()}";
 
+    /// <summary>The part of a method that holds its body: the implementing part of a partial method, constructor or accessor of a
+    /// partial property, indexer or event, and the method itself otherwise. Every call, reference and delegate binds the defining
+    /// part, which has no body, while the compiler emits one member with the implementing part's body; both parts have one
+    /// declaration id, so the body keeps the id calls name.</summary>
+    /// <param name="method">The method, as a call or the type's members name it.</param>
+    internal static IMethodSymbol Implementation(IMethodSymbol method) => method.PartialImplementationPart ?? method;
+
+    /// <summary>The part of a property or indexer that declares its accessors: the implementing part of a partial one, whose
+    /// accessors are the property's, and the property itself otherwise.</summary>
+    /// <param name="property">The property, as a reference or the type's members name it.</param>
+    internal static IPropertySymbol Implementation(IPropertySymbol property) => property.PartialImplementationPart ?? property;
+
     /// <summary>A source property whose accessors all lack bodies and which is neither abstract, extern nor an interface
-    /// member: its accessors have synthesized bodies over its backing field.</summary>
+    /// member: its accessors have synthesized bodies over its backing field. A partial property is judged by its implementing
+    /// part, whose accessors the compiler emits: the defining part's accessors never have bodies.</summary>
     /// <param name="property">The property to test.</param>
     /// <param name="cancellationToken">Cancels reading the declaring syntax.</param>
     internal static bool IsAutoProperty(IPropertySymbol property, CancellationToken cancellationToken) =>
         !property.IsAbstract && !property.IsExtern && property.ContainingType.TypeKind != TypeKind.Interface &&
-        property.DeclaringSyntaxReferences.Length != 0 &&
-        property.DeclaringSyntaxReferences.All(reference =>
+        Implementation(property).DeclaringSyntaxReferences is { Length: not 0 } references &&
+        references.All(reference =>
             reference.GetSyntax(cancellationToken) is PropertyDeclarationSyntax { AccessorList: { Accessors.Count: > 0 } accessors } &&
             accessors.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null));
 
@@ -2931,7 +2947,7 @@ public static class IrLowering
             var method = invocation.TargetMethod;
             // A partial method with no implementation is never called: the compiler removes the call together with the evaluation of
             // its arguments, so nothing runs here and there is nothing opaque about it.
-            if (method.IsPartialDefinition && method.PartialImplementationPart is null)
+            if (method.OriginalDefinition is { IsPartialDefinition: true, PartialImplementationPart: null })
                 return Constant(invocation, null, "removed-partial-call");
             if (!asAddress && DelegateCombination.Of(invocation) is { } combination)
                 return LowerCombinationCall(invocation, combination);
@@ -4974,7 +4990,8 @@ public static class IrLowering
                 return false;
             }
 
-            var declarations = property.DeclaringSyntaxReferences
+            // A partial property's accessors are its implementing part's.
+            var declarations = Implementation(property.OriginalDefinition).DeclaringSyntaxReferences
                                        .Select(reference => reference.GetSyntax(_cancellationToken))
                                        .OfType<PropertyDeclarationSyntax>()
                                        .ToArray();

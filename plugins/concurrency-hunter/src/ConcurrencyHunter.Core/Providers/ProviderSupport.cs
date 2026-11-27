@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -58,8 +59,10 @@ internal static class ProviderSupport
     internal static bool References(RootDiscoveryContext context, SupportedAssemblyVersion range) =>
         context.Compilations.Any(compilation => ExactSymbols.FindReferencedAssembly(compilation, range.AssemblyName) is not null);
 
+    /// <summary>Whether a method is declared in source with a block or expression body, a partial one by its implementing part.</summary>
+    /// <param name="method">The method.</param>
     internal static bool HasSourceBody(IMethodSymbol method) =>
-        method.DeclaringSyntaxReferences.Any(reference =>
+        IrLowering.Implementation(method).DeclaringSyntaxReferences.Any(reference =>
             reference.GetSyntax() is MethodDeclarationSyntax { Body: not null } or MethodDeclarationSyntax { ExpressionBody: not null });
 
     internal static Compilation? CompilationOf(RootDiscoveryContext context, ISymbol symbol) =>

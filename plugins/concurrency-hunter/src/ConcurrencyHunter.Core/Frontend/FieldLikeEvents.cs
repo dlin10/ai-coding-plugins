@@ -12,10 +12,12 @@ namespace ConcurrencyHunter.Frontend;
 internal static class FieldLikeEvents
 {
     /// <summary>Whether an event is field-like: declared by a variable declarator of an event field declaration, not
-    /// <c>abstract</c> and not <c>extern</c>.</summary>
+    /// <c>abstract</c>, not <c>extern</c> and not partial. A partial event's defining part has that syntax, but its accessors are
+    /// its implementing part's and the compiler declares no field for it.</summary>
     /// <param name="event">The event.</param>
     public static bool Is(IEventSymbol @event) =>
-        !@event.IsAbstract && !@event.IsExtern && @event.DeclaringSyntaxReferences.Length != 0 &&
+        !@event.IsAbstract && !@event.IsExtern && @event is { IsPartialDefinition: false, PartialDefinitionPart: null } &&
+        @event.DeclaringSyntaxReferences.Length != 0 &&
         @event.DeclaringSyntaxReferences.All(reference => reference.GetSyntax() is VariableDeclaratorSyntax { Parent.Parent: EventFieldDeclarationSyntax });
 
     /// <summary>A field-like event's storage as every access names it. Roslyn lists no backing field among a type's members, so

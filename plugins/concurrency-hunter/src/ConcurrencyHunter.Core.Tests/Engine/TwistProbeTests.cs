@@ -26,11 +26,6 @@ public sealed class TwistProbeTests
         "with no receiver and the loaded value and y as its arguments, and stores the result back into x, so the variable is read and " +
         "written, and the body, where it is entered at all, has no this to name Value through";
 
-    /// <summary>Why a partial member's implementing body is not followed.</summary>
-    private const string PARTIAL_BODY_IS_NOT_FOLLOWED =
-        "issue 513: a call to a partial method is a call without a body (an unknown effect on its receiver), and a partial property is " +
-        "read as an automatic property, so the implementing part's accesses are lost";
-
     /// <summary>Why an async method that awaits only completed tasks overlaps its caller.</summary>
     private const string SYNCHRONOUS_COMPLETION_IS_NOT_MODELLED =
         "limit: every await suspends in the model, so what an async method does after awaiting a completed task runs, for the " +
@@ -201,12 +196,6 @@ public sealed class TwistProbeTests
         ["extension-block-property-setter"] = new([], EXTENSION_BLOCK_IS_NOT_LOWERED),
         ["user-defined-compound-assignment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
         ["user-defined-increment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
-        ["partial-method-implemented-in-another-part"] = new(["DCA1001 unprotected Value: UnknownEffect Holder.Run | UnknownEffect Holder.Run"],
-                                                             PARTIAL_BODY_IS_NOT_FOLLOWED),
-        ["partial-property"] = new(["DCA1001 unprotected Level: Write Holder.Run | Write Holder.Run"], PARTIAL_BODY_IS_NOT_FOLLOWED),
-        ["partial-property-against-its-field"] = new([], PARTIAL_BODY_IS_NOT_FOLLOWED),
-        ["partial-method-implemented-in-a-generated-file"] = new(["DCA1001 unprotected Value: UnknownEffect Holder.Run | UnknownEffect Holder.Run"],
-                                                                 PARTIAL_BODY_IS_NOT_FOLLOWED),
         ["await-of-tasks-that-completed-synchronously"] = new(["DCA1001 unprotected _x: Write Holder.RunAsync | Write Holder.WorkAsync"],
                                                               SYNCHRONOUS_COMPLETION_IS_NOT_MODELLED)
     };

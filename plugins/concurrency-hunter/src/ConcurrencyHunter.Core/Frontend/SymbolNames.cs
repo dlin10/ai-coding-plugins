@@ -29,12 +29,15 @@ public static class SymbolNames
         return TYPE_KEYS.GetValue(type, BuildTypeKey);
     }
 
-    /// <summary>Builds the key <see cref="TypeKey"/> keeps for a type.</summary>
+    /// <summary>Builds the key <see cref="TypeKey"/> keeps for a type. A type parameter of a partial method's implementing part is
+    /// keyed as the defining part's of the same ordinal, whatever its name: calls bind the defining part's, while the body that
+    /// is lowered names the implementing part's.</summary>
     /// <param name="type">The type whose key is built.</param>
     private static string BuildTypeKey(ITypeSymbol type) => type switch
     {
         IArrayTypeSymbol array => $"{TypeKey(array.ElementType)}[{new string(',', array.Rank - 1)}]",
         IPointerTypeSymbol pointer => $"{TypeKey(pointer.PointedAtType)}*",
+        ITypeParameterSymbol { DeclaringMethod.PartialDefinitionPart: { } definition } parameter => TypeKey(definition.TypeParameters[parameter.Ordinal]),
         _ => type.ContainingAssembly is { } assembly ? DiIndex.TypeKey(assembly.Name, TypeIdentity(type)) : TypeIdentity(type)
     };
 

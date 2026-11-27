@@ -426,7 +426,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
                 when local.Method.DeclaringSyntaxReferences.FirstOrDefault() is { } reference:
                 return (local.Method, reference.GetSyntax(), false);
             case IMethodReferenceOperation reference when ProviderSupport.HasSourceBody(reference.Method.OriginalDefinition):
-                return (reference.Method, reference.Method.OriginalDefinition.DeclaringSyntaxReferences[0].GetSyntax(), true);
+                return (reference.Method, IrLowering.Implementation(reference.Method.OriginalDefinition).DeclaringSyntaxReferences[0].GetSyntax(), true);
             default:
                 return null;
         }

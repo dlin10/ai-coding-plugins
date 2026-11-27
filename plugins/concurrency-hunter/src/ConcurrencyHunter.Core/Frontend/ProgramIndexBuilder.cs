@@ -397,7 +397,7 @@ public static class ProgramIndexBuilder
 
     /// <summary>A declared body, the top-level statements' entry point, a primary constructor, an auto-property's synthesized accessor,
     /// the implicit constructor of a source class or struct, the implicit type initializer of a type with static initializers, and
-    /// the compiler's add and remove accessors of a field-like event.</summary>
+    /// the compiler's add and remove accessors of a field-like event. A partial member has the body of its implementing part.</summary>
     /// <param name="method">The method.</param>
     /// <param name="compilations">The compilations of the scope.</param>
     /// <param name="cancellationToken">Cancels the walk.</param>
@@ -423,7 +423,7 @@ public static class ProgramIndexBuilder
             };
         }
 
-        return method.DeclaringSyntaxReferences[0].GetSyntax(cancellationToken) switch
+        return IrLowering.Implementation(method).DeclaringSyntaxReferences[0].GetSyntax(cancellationToken) switch
         {
             BaseMethodDeclarationSyntax declaration => declaration.Body is not null || declaration.ExpressionBody is not null,
             AccessorDeclarationSyntax accessor => accessor.Body is not null || accessor.ExpressionBody is not null ||
@@ -440,7 +440,8 @@ public static class ProgramIndexBuilder
                                                        CancellationToken cancellationToken)
     {
         WorkCancellation.Check();
-        var tree = method.DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree ?? method.ContainingType.DeclaringSyntaxReferences[0].SyntaxTree;
+        var tree = IrLowering.Implementation(method).DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree ??
+                   method.ContainingType.DeclaringSyntaxReferences[0].SyntaxTree;
         if (CompilationOf(tree, compilations) is not { } compilation)
             return [];
         return NestedBodies.GetValue(compilation, _ => new ConcurrentDictionary<IMethodSymbol, IReadOnlyList<string>>(SymbolEqualityComparer.Default))
