@@ -20,12 +20,6 @@ public sealed class ImplicitSharingProbeTests
         "limit: no root provider gives a finalizer an execution, and SPEC names no finalizer thread, so a finalizer's accesses are " +
         "never collected";
 
-    /// <summary>Why an async method's access to an array parameter's cells after its first await is lost.</summary>
-    private const string ARRAY_PARAMETER_AFTER_AWAIT =
-        "issue 518: the cells of an array an async method gets as a parameter make no access " +
-        "after the method's first await, read or written, though the array is held by a field; before the await, and for a list in the " +
-        "same place, they do";
-
     /// <summary>Why the creator's own accesses to an array it handed to a lambda are lost.</summary>
     private const string FRESH_ARRAY_CREATOR_ACCESSES =
         "issue 517: the method that creates an array and hands it to a lambda Task.Run runs makes no " +
@@ -103,19 +97,18 @@ public sealed class ImplicitSharingProbeTests
     private static readonly Dictionary<string, ProbeDifference> Differences = new(StringComparer.Ordinal)
     {
         ["finalizer-decrements-a-shared-static"] = new([], FINALIZER_IS_NO_ROOT),
-        ["array-field-written-by-an-async-callee-after-its-await"] = new([], ARRAY_PARAMETER_AFTER_AWAIT),
-        ["array-field-read-by-an-async-callee-after-its-await"] = new([], ARRAY_PARAMETER_AFTER_AWAIT),
         ["array-captured-by-task-run-read-by-the-lambda-written-by-its-creator"] = new([], FRESH_ARRAY_CREATOR_ACCESSES),
         ["array-captured-by-task-run-written-by-the-lambda-read-by-its-creator"] = new([], FRESH_ARRAY_CREATOR_ACCESSES),
         ["list-handed-to-an-async-call-not-yet-awaited"] = new([], COLLECTION_WITHOUT_HOLDER)
     };
 
-    /// <summary>For each probe of a lost access: the accesses that were collected, as <see cref="HostedServiceProbe.DescribeAccess"/>
-    /// writes them, and the resources at marked sites that have none, as <c>resource @marker</c>, <c>*</c> standing for any resource.</summary>
+    /// <summary>For each probe of a route an access can be lost on: the accesses that were collected, as
+    /// <see cref="HostedServiceProbe.DescribeAccess"/> writes them, and the resources at marked sites that have none, as
+    /// <c>resource @marker</c>, <c>*</c> standing for any resource.</summary>
     private static readonly Dictionary<string, (string[] Collected, string[] Lost)> AccessClaims = new(StringComparer.Ordinal)
     {
-        ["array-field-written-by-an-async-callee-after-its-await"] = (["Write _cells.[0] Sender.Touch @touch"], ["_cells.[0] @callee"]),
-        ["array-field-read-by-an-async-callee-after-its-await"] = (["Write _cells.[0] Sender.Touch @touch"], ["_cells.[0] @callee"]),
+        ["array-field-written-by-an-async-callee-after-its-await"] = (["Write _cells.[0] Sender.FillAsync @callee", "Write _cells.[0] Sender.Touch @touch"], []),
+        ["array-field-read-by-an-async-callee-after-its-await"] = (["Read _cells.[0] Sender.ReadAsync @callee", "Write _cells.[0] Sender.Touch @touch"], []),
         ["array-captured-by-task-run-read-by-the-lambda-written-by-its-creator"] = (["Read cells.[0] Sender.RunAsync @lambda"], ["cells.[0] @creator"]),
         ["array-captured-by-task-run-written-by-the-lambda-read-by-its-creator"] = (["Write cells.[0] Sender.RunAsync @lambda"], ["cells.[0] @creator"]),
         ["list-handed-to-an-async-call-not-yet-awaited"] = ([], ["* @callee", "* @creator"])

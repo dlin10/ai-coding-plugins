@@ -623,6 +623,72 @@ ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Monitor_lifted_from_the
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Prefix_acquisition_the_tail_releases_does_not_protect_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Unawaited_call_without_an_acquisition_leaves_the_callers_own_lock_alone	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Unpaired_permits_from_the_prefix_give_the_caller_no_protection	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-a-recursive-getter-hands-back-written-before"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-a-recursive-getter-hands-back")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-returned-by-a-getter-of-the-caller-written-b"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "array-returned-by-a-getter-of-the-caller")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "async-iterator-reads-after-its-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "async-lambda-with-an-array-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "async-local-function-with-an-array-parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "awaited-by-a-task-run-lambda-nobody-waits-for")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "awaited-by-a-task-run-lambda")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "called-in-a-loop-of-the-caller")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "constructor-starts-the-tail-before-it-sets-the-gua"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "copied-to-a-local-before-its-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "first-window-reaches-a-helper-below-the-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "five-levels-of-two-sites")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "four-levels-of-twenty-four-sites")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "guarded-index-kept-off-the-touched-cell-written-be"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "guarded-index-kept-off-the-touched-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "handed-on-by-a-synchronous-helper-written-before-i"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "handed-on-by-a-synchronous-helper")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "handed-on-by-an-async-callee-after-its-own-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "handed-on-by-an-async-callee-before-its-own-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "index-bound-to-another-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "index-bound-to-the-written-cell")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "one-instance-hands-the-field-on-from-two-sites")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "one-instance-hands-two-arrays-through-a-getter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "one-instance-hands-two-indices-on-from-two-sites")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "one-method-reads-the-guard-in-construction-and-aft"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "params-array-handed-the-field-array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "params-array-made-at-the-call")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "readonly-guard-keeps-two-writes-apart-written-befo"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "readonly-guard-keeps-two-writes-apart")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursion-moves-the-index-in-its-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursion-slices-the-window-in-its-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursion-swaps-the-written-array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursive-caller-moves-the-index")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursive-caller-slices-the-window")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "seventeen-calls-hand-a-tail-seventeen-cells")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "seventeen-cells-written-in-one-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "seventeenth-window-reaches-a-helper-below-the-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "six-levels-alternate-two-arrays")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "sixteen-calls-start-one-tail-with-two-paths-below-"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "sixteen-cells-written-in-one-tail")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "sixteen-sites-hand-one-array-and-a-seventeenth-ano"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "sixteen-sites-hand-one-array-with-unused-values-an"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "sixteen-windows-of-one-array-and-a-seventeenth-of-"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "swapped-arrays-reach-a-recursive-helper-reordered")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "swapped-arrays-reach-a-recursive-helper")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-calls-in-one-prefix-hand-different-arrays")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-sites-hand-different-arrays-and-indices")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-sites-hand-the-same-array-and-index")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-sites-under-different-readonly-guards")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "two-sites-under-one-readonly-guard")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "unused-argument-sixteen-values-and-two-paths-below")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-starts-the-caller-computes-differ-by-branch"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "window-starts-the-caller-computes-differ-by-branch")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "windows-of-known-length-differ-by-start")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "windows-of-unknown-length-differ-by-start")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-after-a-second-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-after-an-await-configured-not-to-capture-t"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-after-an-await-on-one-branch")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-by-a-value-task-callee")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-in-a-finally-after-its-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-in-a-loop-after-its-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "written-in-a-try-after-its-await")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AsyncTailArrayParameterProbeTests.Probe_collects_the_accesses_its_claim_names(name: "handed-on-by-a-synchronous-helper")	Passed
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.A_compare_exchange_that_checks_a_value_computed_from_its_read_is_a_lost_update	Passed
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.A_compare_exchange_that_checks_another_read_is_a_lost_update	Passed
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.A_volatile_write_through_a_span_index_is_an_atomic_write_of_that_cell	Passed
@@ -3451,6 +3517,10 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_collection_counts_
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_key_another_instance_of_the_body_holds_is_an_other_instance_hit	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_path_under_fewer_guards_counts_a_replaced_access	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_path_under_more_guards_counts_as_skipped_the_lookups_that_were_hits_without_the_rule	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_tail_bound_through_a_chain_of_async_callers_builds_frames_in_proportion_to_their_call_sites	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_tail_bound_through_callers_that_alternate_two_arrays_builds_frames_in_proportion_to_the_callers	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_tail_bound_through_callers_that_call_the_first_again_with_a_cut_window_builds_frames_in_proportion_to_their_call_sites	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.A_tail_bound_through_callers_that_cut_one_window_two_ways_names_places_in_proportion_to_the_callers	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.An_access_to_a_scoped_service_of_a_request_is_new_on_a_region_of_the_invocation	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.Demo_accesses_are_the_same_with_the_census_and_without_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionCountersTests.Every_counter_but_the_times_is_the_same_at_one_worker_and_at_four	Passed

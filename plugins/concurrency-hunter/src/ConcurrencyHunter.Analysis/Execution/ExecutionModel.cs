@@ -106,6 +106,15 @@ public sealed record ExecutionEntry(string InstanceId, ExecutionEntryKind Kind, 
     public BodySegment Segment { get; init; } = BodySegment.Whole;
 }
 
+/// <summary>A call that started an async body whose tail an execution runs: the tail runs with the arguments the call bound.</summary>
+/// <param name="Call">The call.</param>
+/// <param name="CallerSegment">The segment of the caller's body the call stands in.</param>
+/// <param name="CallerTail">The execution that runs the caller's own tail, whose starts bind the caller's arguments in turn; null for a
+/// caller that runs whole.</param>
+/// <param name="CallerExecution">The execution the caller made the call in, where what it read is asked whether it ran under a
+/// construction.</param>
+public sealed record TailStart(CallEdge Call, BodySegment CallerSegment, string? CallerTail, string CallerExecution);
+
 public enum OwnershipKind
 {
     Owned,
@@ -244,6 +253,11 @@ public sealed class ExecutionAnalysis
 
     /// <summary>Each execution's entries, in order: a root's entry, then the constructor chains it runs, receiver first.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> Entries { get; }
+
+    /// <summary>For each execution and each instance whose tail it runs from an async call, the calls that started that body: its tail
+    /// runs with the arguments they bound, as its prefix does.</summary>
+    public IReadOnlyDictionary<(string Execution, string Instance), IReadOnlySet<TailStart>> TailStarts { get; init; } =
+        new Dictionary<(string Execution, string Instance), IReadOnlySet<TailStart>>();
 
     /// <summary>Every access the executions run, per region, once with the executions that run it, by instance, operation, region and
     /// construction-local; startup's are kept like any other, and happens-before orders them before what runs after startup.</summary>
@@ -963,6 +977,9 @@ public static class ExecutionModel
 
         /// <summary>The execution each execution's awaited callees' tails join, by the key of the site that starts that tail.</summary>
         private readonly Dictionary<(string Execution, string Key), string> _tailOf = [];
+
+        /// <summary>The calls that started each body whose tail an execution runs (<see cref="ExecutionAnalysis.TailStarts"/>).</summary>
+        private readonly Dictionary<(string Execution, string Instance), HashSet<TailStart>> _tailStarts = [];
         private readonly Dictionary<string, int> _objectIds = new(StringComparer.Ordinal);
         private readonly List<string> _objects = [];
         private IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> _visitsByExecution = new Dictionary<string, IReadOnlyList<ExecutionVisit>>();
@@ -1224,6 +1241,7 @@ public static class ExecutionModel
                 TimerSites = timerSites,
                 TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal),
                 WorkSites = _workSites.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<(string, int)>)pair.Value, StringComparer.Ordinal),
+                TailStarts = _tailStarts.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<TailStart>)pair.Value),
                 Census = CensusOf(executions, _entries, _constructionEntries, _ids)
             };
             // The census of ADR 0042 is taken here, where every execution and its entry list are final, before any collection.
@@ -2414,11 +2432,11 @@ public static class ExecutionModel
         /// <param name="Added">The objects the edge starts to construct.</param>
         private sealed record WalkEdge(WalkNode Node, ulong[] Added);
 
-        /// <summary>A tail an execution reaching a node enters: an async spawn edge's callee, with the call operation, or an awaited
-        /// callee in a prefix, whose tail joins the node's.</summary>
-        /// <param name="Callee">The callee instance whose tail is entered.</param>
-        /// <param name="AsyncOperation">The call operation of an async spawn edge, or null for an awaited callee in a prefix.</param>
-        private sealed record TailEntry(string Callee, int? AsyncOperation);
+        /// <summary>A tail an execution reaching a node enters: an async spawn edge's callee, or an awaited callee in a prefix, whose
+        /// tail joins the node's.</summary>
+        /// <param name="Call">The call whose callee's tail is entered.</param>
+        /// <param name="IsAsyncSpawn">Whether the call is an async spawn edge, whose tail is an execution of its own.</param>
+        private sealed record TailEntry(CallEdge Call, bool IsAsyncSpawn);
 
         /// <summary>An entry the walk took: for one execution, or for every execution of a construction entry's region at once.</summary>
         /// <param name="Executions">The executions taking it, as bits over the execution numbering; never changed.</param>
@@ -2590,11 +2608,11 @@ public static class ExecutionModel
                     if (_segments.IsAsyncSpawn(item.Instance, edge.OperationId, edge.CalleeInstance))
                     {
                         calleeTail = AsyncKey(instance.BodyId, edge.OperationId);
-                        item.TailEntries.Add(new TailEntry(edge.CalleeInstance, edge.OperationId));
+                        item.TailEntries.Add(new TailEntry(edge, IsAsyncSpawn: true));
                     }
                     else if (calleeSegment == BodySegment.Prefix && calleeTail is not null)
                     {
-                        item.TailEntries.Add(new TailEntry(edge.CalleeInstance, null));
+                        item.TailEntries.Add(new TailEntry(edge, IsAsyncSpawn: false));
                     }
                     else if (calleeSegment == BodySegment.Prefix)
                     {
@@ -2656,17 +2674,29 @@ public static class ExecutionModel
                     CheckCancellation();
                     StartupDelegate(execution, instance, fated);
                 }
-                foreach (var (callee, asyncOperation) in node.TailEntries)
+                foreach (var (call, isAsyncSpawn) in node.TailEntries)
                 {
                     CheckCancellation();
-                    var tail = asyncOperation is { } operation ? AsyncChild(execution, instance, operation) : _tailOf[(execution, node.Tail!)];
-                    if (asyncOperation is { } awaitedOperation && SequentialAwaitedRun(node.Instance, awaitedOperation, callee))
+                    var callee = call.CalleeInstance;
+                    var tail = isAsyncSpawn ? AsyncChild(execution, instance, call.OperationId) : _tailOf[(execution, node.Tail!)];
+                    if (isAsyncSpawn && SequentialAwaitedRun(node.Instance, call.OperationId, callee))
                     {
-                        var key = AsyncKey(instance.BodyId, awaitedOperation);
+                        var key = AsyncKey(instance.BodyId, call.OperationId);
                         _tailOf[(tail, key)] = tail;
                         Entry(tail, new ExecutionEntry(callee, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Prefix }, key);
                     }
                     Entry(tail, new ExecutionEntry(callee, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+                    // The caller's own tail runs in this execution after a call in its tail, and where its prefix's tail runs after one in
+                    // its prefix; a caller that runs whole has no tail.
+                    var callerTail = node.Segment switch
+                    {
+                        BodySegment.Tail => execution,
+                        BodySegment.Prefix when node.Tail is { } joined && _tailOf.TryGetValue((execution, joined), out var joining) => joining,
+                        _ => null
+                    };
+                    if (!_tailStarts.TryGetValue((tail, callee), out var starts))
+                        _tailStarts.Add((tail, callee), starts = []);
+                    starts.Add(new TailStart(call, node.Segment, callerTail, execution));
                 }
             }
 

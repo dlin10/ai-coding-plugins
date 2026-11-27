@@ -16,13 +16,14 @@ public sealed class CollectionCountersTests
             Entries = 1, Visits = 2, States = 3, Rows = 4, Keys = 5, Hits = 6, Emitted = 7, Replaced = 8, Skipped = 9, SkippedKeys = 10,
             SkippedVisits = 11, SkippedWhole = 12, WalkMs = 13, LocksMs = 14, DependenciesMs = 15, EmitMs = 16, OtherInstanceHits = 17,
             ConstructionCopies = 18, Firsts = 19, FirstsFromConstructions = 20, NewInstance = 21, NewRegion = 22, NewSite = 23,
-            NewOperation = 24, NewGuards = 25, NewHeld = 26, NewLocal = 27, NewOther = 28, NewRootScoped = 29, ModelAccesses = 30
+            NewOperation = 24, NewGuards = 25, NewHeld = 26, NewLocal = 27, NewOther = 28, NewRootScoped = 29, ModelAccesses = 30,
+            TailFrameWork = 31
         };
 
         Assert.Equal("entries=1 visits=2 states=3 rows=4 keys=5 hits=6 emitted=7 replaced=8 skipped=9 skippedKeys=10 " +
                      "skippedVisits=11 skippedWhole=12 walkMs=13 locksMs=14 dependenciesMs=15 emitMs=16 otherInstanceHits=17 " +
                      "constructionCopies=18 firsts=19 firstsFromConstructions=20 newInstance=21 newRegion=22 newSite=23 newOperation=24 " +
-                     "newGuards=25 newHeld=26 newLocal=27 newOther=28 newRootScoped=29 modelAccesses=30", counters.Line());
+                     "newGuards=25 newHeld=26 newLocal=27 newOther=28 newRootScoped=29 modelAccesses=30 tailFrameWork=31", counters.Line());
     }
 
     /// <summary>The census of ADR 0042: every folded access is one execution's first, under one reason; a copy made on a visit from a
@@ -201,6 +202,165 @@ public sealed class CollectionCountersTests
         var worker = Assert.Single(counted, item => item.Execution.Contains("FirstWorker", StringComparison.Ordinal) && item.Counters.Emitted != 0).Counters;
         Assert.Equal(1, worker.Replaced);
         Assert.Equal(0, worker.Skipped);
+    }
+
+    /// <summary>A tail bound through four async callers, each calling the next from 24 sites, the first started and not awaited, builds
+    /// each caller's frames once for the collection of its execution: the frames built grow with the sites, not with the product of
+    /// the sites of every level, and the tail's write through the parameter is still collected.</summary>
+    [Fact]
+    public void A_tail_bound_through_a_chain_of_async_callers_builds_frames_in_proportion_to_their_call_sites()
+    {
+        const int LEVELS = 4;
+        const int SITES = 24;
+        var levels = string.Concat(Enumerable.Range(0, LEVELS).Select(level =>
+            $"public async Task L{level}(int[] p) {{ switch (Pick) {{ " +
+            string.Concat(Enumerable.Range(0, SITES).Select(site => $"case {site}: await {(level == LEVELS - 1 ? "Fill" : $"L{level + 1}")}(p); break; ")) +
+            "} } "));
+        var (collection, counted) = CollectSource($$"""
+            public sealed class Chain
+            {
+                public int Pick;
+                public readonly int[] Cells = new int[1];
+                {{levels}}
+                private static async Task Fill(int[] p) { await Task.Yield(); p[0] = 1; }
+            }
+
+            public sealed class FirstWorker : BackgroundService
+            {
+                private readonly Chain _chain;
+                public FirstWorker(Chain chain) => _chain = chain;
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    _ = _chain.L0(_chain.Cells);
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddSingleton<Chain>(); services.AddHostedService<FirstWorker>();"));
+
+        var frames = counted.Sum(item => item.Counters.TailFrameWork);
+        Assert.InRange(frames, LEVELS, LEVELS * SITES * 2);
+        // Each place a reference resolves to is one row, not one for each chain of sites that hands it over.
+        Assert.InRange(counted.Sum(item => item.Counters.Rows), 1, LEVELS * SITES * 2);
+        Assert.Contains(collection.Accesses, access => access.Symbol.Contains("Fill", StringComparison.Ordinal) &&
+                                                       access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
+    }
+
+    /// <summary>A tail bound through ten async callers, each handing the next one of two arrays on two branches, builds frames in
+    /// proportion to the callers: a frame stands for every call that started its body, so the bindings of the levels above do not
+    /// multiply, and the tail's write is still collected on both arrays.</summary>
+    [Fact]
+    public void A_tail_bound_through_callers_that_alternate_two_arrays_builds_frames_in_proportion_to_the_callers()
+    {
+        const int LEVELS = 10;
+        var (collection, counted) = CollectSource($$"""
+            public sealed class Chain
+            {
+                public bool Other;
+                private readonly int[] _other = new int[1];
+                private readonly int[] _cells = new int[1];
+                {{AsyncTailArrayParameterProbeTests.Alternating(LEVELS)}}
+                public Task Start() => L0(_other);
+                private static async Task FillAsync(int[] p) { await Task.Yield(); p[0] = 1; }
+            }
+
+            public sealed class FirstWorker : BackgroundService
+            {
+                private readonly Chain _chain;
+                public FirstWorker(Chain chain) => _chain = chain;
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    _ = _chain.Start();
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddSingleton<Chain>(); services.AddHostedService<FirstWorker>();"));
+
+        Assert.InRange(counted.Sum(item => item.Counters.TailFrameWork), LEVELS, LEVELS * 4);
+        var writes = collection.Accesses.Where(access => access.Symbol.Contains("FillAsync", StringComparison.Ordinal) &&
+                                                         access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write)
+                                        .Select(access => access.Resource.AccessPath[0])
+                                        .ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(["_cells", "_other"], writes.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>A tail bound through six async callers, each calling the next from eight sites, the last calling the tail's body or the
+    /// first caller again with the window cut one cell further, builds frames in proportion to the sites: within the chain that comes
+    /// back to the first caller each reference is worked out once, not once for each way into it, and the tail's write is still
+    /// collected.</summary>
+    [Fact]
+    public void A_tail_bound_through_callers_that_call_the_first_again_with_a_cut_window_builds_frames_in_proportion_to_their_call_sites()
+    {
+        const int LEVELS = 6;
+        const int SITES = 8;
+        var levels = string.Concat(Enumerable.Range(0, LEVELS).Select(level =>
+            $"public async Task L{level}(Memory<int> p) {{ switch (Pick) {{ " +
+            string.Concat(Enumerable.Range(0, SITES).Select(site =>
+                $"case {site}: {(level < LEVELS - 1 ? $"await L{level + 1}(p);" : site % 2 == 0 ? "await Fill(p);" : "await L0(p.Slice(1));")} break; ")) +
+            "} } "));
+        var (collection, counted) = CollectSource($$"""
+            public sealed class Chain
+            {
+                public int Pick;
+                public readonly int[] Cells = new int[64];
+                {{levels}}
+                private static async Task Fill(Memory<int> p) { await Task.Yield(); p.Span[0] = 1; }
+            }
+
+            public sealed class FirstWorker : BackgroundService
+            {
+                private readonly Chain _chain;
+                public FirstWorker(Chain chain) => _chain = chain;
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    _ = _chain.L0(_chain.Cells);
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddSingleton<Chain>(); services.AddHostedService<FirstWorker>();"));
+
+        Assert.InRange(counted.Sum(item => item.Counters.TailFrameWork), LEVELS, LEVELS * SITES * 8);
+        Assert.Contains(collection.Accesses, access => access.Symbol.Contains("Fill", StringComparison.Ordinal) &&
+                                                       access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
+    }
+
+    /// <summary>A tail bound through twelve async callers, each handing the next its window cut as <c>Slice(0)</c> on one branch and
+    /// <c>Slice(0, 1)</c> on the other, whose tail calls a recursive helper that writes the window's first cell, names places in
+    /// proportion to the callers: two chains of slices that cut the same cells name one place, so the bindings the helper's recursion
+    /// compares do not double at every level, and the helper's write is still collected.</summary>
+    [Fact]
+    public void A_tail_bound_through_callers_that_cut_one_window_two_ways_names_places_in_proportion_to_the_callers()
+    {
+        const int LEVELS = 12;
+        var levels = string.Concat(Enumerable.Range(0, LEVELS).Select(level =>
+        {
+            var next = level == LEVELS - 1 ? "Fill" : $"L{level + 1}";
+            return $"public async Task L{level}(Memory<int> p) {{ if (Pick) await {next}(p.Slice(0)); else await {next}(p.Slice(0, 1)); }} ";
+        }));
+        var (collection, counted) = CollectSource($$"""
+            public sealed class Chain
+            {
+                public bool Pick;
+                public readonly int[] Cells = new int[1];
+                {{levels}}
+                private async Task Fill(Memory<int> p) { await Task.Yield(); Loop(p, 1); }
+                private void Loop(Memory<int> p, int n) { if (n > 0) Loop(p, n - 1); else p.Span[0] = 1; }
+            }
+
+            public sealed class FirstWorker : BackgroundService
+            {
+                private readonly Chain _chain;
+                public FirstWorker(Chain chain) => _chain = chain;
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    _ = _chain.L0(_chain.Cells.AsMemory());
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddSingleton<Chain>(); services.AddHostedService<FirstWorker>();"));
+
+        Assert.InRange(counted.Sum(item => item.Counters.TailFrameWork), LEVELS, LEVELS * 16);
+        Assert.Contains(collection.Accesses, access => access.Symbol.Contains("Loop", StringComparison.Ordinal) &&
+                                                       access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
     }
 
     /// <summary>Collects the case's scope, with the counters of each walked execution in the fold's order.</summary>

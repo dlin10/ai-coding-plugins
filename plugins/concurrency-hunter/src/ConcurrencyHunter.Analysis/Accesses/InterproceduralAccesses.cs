@@ -254,6 +254,11 @@ internal sealed class CollectionCounters
     /// counters are read.</summary>
     internal long ModelAccesses { get; set; }
 
+    /// <summary>The work of binding the execution's tails to the calls that started them: the callers' frames made, the starting calls
+    /// read, the references resolved in a tail frame and the references it names places for, each once, and each place it names
+    /// (<c>ExecutionCollector.TailFrame</c>).</summary>
+    internal long TailFrameWork { get; set; }
+
     /// <summary>The counters as the tail of the <c>execution:</c> report line.</summary>
     internal string Line() =>
         $"entries={Entries} visits={Visits} states={States} rows={Rows} keys={Keys} hits={Hits} emitted={Emitted} replaced={Replaced} " +
@@ -262,7 +267,7 @@ internal sealed class CollectionCounters
         $"otherInstanceHits={OtherInstanceHits} constructionCopies={ConstructionCopies} firsts={Firsts} " +
         $"firstsFromConstructions={FirstsFromConstructions} newInstance={NewInstance} newRegion={NewRegion} newSite={NewSite} " +
         $"newOperation={NewOperation} newGuards={NewGuards} newHeld={NewHeld} newLocal={NewLocal} newOther={NewOther} " +
-        $"newRootScoped={NewRootScoped} modelAccesses={ModelAccesses}";
+        $"newRootScoped={NewRootScoped} modelAccesses={ModelAccesses} tailFrameWork={TailFrameWork}";
 }
 
 /// <summary>
@@ -1475,6 +1480,27 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<string, IReadOnlyList<(IReadOnlyList<string> Symbols, AccessRoot Root)>> _callPaths = new(StringComparer.Ordinal);
         private readonly HashSet<CallEdge> _executionEdges = [];
 
+        /// <summary>The frames a tail's binding reads (<see cref="TailFrame"/>), by their node: this execution's tails' starts, which
+        /// its walk visits, and the frames of their callers, which it does not, so the calls those made are read from the walk graph
+        /// rather than from this execution's edges.</summary>
+        private readonly Dictionary<PathNode, TailFrame> _tailFrames = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Each caller's frame's node, by the execution that runs the caller's tail, the caller, the segment its call stands
+        /// in and the execution it ran in (<see cref="CallerFrameNode"/>).</summary>
+        private readonly Dictionary<(string? Tail, string Caller, BodySegment Segment, string RanIn), PathNode> _callerFrameNodes = [];
+
+        /// <summary>What tail frames' references resolve to (<see cref="ResolveReferences"/>), each worked out once.</summary>
+        private readonly ChainMemo<List<ResolvedReference>> _resolutions = new();
+
+        /// <summary>The places tail frames' references name in a binding (<see cref="Places"/>), each worked out once.</summary>
+        private readonly ChainMemo<List<BoundPlace>> _places = new();
+
+        /// <summary>How many references a tail frame resolves apart, and names places for apart, those it is still working out
+        /// included; past them a cell of a collection the frame got by value is the unknown cell (TD-043) and its places are more than
+        /// a binding tells apart, so the work, the places and the depth of a chain that comes back to the frame stay bounded whatever
+        /// the callers hand over.</summary>
+        private const int MAX_FRAME_REFERENCES = 16;
+
         /// <summary>The same edges by caller and call operation, each list in the order the walk first followed its edges.</summary>
         private readonly Dictionary<(string Caller, int Operation), List<CallEdge>> _executionCalls = [];
 
@@ -1484,7 +1510,7 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<PathNode, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>?> _enumerationPathLocks = [];
 
         /// <summary>What each visit's caller hands it by reference or as a collection (<see cref="Binding"/>).</summary>
-        private readonly Dictionary<PathNode, string?> _bindings = [];
+        private readonly Dictionary<PathNode, BindingSet?> _bindings = [];
 
         /// <summary>The guards of the visit <see cref="Conditions"/> was last asked about.</summary>
         private VisitGuards? _visitGuards;
@@ -1689,8 +1715,12 @@ public static partial class InterproceduralAccesses
         private void Visit(ExecutionEntry entry)
         {
             var start = new State(entry.InstanceId, entry.Segment);
+            var first = new PathNode(start, null, null);
+            // A tail starts once, bound by every call that started its body (TailFrame).
+            if (entry.Segment == BodySegment.Tail && input.Executions.TailStarts.TryGetValue((execution.Id, entry.InstanceId), out var tailStarts))
+                _tailFrames.Add(first, new TailFrame(tailStarts.ToArray(), null));
             var visits = new Dictionary<State, int> { [start] = 1 };
-            var pending = new Queue<PathNode>([new PathNode(start, null, null)]);
+            var pending = new Queue<PathNode>([first]);
             while (pending.TryDequeue(out var node))
             {
                 CheckCancellation();
@@ -1746,6 +1776,154 @@ public static partial class InterproceduralAccesses
 
         private const int MAX_ACCESS_PATHS = 16;
 
+        /// <summary>The calls that started a tail, each with its starts, in an order no set or worker decides.</summary>
+        /// <param name="starts">The starts.</param>
+        private static IEnumerable<IGrouping<CallEdge, TailStart>> Ordered(IEnumerable<TailStart> starts) =>
+            starts.GroupBy(tailStart => tailStart.Call)
+                  .OrderBy(group => group.Key.CallerInstance, StringComparer.Ordinal)
+                  .ThenBy(group => group.Key.OperationId)
+                  .ThenBy(group => group.Key.Reason, StringComparer.Ordinal);
+
+        /// <summary>The frame a node stands for in a tail's binding (<see cref="TailFrame"/>), or null for a node of this execution's
+        /// walk that is no tail's start.</summary>
+        /// <param name="node">The node.</param>
+        private TailFrame? TailFrameOf(PathNode node) => _tailFrames.Count != 0 && _tailFrames.TryGetValue(node, out var frame) ? frame : null;
+
+        /// <summary>The frame of the caller that made a call starting a tail, in the segment the call stands in and the execution it ran
+        /// in: one node for all the calls that started the caller's own body, where its tail was started so, and a frame bound by nothing
+        /// where the caller runs whole.</summary>
+        /// <param name="start">The call's start.</param>
+        private PathNode CallerFrameNode(TailStart start)
+        {
+            var caller = start.Call.CallerInstance;
+            var key = (start.CallerTail, caller, start.CallerSegment, start.CallerExecution);
+            if (_callerFrameNodes.TryGetValue(key, out var known))
+                return known;
+            var node = new PathNode(new State(caller, start.CallerSegment), null, null);
+            var outer = start.CallerTail is { } tail && input.Executions.TailStarts.TryGetValue((tail, caller), out var starts) ? starts.ToArray() : [];
+            _callerFrameNodes.Add(key, node);
+            _tailFrames.Add(node, new TailFrame(outer, start.CallerExecution));
+            Counters.TailFrameWork++;
+            return node;
+        }
+
+        /// <summary>The calls that bind a frame's parameters, each with where its caller stands: a tail frame's every starting call
+        /// under its caller's frame, worked out once; the call on the path's edge for any other visit (<see cref="BindingCall"/>).</summary>
+        /// <param name="node">The visit or frame.</param>
+        private IReadOnlyList<(MethodInstance Instance, PathNode Node, CallTransfer Call)> BindingCalls(PathNode node)
+        {
+            if (TailFrameOf(node) is not { } frame)
+                return BindingCall(node) is { } bound ? [bound] : [];
+            if (frame.Calls is { } known)
+                return known;
+
+            var calls = new List<(MethodInstance Instance, PathNode Node, CallTransfer Call)>();
+            foreach (var group in Ordered(frame.Starts))
+            {
+                CheckCancellation();
+                foreach (var start in group.DistinctBy(tailStart => (tailStart.CallerTail, tailStart.CallerSegment, tailStart.CallerExecution))
+                                           .OrderBy(tailStart => tailStart.CallerSegment)
+                                           .ThenBy(tailStart => tailStart.CallerTail, StringComparer.Ordinal)
+                                           .ThenBy(tailStart => tailStart.CallerExecution, StringComparer.Ordinal))
+                {
+                    CheckCancellation();
+                    Counters.TailFrameWork++;
+                    // The call binds the frame as the call on a path's edge binds its visit, an iterator's creation included.
+                    if (BindingCall(new PathNode(node.State, CallerFrameNode(start), group.Key)) is { } bound)
+                        calls.Add(bound);
+                }
+            }
+
+            return frame.Calls = calls;
+        }
+
+        /// <summary>The value a frame's parameter is bound to: the one value every call that binds the frame hands it, each bound where
+        /// its caller stands; null where they disagree, where one hands no value, or while the chain comes back to it.</summary>
+        /// <param name="node">The frame.</param>
+        /// <param name="frame">Its <see cref="TailFrame"/>.</param>
+        /// <param name="ordinal">The parameter.</param>
+        /// <param name="depth">How many calls up an argument has already been followed.</param>
+        private ValueTerm? ValueOf(PathNode node, TailFrame frame, int ordinal, int depth)
+        {
+            if (frame.Values.TryGetValue(ordinal, out var known))
+                return known;
+            frame.Values[ordinal] = null;
+            ValueTerm? value = null;
+            var text = (string?)null;
+            var calls = BindingCalls(node);
+            foreach (var (instance, caller, call) in calls)
+            {
+                CheckCancellation();
+                if (call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Term is not { } term)
+                    return frame.Values[ordinal] = null;
+                var bound = Bind(term, instance, caller, depth + 1);
+                var boundText = bound.ToString();
+                if (text is not null && !string.Equals(text, boundText, StringComparison.Ordinal))
+                    return frame.Values[ordinal] = null;
+                (value, text) = (bound, boundText);
+            }
+
+            return frame.Values[ordinal] = calls.Count == 0 ? null : value;
+        }
+
+        /// <summary>The guards that hold of a frame: those that hold of every call that binds it, a call's being its own guards where
+        /// its caller stands and its caller's frame's, told apart as two paths' guards are (<see cref="ConditionKey"/>). A guard one
+        /// call does not stand under holds of no frame those calls bind; a chain that comes back to the frame holds none.</summary>
+        /// <param name="node">The frame.</param>
+        /// <param name="frame">Its <see cref="TailFrame"/>.</param>
+        private List<PathPredicate> GuardsOf(PathNode node, TailFrame frame)
+        {
+            CheckCancellation();
+            if (frame.Guards is { } known)
+                return known;
+            frame.Guards = [];
+            List<PathPredicate>? common = null;
+            foreach (var (instance, caller, call) in BindingCalls(node))
+            {
+                CheckCancellation();
+                var guards = Predicates(instance, call.Conditions, caller)
+                                 .Concat(TailFrameOf(caller) is { } above ? GuardsOf(caller, above) : [])
+                                 .ToList();
+                if (common is null)
+                {
+                    common = guards;
+                    continue;
+                }
+                var keys = guards.Select(ConditionKey).ToHashSet(StringComparer.Ordinal);
+                common = common.Where(guard => keys.Contains(ConditionKey(guard))).ToList();
+            }
+
+            return frame.Guards = common ?? [];
+        }
+
+        /// <summary>The edges of one call a binding follows: those this execution's walk followed, or, in the frame of a caller that
+        /// started a tail before this execution and in the frames of what it calls, the walk graph's, since none of them is walked here.</summary>
+        /// <param name="instance">The calling instance.</param>
+        /// <param name="node">Its frame.</param>
+        /// <param name="operationId">The call operation.</param>
+        private IReadOnlyList<CallEdge> FrameCalls(MethodInstance instance, PathNode node, int operationId) =>
+            CallerFrameOf(node) is not null
+                ? graph.Of(instance).Select(walkStep => walkStep.Edge).Where(edge => edge.OperationId == operationId).Distinct().ToArray()
+                : ExecutionCalls(instance.Id, operationId);
+
+        /// <summary>The frame of a caller that started a tail before this execution (<see cref="CallerFrameNode"/>) that a frame is, or
+        /// is below as the frame of what that caller calls; null for a frame this execution's walk passed. A field such a frame read is
+        /// settled or not where the caller ran (<see cref="TailFrame.Execution"/>), and the calls it made are the walk graph's.</summary>
+        /// <param name="node">The frame.</param>
+        private TailFrame? CallerFrameOf(PathNode node)
+        {
+            if (_callerFrameNodes.Count == 0)
+                return null;
+            for (var step = node; step is not null; step = step.Parent)
+            {
+                CheckCancellation();
+                if (TailFrameOf(step) is { Execution: not null } frame)
+                    return frame;
+            }
+
+            return null;
+        }
+
         private static bool OnPath(PathNode node, State state)
         {
             for (var step = node; step is not null; step = step.Parent)
@@ -1761,7 +1939,7 @@ public static partial class InterproceduralAccesses
         /// <summary>Whether a call into a state already on the path hands it places no visit of that state on the path was handed: a
         /// recursive call that swaps its ref arguments, or the collections it got by value, binds its references anew, and the accesses
         /// it makes through them are found only on a visit of its own (question 107). There are finitely many such bindings, so the
-        /// path ends.</summary>
+        /// path ends; a binding wider than the places it tells apart equals none, and the path budget (TD-090) ends that path.</summary>
         /// <param name="node">The visit making the call.</param>
         /// <param name="edge">The call.</param>
         /// <param name="next">The state it enters.</param>
@@ -1772,82 +1950,157 @@ public static partial class InterproceduralAccesses
             for (var step = node; step is not null; step = step.Parent)
             {
                 CheckCancellation();
-                if (step.State == next && Binding(step) == binding)
+                if (step.State == next && Binding(step) is { } other && binding.SameAs(other))
                     return false;
             }
             return true;
         }
 
         /// <summary>What a visit's caller hands it by reference or as a collection, each place named in the frame the path resolves it
-        /// in, as text; null for a visit handed none, or with no caller on its path.</summary>
+        /// in; null for a visit handed none, or with no caller on its path. A tail frame is handed what any of its calls hands it
+        /// (<see cref="TailFrame"/>).</summary>
         /// <param name="node">The visit.</param>
-        private string? Binding(PathNode node)
+        private BindingSet? Binding(PathNode node)
         {
-            if (_bindings.TryGetValue(node, out var known))
+            var frame = TailFrameOf(node);
+            if (frame is { HasBinding: true })
+                return frame.Binding;
+            if (frame is null && _bindings.TryGetValue(node, out var known))
                 return known;
-            string? binding = null;
-            if (BindingCall(node) is { } bound)
+            var places = new HashSet<BoundArgument>();
+            foreach (var (instance, caller, call) in BindingCalls(node))
             {
-                var places = bound.Call.Arguments
-                                  .SelectMany(argument => Places(argument.References, bound.Instance, bound.Node)
-                                                         .Concat(argument.Collection is { } collection
-                                                                     ? Places([collection.Collection], bound.Instance, bound.Node)
-                                                                         .Select(place => $"{place}+{collection.Shift}:{collection.Length}")
-                                                                     : [])
-                                                         .Select(place => $"{argument.ParameterOrdinal}={place}"))
-                                  .Order(StringComparer.Ordinal)
-                                  .ToArray();
-                binding = places.Length == 0 ? null : string.Join(";", places);
+                CheckCancellation();
+                foreach (var argument in call.Arguments)
+                {
+                    CheckCancellation();
+                    foreach (var place in Places(argument.References, instance, caller))
+                    {
+                        CheckCancellation();
+                        places.Add(new BoundArgument(argument.ParameterOrdinal, false, place));
+                    }
+                    // A collection handed over by value is the window the call cuts of what it comes from.
+                    if (argument.Collection is { } collection)
+                    {
+                        foreach (var place in WindowPlaces(collection, null, instance, caller))
+                        {
+                            CheckCancellation();
+                            places.Add(new BoundArgument(argument.ParameterOrdinal, true, place));
+                        }
+                    }
+                }
             }
-            _bindings.Add(node, binding);
+
+            var binding = places.Count == 0 ? null : new BindingSet(places);
+            if (frame is not null)
+                (frame.Binding, frame.HasBinding) = (binding, true);
+            else
+                _bindings.Add(node, binding);
             return binding;
         }
 
-        /// <summary>The places references name, followed up the path through the parameters they come in by; a place a call hands back
-        /// is named by the call, never resolved here.</summary>
+        /// <summary>The places a collection a call hands over is a window of, seen through that window: the places of what the call
+        /// cuts it from, named once for every window cut of it, each folded with this call's cut (<see cref="BoundPlace.Through"/>).</summary>
+        /// <param name="collection">The collection the call hands over.</param>
+        /// <param name="cells">The cells of the window the callee names, in the window's coordinates; null for the window itself.</param>
+        /// <param name="instance">The calling instance.</param>
+        /// <param name="node">Its visit.</param>
+        private IEnumerable<BoundPlace> WindowPlaces(ArgumentCollection collection, ElementSelector? cells, MethodInstance instance, PathNode node) =>
+            Places([collection.Collection], instance, node).Select(place => place.Through(collection.Shift, collection.Length, cells));
+
+        /// <summary>The places references name, followed up the path through the parameters they come in by, each as its storage and
+        /// the cells of it in the storage's own coordinates, so that two chains of slices that cut the same cells name one place; a place
+        /// a call hands back is named by the call, never resolved here. A tail frame names each reference's places once, and past the
+        /// references and places it tells apart it names <see cref="BoundPlace.Widened"/>.</summary>
         /// <param name="targets">The references.</param>
         /// <param name="instance">The instance whose frame names them.</param>
         /// <param name="node">Its visit.</param>
-        private IEnumerable<string> Places(IEnumerable<ReferenceTarget> targets, MethodInstance instance, PathNode node)
+        private IEnumerable<BoundPlace> Places(IEnumerable<ReferenceTarget> targets, MethodInstance instance, PathNode node)
         {
             CheckCancellation();
+            var frame = TailFrameOf(node);
             foreach (var target in targets)
             {
                 CheckCancellation();
+                if (frame is null)
+                {
+                    foreach (var place in One(target))
+                    {
+                        CheckCancellation();
+                        yield return place;
+                    }
+                    continue;
+                }
+
+                // A tail frame's places are worked out once for each reference, a chain that comes back to one naming none there
+                // (ChainMemo); a frame asked past the references it keeps apart, or naming more places than it keeps apart, names more
+                // than a binding tells apart.
+                if (!frame.PlacesAsked.Contains(target) && frame.PlacesAsked.Count >= MAX_FRAME_REFERENCES)
+                {
+                    yield return BoundPlace.Widened;
+                    continue;
+                }
+                frame.PlacesAsked.Add(target);
+                var named = _places.Get(frame, target, () =>
+                {
+                    var list = One(target).Distinct().ToList();
+                    Counters.TailFrameWork += 1 + list.Count;
+                    return list.Count > MAX_FRAME_REFERENCES ? [BoundPlace.Widened] : list;
+                }, [], out _);
+                foreach (var place in named)
+                {
+                    CheckCancellation();
+                    yield return place;
+                }
+            }
+
+            IEnumerable<BoundPlace> One(ReferenceTarget target)
+            {
                 switch (target)
                 {
                     // Two places of one holder are told apart by every struct field after the field or the cell (R1).
                     case ReferenceCell cell:
                         var bases = cell.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct().Order(StringComparer.Ordinal);
-                        yield return $"{FieldSlot.Key(cell.Field)}@{string.Join(",", bases)}[{cell.Selector?.Text}]" +
-                                     string.Concat(cell.StructPath.Select(field => $"{FieldSlot.PATH_SEPARATOR}{FieldSlot.Key(field)}"));
+                        yield return new BoundPlace($"{FieldSlot.Key(cell.Field)}@{string.Join(",", bases)}" +
+                                                    string.Concat(cell.StructPath.Select(field => $"{FieldSlot.PATH_SEPARATOR}{FieldSlot.Key(field)}")),
+                                                    0, null, cell.Selector);
                         break;
-                    case ReferenceParameter parameter when BindingCall(node) is { } bound:
-                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
+                    case ReferenceParameter parameter when BindingCalls(node).Count != 0:
+                        foreach (var bound in BindingCalls(node))
                         {
                             CheckCancellation();
-                            foreach (var place in Places(argument.References, bound.Instance, bound.Node))
+                            foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
                             {
                                 CheckCancellation();
-                                yield return place;
+                                foreach (var place in Places(argument.References, bound.Instance, bound.Node))
+                                {
+                                    CheckCancellation();
+                                    yield return place;
+                                }
                             }
                         }
                         break;
-                    case ReferenceParameterElement element when BindingCall(node) is { } bound:
-                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
+                    // A cell of a collection the body got by value is that cell of what the caller handed over, moved by the slice the
+                    // caller cut, as ResolveReferences moves it.
+                    case ReferenceParameterElement element when BindingCalls(node).Count != 0:
+                        foreach (var bound in BindingCalls(node))
                         {
                             CheckCancellation();
-                            if (argument.Collection is not { } collection)
-                                continue;
-                            foreach (var place in Places([collection.Collection], bound.Instance, bound.Node))
+                            foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
                             {
                                 CheckCancellation();
-                                yield return $"{place}+{collection.Shift}:{collection.Length}{element.Selector.Text}";
+                                if (argument.Collection is not { } collection)
+                                    continue;
+                                foreach (var place in WindowPlaces(collection, element.Selector, bound.Instance, bound.Node))
+                                {
+                                    CheckCancellation();
+                                    yield return place;
+                                }
                             }
                         }
                         break;
                     default:
-                        yield return $"{instance.Id}:{target}";
+                        yield return new BoundPlace($"{instance.Id}:{target}", 0, null, null);
                         break;
                 }
             }
@@ -2651,6 +2904,171 @@ public static partial class InterproceduralAccesses
             return loads;
         }
 
+        /// <summary>
+        /// A frame a tail's binding reads (<see cref="TailFrameOf"/>): the start of a tail this execution runs, or the frame of a caller
+        /// that made a call starting a tail, or its own body, before this execution. It stands for every call that started its body at
+        /// once, none of them on the path: a parameter names the places any of those calls handed over, each cut as that call cut it,
+        /// a value only where every call hands the same, and a guard holds only where it holds of every call. What it binds is worked
+        /// out once and kept, so the work grows with the calls, not with the chains of calls.
+        /// </summary>
+        /// <param name="starts">The calls that started the body.</param>
+        /// <param name="execution">The execution a caller's frame ran in, where a field it read is asked whether it may have been under
+        /// construction; null for a tail's start, which this execution walks.</param>
+        private sealed class TailFrame(IReadOnlyList<TailStart> starts, string? execution)
+        {
+            internal IReadOnlyList<TailStart> Starts { get; } = starts;
+
+            internal string? Execution { get; } = execution;
+
+            /// <summary>The calls that bind the frame, each with its caller's frame, once they are worked out.</summary>
+            internal List<(MethodInstance Instance, PathNode Node, CallTransfer Call)>? Calls { get; set; }
+
+            /// <summary>The value each parameter is bound to, null where the calls disagree; one being worked out maps to null.</summary>
+            internal Dictionary<int, ValueTerm?> Values { get; } = [];
+
+            /// <summary>The guards that hold of every call, once worked out; empty while they are.</summary>
+            internal List<PathPredicate>? Guards { get; set; }
+
+            /// <summary>What the frame is handed by reference or as a collection (<see cref="Binding(PathNode)"/>).</summary>
+            internal BindingSet? Binding { get; set; }
+
+            /// <summary>Whether <see cref="Binding"/> is worked out.</summary>
+            internal bool HasBinding { get; set; }
+
+            /// <summary>Every reference the frame was asked to resolve, resolved, being resolved or resolved within a chain; past
+            /// <see cref="MAX_FRAME_REFERENCES"/> of them a new one is the unknown cell.</summary>
+            internal HashSet<ReferenceTarget> Asked { get; } = [];
+
+            /// <summary>Every reference the frame was asked to name places for (<see cref="Places"/>); past
+            /// <see cref="MAX_FRAME_REFERENCES"/> of them a new one names <see cref="BoundPlace.Widened"/>.</summary>
+            internal HashSet<ReferenceTarget> PlacesAsked { get; } = [];
+        }
+
+        /// <summary>One place a binding names: <see cref="Storage"/> — a field of the objects its bases point to, with the struct fields
+        /// below it, or a value of one instance's own — seen through the window the calls cut of it, which starts at
+        /// <see cref="Start"/> of the storage for <see cref="Length"/> cells, and <see cref="Cells"/>, the cells named, in the storage's
+        /// own coordinates. Two chains of slices that cut the same window are one place; <see cref="Widened"/> stands for more places
+        /// than a binding tells apart, and for a window whose start is not known.</summary>
+        /// <param name="Storage">The storage; null only for <see cref="Widened"/>.</param>
+        /// <param name="Start">Where the window starts in the storage.</param>
+        /// <param name="Length">How many cells the window has, null where that is not known.</param>
+        /// <param name="Cells">The cells named, null for the window itself.</param>
+        private readonly record struct BoundPlace(string? Storage, long Start, long? Length, ElementSelector? Cells)
+        {
+            /// <summary>More places than a binding tells apart: a binding that names it equals no other (<see cref="BindingSet"/>).</summary>
+            internal static BoundPlace Widened => default;
+
+            /// <summary>Whether this is <see cref="Widened"/>.</summary>
+            internal bool IsWidened => Storage is null;
+
+            /// <summary>The place as a callee sees it through a window a call cuts of it, the callee naming some cells of that window:
+            /// the windows fold, start on start, so the result is in the storage's own coordinates; a cut whose start is not known
+            /// is <see cref="Widened"/>.</summary>
+            /// <param name="shift">Where the call's window starts in this place, null where that is not known.</param>
+            /// <param name="length">How many cells the call's window has, null where that is not known.</param>
+            /// <param name="cells">The cells the callee names, in the window's coordinates; null for the window itself.</param>
+            internal BoundPlace Through(long? shift, long? length, ElementSelector? cells)
+            {
+                if (IsWidened || shift is not { } offset)
+                    return Widened;
+                var start = Start + offset;
+                long? count = (length, Length) switch
+                {
+                    ({ } cut, { } whole) => Math.Min(cut, whole - offset),
+                    ({ } cut, null) => cut,
+                    (null, { } whole) => whole - offset,
+                    _ => null
+                };
+                return new BoundPlace(Storage, start, count, cells?.InSlice(start, count));
+            }
+        }
+
+        /// <summary>A place one argument hands its parameter.</summary>
+        /// <param name="Ordinal">The parameter.</param>
+        /// <param name="IsCollection">Whether the place is a collection handed over by value, rather than by reference.</param>
+        /// <param name="Place">The place.</param>
+        private readonly record struct BoundArgument(int Ordinal, bool IsCollection, BoundPlace Place);
+
+        /// <summary>What a visit's caller hands it (<see cref="Binding"/>): the places its arguments hand each parameter, as a set.</summary>
+        /// <param name="places">The places.</param>
+        private sealed class BindingSet(HashSet<BoundArgument> places)
+        {
+            private readonly bool _widened = places.Any(place => place.Place.IsWidened);
+
+            /// <summary>Whether two bindings hand the same places; one that names more places than it tells apart is the same as
+            /// none, so a recursive call under it is walked again until the path budget ends it (TD-090).</summary>
+            /// <param name="other">The other binding.</param>
+            internal bool SameAs(BindingSet other) => !_widened && !other._widened && places.SetEquals(other.Places);
+
+            private HashSet<BoundArgument> Places => places;
+        }
+
+        /// <summary>
+        /// What tail frames' references resolve to or name, each worked out once, where a chain of frames may come back to a reference
+        /// still being worked out. Such a reference gives the chain nothing there, since the reference names it all itself, so what is
+        /// worked out below it lacks only what it names: that is kept for good only where no chain came back past it, and until the
+        /// outermost reference a chain came back to is worked out it is reused as it stands, so each reference is worked out once per
+        /// chain rather than once per way into it.
+        /// </summary>
+        /// <typeparam name="TValue">What a reference resolves to or names.</typeparam>
+        private sealed class ChainMemo<TValue>
+        {
+            private readonly Dictionary<(TailFrame Frame, ReferenceTarget Target), TValue> _kept = [];
+            private readonly Dictionary<(TailFrame Frame, ReferenceTarget Target), TValue> _inChain = [];
+            private readonly List<(TailFrame Frame, ReferenceTarget Target)> _open = [];
+            private int _chain = int.MaxValue;
+
+            /// <summary>What a frame's reference resolves to or names: kept, reused within the chain being worked out, the value of a
+            /// reference still being worked out where the chain comes back to it, or worked out now.</summary>
+            /// <param name="frame">The frame.</param>
+            /// <param name="target">The reference.</param>
+            /// <param name="work">Works the value out, whole.</param>
+            /// <param name="whileOpen">The value of a reference a chain comes back to.</param>
+            /// <param name="cyclic">Whether the chain came back to the reference.</param>
+            internal TValue Get(TailFrame frame, ReferenceTarget target, Func<TValue> work, TValue whileOpen, out bool cyclic)
+            {
+                cyclic = false;
+                var key = (frame, target);
+                if (_kept.TryGetValue(key, out var known) || _inChain.TryGetValue(key, out known))
+                    return known;
+                var open = _open.IndexOf(key);
+                if (open >= 0)
+                {
+                    _chain = Math.Min(_chain, open);
+                    cyclic = true;
+                    return whileOpen;
+                }
+
+                _open.Add(key);
+                var at = _open.Count - 1;
+                TValue value;
+                try
+                {
+                    value = work();
+                }
+                finally
+                {
+                    _open.RemoveAt(at);
+                }
+
+                if (_chain >= at)
+                {
+                    _kept[key] = value;
+                    if (_chain == at)
+                    {
+                        _chain = int.MaxValue;
+                        _inChain.Clear();
+                    }
+                }
+                else
+                {
+                    _inChain[key] = value;
+                }
+
+                return value;
+            }
+        }
+
         /// <summary>One place a reference points to; a null <see cref="Cell"/> is a place nothing proves, which coverage counts and
         /// no access stands for (R3).</summary>
         /// <param name="Cell">The cell the reference reaches, or <see langword="null"/> for a place nothing proves.</param>
@@ -2675,20 +3093,43 @@ public static partial class InterproceduralAccesses
             CheckCancellation();
             descent ??= [];
             var unproven = new ResolvedReference(null, instance, node);
+            var frame = TailFrameOf(node);
             foreach (var target in targets)
             {
                 CheckCancellation();
                 // Every way down names at least one place, or says that it names none: a reference is never lost silently. A parameter
-                // its caller handed no place for was bound to a variable of the caller's own.
+                // its caller handed no place for was bound to a variable of the caller's own. A chain that comes back to a tail frame
+                // the resolution is working out names what the frame's other calls hand over, there, and nothing here.
                 var any = false;
-                foreach (var resolved in Resolve(target))
+                var (results, cyclic) = frame is null ? (Resolve(target), false) : FrameResolved(frame, target);
+                foreach (var resolved in results)
                 {
                     CheckCancellation();
                     any = true;
                     yield return resolved;
                 }
-                if (!any)
-                    yield return target is ReferenceParameter && Caller() is not null ? unproven with { IsLocal = true } : unproven;
+                if (!any && !cyclic)
+                    yield return target is ReferenceParameter && Callers().Count != 0 ? unproven with { IsLocal = true } : unproven;
+            }
+
+            // A tail frame resolves each reference once (ChainMemo); past the references it keeps apart, a cell of a collection it got
+            // by value is the unknown cell of what any of its calls handed over, as a selector past its budget is unknown (TD-043).
+            // Every reference it was asked counts, those it is still resolving included: a frame that calls itself with a window cut
+            // further each time asks a new reference at every level, none resolved yet, and the unknown cell ends the chain as a
+            // reference it comes back to.
+            (IEnumerable<ResolvedReference> Results, bool Cyclic) FrameResolved(TailFrame tailFrame, ReferenceTarget target)
+            {
+                if (!tailFrame.Asked.Contains(target) && tailFrame.Asked.Count >= MAX_FRAME_REFERENCES && target is ReferenceParameterElement element)
+                    target = UnknownCell(element);
+                tailFrame.Asked.Add(target);
+                var list = _resolutions.Get(tailFrame, target, () =>
+                {
+                    Counters.TailFrameWork++;
+                    // Calls that hand over one place give it once: a frame's list is its distinct places, not one copy for each call
+                    // and each chain of calls above it.
+                    return Resolve(target).Distinct().ToList();
+                }, [], out var cyclic);
+                return (list, cyclic);
             }
 
             IEnumerable<ResolvedReference> Resolve(ReferenceTarget target)
@@ -2698,14 +3139,18 @@ public static partial class InterproceduralAccesses
                     case ReferenceCell cell:
                         yield return new ResolvedReference(cell, instance, node);
                         break;
-                    case ReferenceParameter parameter when Caller() is { } bound:
-                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
+                    case ReferenceParameter parameter:
+                        foreach (var bound in Callers())
                         {
                             CheckCancellation();
-                            foreach (var resolved in ResolveReferences(argument.References, bound.Instance, bound.Node, descent))
+                            foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
                             {
                                 CheckCancellation();
-                                yield return resolved;
+                                foreach (var resolved in ResolveReferences(argument.References, bound.Instance, bound.Node, descent))
+                                {
+                                    CheckCancellation();
+                                    yield return resolved;
+                                }
                             }
                         }
                         break;
@@ -2713,9 +3158,11 @@ public static partial class InterproceduralAccesses
                     // the slice the caller cut. The index is the callee's own value, so its expression is bound where it is written
                     // — which is what ties it to the guards of every caller over the value it came from (R1) — and crosses the call
                     // already bound.
-                    case ReferenceParameterElement element when Caller() is { } bound:
+                    case ReferenceParameterElement element when Callers().Count != 0:
                         var term = element.IsTermBound ? element.Term : element.Term is { } written ? Bind(written, instance, node) : null;
-                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
+                        foreach (var (bound, argument) in Callers().SelectMany(bound => bound.Call.Arguments
+                                                                                              .Where(argument => argument.ParameterOrdinal == element.Ordinal)
+                                                                                              .Select(argument => (bound, argument))))
                         {
                             CheckCancellation();
                             var collection = argument.Collection;
@@ -2746,7 +3193,7 @@ public static partial class InterproceduralAccesses
                     // A cell of a collection a call returned is in the storage the callee's returns name; which cell is unknown,
                     // since nothing but those returns says how that storage is cut (R3, R4).
                     case ReferenceCallCollection returned:
-                        foreach (var edge in ExecutionCalls(instance.Id, returned.OperationId))
+                        foreach (var edge in FrameCalls(instance, node, returned.OperationId))
                         {
                             CheckCancellation();
                             var callee = _heap.Instances[edge.CalleeInstance];
@@ -2763,7 +3210,7 @@ public static partial class InterproceduralAccesses
                     case ReferenceCall reference:
                         var receiverFromCall = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == reference.OperationId)?
                             .Receivers.Any(value => value is CallResultValue or AwaitResultValue) == true;
-                        foreach (var edge in ExecutionCalls(instance.Id, reference.OperationId))
+                        foreach (var edge in FrameCalls(instance, node, reference.OperationId))
                         {
                             CheckCancellation();
                             var callee = _heap.Instances[edge.CalleeInstance];
@@ -2841,7 +3288,7 @@ public static partial class InterproceduralAccesses
                 }
             }
 
-            (MethodInstance Instance, PathNode Node, CallTransfer Call)? Caller() => BindingCall(node);
+            IReadOnlyList<(MethodInstance Instance, PathNode Node, CallTransfer Call)> Callers() => BindingCalls(node);
         }
 
         /// <summary>An access a visit makes, with the frame that names it: the visit's own, or a caller's for a reference resolved
@@ -4866,36 +5313,37 @@ public static partial class InterproceduralAccesses
         /// carries one path to its accesses; once the path budget is spent, the visit starts at the merge and carries no guards
         /// from above it. A path's guards are its caller's path's and those of the call that entered it: the guards of each call are
         /// bound once and kept with its path's node, so a visit binds the guards of that one call. They are numbered in the order
-        /// the path lists them: the visit's first, then its caller's.</summary>
+        /// the path lists them: the visit's first, then its caller's. A tail's start carries the guards that hold of every call that
+        /// started its body (<see cref="GuardsOf"/>).</summary>
         /// <param name="node">The visit whose path is read.</param>
         private Guards PathGuards(PathNode node)
         {
             // The calls of the path whose guards are not bound yet, from the visit up to the first path that has its own.
             var entered = new List<(PathNode Step, List<PathPredicate> Guards)>();
             var guards = _noGuards;
-            for (var step = node; step is { Edge: not null, Parent: { } caller }; step = caller)
+            var step = node;
+            var found = false;
+            for (; step is { Edge: not null, Parent: { } caller }; step = caller)
             {
                 CheckCancellation();
                 if (step.Guards is { } known)
                 {
-                    guards = known;
+                    (guards, found) = (known, true);
                     break;
                 }
 
-                var bound = CallGuards(step);
-                foreach (var condition in bound)
-                {
-                    CheckCancellation();
-                    ConditionNumber(condition);
-                }
-
-                entered.Add((step, bound));
+                Enter(step, CallGuards(step));
             }
+            // A tail's start stands under the guards that hold of every call that started its body (TailFrame).
+            if (!found && step.Guards is { } startGuards)
+                guards = startGuards;
+            else if (!found && TailFrameOf(step) is { Execution: null } start)
+                Enter(step, GuardsOf(step, start));
 
             for (var index = entered.Count - 1; index >= 0; index--)
             {
                 CheckCancellation();
-                var (step, bound) = entered[index];
+                var (entry, bound) = entered[index];
                 var keys = guards.Keys;
                 if (bound.Count != 0)
                 {
@@ -4907,10 +5355,21 @@ public static partial class InterproceduralAccesses
                     }
                 }
 
-                step.Guards = guards = new Guards(bound, guards, keys);
+                entry.Guards = guards = new Guards(bound, guards, keys);
             }
 
             return guards;
+
+            void Enter(PathNode entry, List<PathPredicate> bound)
+            {
+                foreach (var condition in bound)
+                {
+                    CheckCancellation();
+                    ConditionNumber(condition);
+                }
+
+                entered.Add((entry, bound));
+            }
         }
 
         /// <summary>The guards of the call that entered a visit, bound where its caller stands.</summary>
@@ -4965,13 +5424,15 @@ public static partial class InterproceduralAccesses
         private IReadOnlyList<PathPredicate> Predicates(MethodInstance instance, IReadOnlyList<SummaryPredicate> predicates, PathNode node)
         {
             var conditions = new List<PathPredicate>();
+            // A caller's frame outside this execution's walk read its fields where it ran (CallerFrameOf).
+            var ranIn = predicates.Count != 0 ? CallerFrameOf(node)?.Execution : null;
             foreach (var condition in predicates)
             {
                 CheckCancellation();
                 var subject = condition switch
                 {
                     { Relation: PathRelation.Unsupported } => "",
-                    { SubjectLoad: { } load } when Canonical(instance, load) is { } canonical => canonical,
+                    { SubjectLoad: { } load } when Canonical(instance, load, ranIn) is { } canonical => canonical,
                     { SubjectLoad: { } load } => Local(instance, $"{instance.BodyId}#{load}"),
                     { SubjectValue: { } value } => Local(instance, $"{instance.BodyId}:{value}"),
                     _ => ""
@@ -5051,6 +5512,10 @@ public static partial class InterproceduralAccesses
             if (variable.Identity.StartsWith($"{instance.BodyId}#", StringComparison.Ordinal) &&
                 int.TryParse(variable.Identity[(instance.BodyId.Length + 1)..], out var load))
             {
+                // A caller's frame outside this execution's walk read the field where it ran, which may have been inside a construction
+                // this execution does not see: the load is settled only as that execution says (CallerFrameOf).
+                if (CallerFrameOf(node) is { } frame)
+                    return variable with { Identity = Canonical(instance, load, frame.Execution) ?? Local(instance, variable.Identity) };
                 if (depth < MAX_ARGUMENT_DEPTH && ConstructedField(instance, load, node, depth) is { } constructed)
                     return constructed;
                 return variable with { Identity = Canonical(instance, load) ?? Local(instance, variable.Identity) };
@@ -5059,11 +5524,14 @@ public static partial class InterproceduralAccesses
             if (depth < MAX_ARGUMENT_DEPTH &&
                 input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
                 body.Parameters.FirstOrDefault(parameter => variable.Identity == $"{instance.BodyId}:{parameter.Value}") is
-                    { RefKind: IrRefKind.None } parameter &&
-                BindingCall(node) is { } bound &&
-                bound.Call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == parameter.Ordinal)?.Term is { } argumentTerm)
+                    { RefKind: IrRefKind.None } parameter)
             {
-                return Bind(argumentTerm, bound.Instance, bound.Node, depth + 1);
+                // A tail frame's parameter is the value every call that started its body hands it, or its own where they disagree.
+                if (TailFrameOf(node) is { } frame)
+                    return ValueOf(node, frame, parameter.Ordinal, depth) ?? variable with { Identity = Local(instance, variable.Identity) };
+                if (BindingCall(node) is { } bound &&
+                    bound.Call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == parameter.Ordinal)?.Term is { } argumentTerm)
+                    return Bind(argumentTerm, bound.Instance, bound.Node, depth + 1);
             }
 
             return variable with { Identity = Local(instance, variable.Identity) };
@@ -5074,7 +5542,8 @@ public static partial class InterproceduralAccesses
         /// the path's edge, except for an iterator's body entered by an enumeration: its arguments were bound when the iterator was
         /// created, so the call that created it binds them (ADR 0011). An enumeration of a value that may be one of several
         /// iterators the body was created by binds nothing, since no one creation is proven. A creation in another body than the
-        /// enumeration's stands outside this path, so the values of that body are its own from there on.
+        /// enumeration's stands outside this path, so the values of that body are its own from there on. A tail frame is bound by all
+        /// the calls that started its body (<see cref="BindingCalls"/>).
         /// </summary>
         /// <param name="node">The path node of the entered instance.</param>
         private (MethodInstance Instance, PathNode Node, CallTransfer Call)? BindingCall(PathNode node)
@@ -5311,7 +5780,9 @@ public static partial class InterproceduralAccesses
         /// object may be under construction there.</summary>
         /// <param name="instance">The instance making the load.</param>
         /// <param name="loadOperationId">The load operation.</param>
-        private string? Canonical(MethodInstance instance, int loadOperationId)
+        /// <param name="ranIn">The execution the load ran in, for the frame of a caller that started a tail before this execution
+        /// (<see cref="CallerFrameOf"/>); null for this execution.</param>
+        private string? Canonical(MethodInstance instance, int loadOperationId, string? ranIn = null)
         {
             if (instance.Summary.Accesses.FirstOrDefault(candidate => candidate.OperationId == loadOperationId &&
                                                                       candidate.Kind == SummaryAccessKind.Load) is not { } load ||
@@ -5325,7 +5796,10 @@ public static partial class InterproceduralAccesses
             if (resources.Count != 1 || resources[0] is not { RegionId: { } regionId, Storage: { } path } || !IsSettled(path, byType: false))
                 return null;
             // A read while the object may still be being built sees a field the construction has not finished writing.
-            if (Construction(instance, loadOperationId, regionId).May)
+            var construction = ranIn is null || ranIn == execution.Id
+                ? Construction(instance, loadOperationId, regionId)
+                : input.Executions.Construction(ranIn, instance.Id, loadOperationId, regionId, cancellationToken);
+            if (construction.May)
                 return null;
 
             return _heap.Regions[regionId].Kind == HeapRegionKind.Static || input.Executions.IsSingleObject(regionId)
