@@ -707,6 +707,9 @@ public static class IrLowering
     {
         private Dictionary<ISymbol, string>? _slots;
 
+        /// <summary>The extension block member <c>method</c> implements (<see cref="ExtensionMembers"/>); null for any other member.</summary>
+        private readonly IMethodSymbol? _member = ExtensionMembers.MemberOf(method);
+
         /// <summary>The slot of a variable the member declares.</summary>
         /// <param name="symbol">The local or parameter.</param>
         internal string Of(ISymbol symbol) => (_slots ??= Number()).GetValueOrDefault(symbol) ?? symbol.Name;
@@ -750,7 +753,8 @@ public static class IrLowering
         }
 
         /// <summary>Whether a variable belongs to the member: the ordinary member its lambdas and local functions sit in is this one, or
-        /// no method at all, as for a lambda of an initializer.</summary>
+        /// the extension block member this one implements, whose symbols its body names (<see cref="ExtensionMembers"/>), or no method at
+        /// all, as for a lambda of an initializer and for the receiver of an extension block.</summary>
         /// <param name="symbol">The local or parameter.</param>
         private bool IsOfMember(ISymbol symbol)
         {
@@ -761,7 +765,8 @@ public static class IrLowering
                 owner = owner.ContainingSymbol;
             }
             return owner is not IMethodSymbol member ||
-                   SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, method.OriginalDefinition);
+                   SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, method.OriginalDefinition) ||
+                   SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, _member?.OriginalDefinition);
         }
     }
 
@@ -770,6 +775,10 @@ public static class IrLowering
         /// <summary>One copy of each path, symbol and type name this body's IR names: a body names them once per operation or value.</summary>
         private readonly StringPool _strings = new();
         private readonly IMethodSymbol _method;
+
+        /// <summary>The extension block member <see cref="_method"/> implements, whose symbols its body names (<see cref="ExtensionMembers"/>);
+        /// null for any other method.</summary>
+        private readonly IMethodSymbol? _member;
         private readonly IReadOnlyList<Segment> _segments;
         private readonly string _bodyId;
         private readonly string _ownerSymbol;
@@ -862,6 +871,7 @@ public static class IrLowering
                              bool hasReceiver, IReadOnlyDictionary<IMethodSymbol, string> nestedIds, LoweringContext context)
         {
             _method = method;
+            _member = ExtensionMembers.MemberOf(method);
             _segments = segments;
             _bodyId = bodyId;
             _ownerSymbol = ownerSymbol;
@@ -890,10 +900,11 @@ public static class IrLowering
                 blocks,
                 _regions)
             {
-                Parameters = _method.Parameters
-                                    .Select(parameter => new IrParameter(parameter.Name, TypeName(parameter.Type), RefKindOf(parameter.RefKind),
-                                                                         parameter.Ordinal, _parameterValues[parameter]))
-                                    .ToArray(),
+                Parameters = ExtensionMembers.ParametersOf(_method, _member)
+                                             .Select((parameter, ordinal) => new IrParameter(parameter.Name, TypeName(parameter.Type),
+                                                                                             RefKindOf(parameter.RefKind), ordinal,
+                                                                                             _parameterValues[parameter]))
+                                             .ToArray(),
                 IsAsync = _method.IsAsync,
                 ReturnType = TypeName(_method.ReturnType),
                 IsAsyncIterator = _method is { IsAsync: true, IsIterator: true },
@@ -1177,7 +1188,7 @@ public static class IrLowering
             if (_hasReceiver)
                 _receiverValue = AddValue(IrValueKind.Receiver, _method.ContainingType, "this", 0, THIS_KEY);
             var current = new Dictionary<ISymbol, int>(SymbolEqualityComparer.Default);
-            foreach (var parameter in _method.Parameters)
+            foreach (var parameter in ExtensionMembers.ParametersOf(_method, _member))
             {
                 CheckCancellation();
                 var value = AddValue(IrValueKind.Parameter, parameter.Type, parameter.Name, 0, SymbolKey(parameter),
@@ -1364,7 +1375,7 @@ public static class IrLowering
                 CheckCancellation();
                 var value = AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable));
                 _tokenValues.Add(variable.Incoming, value);
-                if (variable.Symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, _method))
+                if (variable.Symbol is IParameterSymbol parameter && ExtensionMembers.Declares(_method, _member, parameter))
                     _parameterValues[parameter] = value;
             }
         }
@@ -1852,7 +1863,7 @@ public static class IrLowering
                 case IPropertyReferenceOperation property when HandsBackReference(property):
                 {
                     var getter = property.Property.GetMethod!;
-                    int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall, getter.IsReadOnly);
+                    int? receiver = property.Instance is null ? null : LowerReceiver(property.Instance, property.Property, getter.IsReadOnly);
                     var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
                     var address = MarkReference(AddCall(property, getter, receiver, arguments, property.Type, receiverType: property.Instance?.Type));
                     _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
@@ -2144,7 +2155,7 @@ public static class IrLowering
             if (target is IPropertyReferenceOperation property)
             {
                 // The long form writes through the setter, which C# allows only on storage that is not read-only.
-                int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall);
+                int? receiver = property.Instance is null ? null : LowerReceiver(property.Instance, property.Property);
                 var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
                 var read = CallGetter(property, receiver, arguments);
                 return (read, (written, source, transformation) => CallSetter(property, receiver, arguments, written, source, transformation));
@@ -2212,7 +2223,7 @@ public static class IrLowering
             // copy a member that is not readonly takes of readonly storage (R3).
             var deconstruct = info.Method is { } method && SourceDeconstruct(method) ? method : null;
             var tupleValue = sourceValue ?? (deconstruct is { IsExtensionMethod: false, ReducedFrom: null }
-                ? LowerStructOperand(source!, StructUse.MemberCall, deconstruct.IsReadOnly)
+                ? LowerReceiver(source!, deconstruct, deconstruct.IsReadOnly)
                 : LowerValue(source!));
             var outputs = deconstruct is not null ? CallDeconstruct(deconstruction, deconstruct, tupleValue, source?.Type) : null;
             for (var index = 0; index < targetTuple.Elements.Length; index++)
@@ -2570,7 +2581,7 @@ public static class IrLowering
             if (property.Property.GetMethod is null)
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null
-                : LowerStructOperand(property.Instance, StructUse.MemberCall, property.Property.GetMethod.IsReadOnly);
+                : LowerReceiver(property.Instance, property.Property, property.Property.GetMethod.IsReadOnly);
             return CallGetter(property, receiver, LowerArguments(property.Arguments, property.Instance?.Type));
         }
 
@@ -2595,7 +2606,7 @@ public static class IrLowering
             if (property.Property.SetMethod is null)
                 return Unknown(source, "unsupported");
             int? receiver = property.Instance is null ? null
-                : LowerStructOperand(property.Instance, StructUse.MemberCall, property.Property.SetMethod.IsReadOnly);
+                : LowerReceiver(property.Instance, property.Property, property.Property.SetMethod.IsReadOnly);
             return CallSetter(property, receiver, LowerArguments(property.Arguments, property.Instance?.Type), value, source, transformation);
         }
 
@@ -2890,7 +2901,7 @@ public static class IrLowering
                 }
                 case IPropertyReferenceOperation { Property.SetMethod: { } setter } property:
                 {
-                    int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall, setter.IsReadOnly);
+                    int? receiver = property.Instance is null ? null : LowerReceiver(property.Instance, property.Property, setter.IsReadOnly);
                     var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
                     return (written, source, transformation) => CallSetter(property, receiver, arguments, written, source, transformation);
                 }
@@ -2956,7 +2967,7 @@ public static class IrLowering
             if (PairConstructor(method) is { } constructor)
                 return LowerPairCreation(invocation, constructor);
 
-            int? receiver = invocation.Instance is null ? null : LowerStructOperand(invocation.Instance, StructUse.MemberCall, method.IsReadOnly);
+            int? receiver = invocation.Instance is null ? null : LowerReceiver(invocation.Instance, method, method.IsReadOnly);
             var receiverType = method.IsStatic || method.IsExtensionMethod ? null : invocation.Instance?.Type;
             var arguments = LowerArguments(invocation.Arguments, receiverType);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
@@ -2966,7 +2977,7 @@ public static class IrLowering
             var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
             call = WithNullableDefault(AnnotateLibraryCall(call, method, invocation.Arguments, arguments), method) with
             {
-                CreatedArrayArguments = CreatedArrays(invocation.Arguments),
+                CreatedArrayArguments = CreatedArrays(invocation.Arguments).Select(ordinal => ordinal + ExtensionMembers.OrdinalOffsetOf(method)).ToArray(),
                 DefaultComparer = DefaultComparerOf(invocation)
             };
             _operations[^1] = call;
@@ -2989,6 +3000,10 @@ public static class IrLowering
         private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments,
                                      ITypeSymbol? receiverType = null, bool dispatched = false)
         {
+            // A member of an extension block runs as its implementation, which is the member a model describes; the arguments keep the
+            // member's ordinals, as the operations do.
+            if (ExtensionMembers.ImplementationOf(method) is { } implementation)
+                (method, receiverType) = (implementation, null);
             var target = RootBodyId((method.ReducedFrom ?? method).OriginalDefinition);
             var call = _callIdentities.LastOrDefault(pair => pair.Value.Target == target).Value;
             if (_context.Admits(method, dispatched, call) || method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
@@ -3398,6 +3413,11 @@ public static class IrLowering
         {
             if (call.Library is not { Effects.Count: > 0 } library)
                 return call;
+            // A call of an extension block member runs its implementation, whose model names the receiver as its first parameter and
+            // the member's parameters one further on (ExtensionMembers): the call's own arguments are bound so already.
+            var offset = ExtensionMembers.OrdinalOffsetOf(method);
+            if (ExtensionMembers.ImplementationOf(method) is { } implementation)
+                (method, arguments) = (implementation, new LoweredArguments(call.ArgumentValues, call.ArgumentParameterOrdinals, call.RefResults));
 
             var effects = library.Effects.Select(effect =>
             {
@@ -3409,7 +3429,7 @@ public static class IrLowering
                 // A deep read of the receiver reads what the receiver holds, as one of an argument does (question 80).
                 if (effect.ParameterOrdinal == IrLibraryCall.RECEIVER)
                     return effect with { Arguments = call.ReceiverValue is int receiver ? [new IrLibraryArgument(receiver, false)] : [] };
-                var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal == effect.ParameterOrdinal);
+                var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal + offset == effect.ParameterOrdinal);
                 var parameter = argument?.Parameter ??
                                 (effect.ParameterOrdinal >= 0 && effect.ParameterOrdinal < method.Parameters.Length ? method.Parameters[effect.ParameterOrdinal] : null);
                 if (parameter is null)
@@ -3548,6 +3568,13 @@ public static class IrLowering
         private IrCallOperation Call(int? result, IMethodSymbol method, int? receiver, LoweredArguments arguments,
                                      IrProvenance provenance, ITypeSymbol? receiverType = null)
         {
+            // A member of an extension block runs as its static implementation, which takes the receiver as its first argument.
+            if (ExtensionMembers.ImplementationOf(method) is { } implementation)
+            {
+                if (receiver is int passed)
+                    arguments = arguments.Shifted(passed);
+                (method, receiver, receiverType) = (implementation, null, null);
+            }
             if (method.MethodKind == MethodKind.Constructor)
                 _context.RecordMetadataSupertypes(method.ContainingType);
             var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
@@ -3868,12 +3895,17 @@ public static class IrLowering
                     ordinals.Add(ordinal);
                 }
 
-                var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
-                             !_context.Admits((IMethodSymbol)parameter.ContainingSymbol, argument.Parent is IInvocationOperation { IsVirtual: true } ||
+                // A member of an extension block runs as its implementation, which is the member a model describes (ExtensionMembers).
+                var member = argument.Parameter?.ContainingSymbol as IMethodSymbol;
+                var implementation = member is null ? null : ExtensionMembers.ImplementationOf(member);
+                var callee = implementation ?? member;
+                var calleeReceiverType = implementation is null ? receiverType : null;
+                var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter && callee is not null &&
+                             !_context.Admits(callee, argument.Parent is IInvocationOperation { IsVirtual: true } ||
                                              argument.Parent is IPropertyReferenceOperation property && IsVirtualAccess(property) &&
                                              (property.Property.IsVirtual || property.Property.IsAbstract || property.Property.IsOverride),
-                                             argument.Parent is { } parent ? NextCallIdentity(parent, (IMethodSymbol)parameter.ContainingSymbol) : null) &&
-                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol, _context.Compilation, receiverType) is { Kind: LibraryMatchKind.Known } model &&
+                                             argument.Parent is { } parent ? NextCallIdentity(parent, callee) : null) &&
+                             _context.LibraryModels.Find(callee, _context.Compilation, calleeReceiverType) is { Kind: LibraryMatchKind.Known } model &&
                              model.Outputs.ContainsKey(parameter.Name);
                 var passed = argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out ? RefArgumentSymbol(argument) : null;
                 if (passed is not null && SsaPlan.DefinesVersion(passed, binds: false))
@@ -3915,37 +3947,57 @@ public static class IrLowering
             _ => null
         };
 
-        private int? LowerArgument(IArgumentOperation argument)
+        private int? LowerArgument(IArgumentOperation argument) => LowerPassed(argument.Value, argument.Parameter?.RefKind ?? RefKind.None, argument);
+
+        /// <summary>A value passed to a parameter of a kind: by value, its value; by reference, the storage it names or a reference to a
+        /// copy of it (R1, R2).</summary>
+        /// <param name="passed">The value passed.</param>
+        /// <param name="refKind">The kind of the parameter it is passed to.</param>
+        /// <param name="site">The operation the passing is lowered from: the argument, or the receiver an extension block member's
+        /// implementation takes as its first argument (<see cref="LowerReceiver"/>).</param>
+        private int LowerPassed(IOperation passed, RefKind refKind, IOperation site)
         {
-            if (argument.Parameter?.RefKind is not (RefKind.Ref or RefKind.Out or RefKind.In or RefKind.RefReadOnlyParameter))
-                return LowerValue(argument.Value);
-            var target = UnwrapTarget(argument.Value);
-            if (IsPlaceOrCopy(argument.Value.Type))
+            if (refKind is not (RefKind.Ref or RefKind.Out or RefKind.In or RefKind.RefReadOnlyParameter))
+                return LowerValue(passed);
+            var target = UnwrapTarget(passed);
+            if (IsPlaceOrCopy(passed.Type))
             {
                 // An argument that names storage passes that storage (R1); one that names a copy passes a reference to it — a local's or
                 // a parameter's own, or, for a value no variable holds, a temporary copy (R2).
-                return StructOperandOf(argument.Value) is { } named &&
+                return StructOperandOf(passed) is { } named &&
                        StructStorage.IsPlace(named.Operand, StructUse.ReferenceArgument, named.IsReadOnly, isReadOnlyMember: false)
-                    ? LowerAddress(argument.Value)
-                    : ReferenceTo(LowerValue(argument.Value), argument.Value);
+                    ? LowerAddress(passed)
+                    : ReferenceTo(LowerValue(passed), passed);
             }
             if (target is ILocalReferenceOperation { Local.RefKind: RefKind.None } local)
             {
                 var value = GetSymbolValue(local.Local);
-                _operations.Add(new IrUnknownOperation(NextOperation(), null, argument.Value.Kind.ToString(), "address-taken",
-                                                       [value], Provenance(argument, "address-taken")));
+                _operations.Add(new IrUnknownOperation(NextOperation(), null, passed.Kind.ToString(), "address-taken",
+                                                       [value], Provenance(site, "address-taken")));
                 return value;
             }
             if (target is IParameterReferenceOperation { Parameter.RefKind: RefKind.None } parameter &&
                 !IsPrimaryConstructorParameter(parameter.Parameter))
             {
                 var value = GetSymbolValue(parameter.Parameter);
-                _operations.Add(new IrUnknownOperation(NextOperation(), null, argument.Value.Kind.ToString(), "address-taken",
-                                                       [value], Provenance(argument, "address-taken")));
+                _operations.Add(new IrUnknownOperation(NextOperation(), null, passed.Kind.ToString(), "address-taken",
+                                                       [value], Provenance(site, "address-taken")));
                 return value;
             }
-            return LowerAddress(argument.Value);
+            return LowerAddress(passed);
         }
+
+        /// <summary>The receiver of a call of a member, lowered as <see cref="LowerStructOperand"/> lowers the receiver of a member call,
+        /// but for an instance member of an extension block, whose implementation takes the receiver as its first argument: passed as
+        /// that parameter's kind says (<see cref="ExtensionMembers"/>), so that a receiver taken by value is a copy and one taken by
+        /// <c>ref</c> is the storage itself.</summary>
+        /// <param name="instance">The receiver.</param>
+        /// <param name="member">The method or property called.</param>
+        /// <param name="isReadOnlyMember">Whether the member called on it is <c>readonly</c>.</param>
+        private int LowerReceiver(IOperation instance, ISymbol member, bool isReadOnlyMember = false) =>
+            ExtensionMembers.ReceiverOf(member) is { } receiver
+                ? LowerPassed(instance, receiver.RefKind, instance)
+                : LowerStructOperand(instance, StructUse.MemberCall, isReadOnlyMember);
 
         private bool ReferenceTarget(IOperation target) => UnwrapTarget(target) switch
         {
@@ -4642,8 +4694,9 @@ public static class IrLowering
                     }
                     else
                     {
-                        targetMethod = SymbolNames.Method(methodReference.Method);
-                        target = methodReference.Method;
+                        // A method group of an extension block member runs its implementation, as a call of the member does.
+                        target = ExtensionMembers.ImplementationOf(methodReference.Method) ?? methodReference.Method;
+                        targetMethod = SymbolNames.Method(target);
                         // A method group named through `base` binds the base member itself, as a base call runs it (R1).
                         isNonVirtual = !IsVirtualAccess(methodReference) && CallKind(target) == IrCallKind.Virtual;
                     }
@@ -4933,8 +4986,7 @@ public static class IrLowering
 
         /// <summary>Whether a variable this body reads belongs to an enclosing member, which it captures.</summary>
         /// <param name="symbol">The local or parameter.</param>
-        private bool IsCapturedHere(ISymbol symbol) =>
-            !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _method);
+        private bool IsCapturedHere(ISymbol symbol) => !ExtensionMembers.Declares(_method, _member, symbol);
 
         /// <summary>Whether a <c>readonly</c> field is written where it stands: in a constructor of its type on <c>this</c>, or in its
         /// type's static constructor, where C# lets the field be assigned and calls a member on it without a copy.</summary>
@@ -5363,6 +5415,16 @@ public static class IrLowering
                 }
 
                 return null;
+            }
+
+            /// <summary>The arguments of an extension block member's call as its implementation takes them (<see cref="ExtensionMembers"/>):
+            /// the receiver bound to the first parameter, every other argument and reference result one parameter further on.</summary>
+            /// <param name="receiver">The receiver's lowered value.</param>
+            internal LoweredArguments Shifted(int receiver)
+            {
+                static int Next(int ordinal) => ordinal < 0 ? ordinal : ordinal + 1;
+                var ordinals = Values.Select((_, position) => Next(position < Ordinals.Count ? Ordinals[position] : position));
+                return new([receiver, .. Values], [0, .. ordinals], RefResults.ToDictionary(pair => Next(pair.Key), pair => pair.Value));
             }
         }
     }

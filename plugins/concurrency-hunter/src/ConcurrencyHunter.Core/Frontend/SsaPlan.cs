@@ -14,6 +14,10 @@ internal sealed class SsaPlan
     private const int FIRST_INCOMING = 3;
 
     private readonly IMethodSymbol _method;
+
+    /// <summary>The extension block member <see cref="_method"/> implements, whose symbols its body names (<see cref="ExtensionMembers"/>);
+    /// null for any other method.</summary>
+    private readonly IMethodSymbol? _member;
     private readonly ISymbol? _initializerOwner;
     private readonly EffectiveFlowGraph _flowGraph;
     private readonly Dictionary<ISymbol, SsaVariable> _symbols = new(SymbolEqualityComparer.Default);
@@ -43,9 +47,10 @@ internal sealed class SsaPlan
     private SsaPlan(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph, ISymbol? initializerOwner)
     {
         _method = method;
+        _member = ExtensionMembers.MemberOf(method);
         _initializerOwner = initializerOwner;
         _flowGraph = flowGraph;
-        foreach (var parameter in method.Parameters)
+        foreach (var parameter in ExtensionMembers.ParametersOf(method, _member))
         {
             WorkCancellation.Check();
             GetVariable(parameter, null);
@@ -597,7 +602,7 @@ internal sealed class SsaPlan
             _ => null
         };
         var isOuterCapture = symbol is ILocalSymbol or IParameterSymbol &&
-                             !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _method) &&
+                             !ExtensionMembers.Declares(_method, _member, symbol) &&
                              !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _initializerOwner);
         var variable = new SsaVariable(
             _variables.Count,
@@ -607,8 +612,7 @@ internal sealed class SsaPlan
             symbol.Name ?? "",
             type,
             symbol is IParameterSymbol ? IrValueKind.Parameter : IrValueKind.Local,
-            symbol is IParameterSymbol incomingParameter &&
-                SymbolEqualityComparer.Default.Equals(incomingParameter.ContainingSymbol, _method) || isOuterCapture,
+            symbol is IParameterSymbol && ExtensionMembers.Declares(_method, _member, symbol) || isOuterCapture,
             isOuterCapture,
             reference);
         _symbols.Add(symbol, variable);

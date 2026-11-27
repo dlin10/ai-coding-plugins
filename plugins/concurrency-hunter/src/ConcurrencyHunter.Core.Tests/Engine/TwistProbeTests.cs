@@ -14,11 +14,6 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// in <see cref="Differences"/> with its answer and why.</summary>
 public sealed class TwistProbeTests
 {
-    /// <summary>Why a C# 14 extension member's write is lost.</summary>
-    private const string EXTENSION_BLOCK_IS_NOT_LOWERED =
-        "issue 511: the receiver parameter of an extension block is read as a captured variable of the member, and what the member " +
-        "does through it makes no access, while a classic this-extension method pairs";
-
     /// <summary>Why a C# 14 instance compound assignment or increment pairs the variable and not the object.</summary>
     private const string IN_PLACE_OPERATOR_IS_ASSIGNMENT =
         "issue 512: x += y with an instance operator += on a reference type calls the operator on x and stores nothing (C# 14 feature " +
@@ -192,8 +187,6 @@ public sealed class TwistProbeTests
     /// <summary>The probes the analysis answers otherwise than run time calls for, with the answer it gives and why.</summary>
     private static readonly Dictionary<string, ProbeDifference> Differences = new(StringComparer.Ordinal)
     {
-        ["extension-block-method"] = new([], EXTENSION_BLOCK_IS_NOT_LOWERED),
-        ["extension-block-property-setter"] = new([], EXTENSION_BLOCK_IS_NOT_LOWERED),
         ["user-defined-compound-assignment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
         ["user-defined-increment-operator"] = new(MeterVariablePairs, IN_PLACE_OPERATOR_IS_ASSIGNMENT),
         ["await-of-tasks-that-completed-synchronously"] = new(["DCA1001 unprotected _x: Write Holder.RunAsync | Write Holder.WorkAsync"],
