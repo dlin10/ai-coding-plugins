@@ -13,7 +13,14 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// sixteen and seventeen calls starting one tail, sixteen values of an unused
 /// argument, a tail a constructor starts before it sets the field a guard reads, a <c>Task.Run</c> lambda that awaits the body, two
 /// sites that hand the same or different arrays and indices, under one guard or different ones, and sixteen and seventeen cells one
-/// tail writes, at and past the references a tail's frame keeps apart.
+/// tail writes, at and past the references a tail's frame keeps apart. A synchronous helper between the caller and the body (issue
+/// 546) is probed static and instance, in one, two and four levels, as a lambda and a local function, reading the field itself or
+/// from its argument, handing on a getter's result, an index, a guarded index, an array, a window it cuts or a window it gets, called
+/// with two arrays or another one only, recursive with and without swapping its arrays, starting the body unawaited or not awaited by
+/// its caller, below an async callee before and after its await, in a tail starting another body, from a <c>Task.Run</c> lambda, and
+/// called by another execution with another index or by itself where its execution also enters it as a <c>Parallel.For</c> body;
+/// an iterator's body that gets the array, created directly, by a synchronous factory or as a local function, enumerated once, twice,
+/// or only under a guard, and one whose creation is one of two; and a tail that a direct start of work and its own call both start.
 /// The continuation after an await runs the rest of the same method with the
 /// same parameter values ("Asynchronous programming with async and await", C# specification §15.14 on async functions), so the array it
 /// indexes is the one the caller handed over, the field's own, and a cell it writes or reads is the cell another thread writes through
@@ -25,15 +32,25 @@ public sealed class AsyncTailArrayParameterProbeTests
     /// <summary>The finding of the callee's write against <c>Touch</c>.</summary>
     private const string CALLEE_WRITE = "DCA1001 unprotected _cells.[0]: Write Sender.FillAsync @callee | Write Sender.Touch @touch";
 
+    /// <summary>Why an array a recursive getter hands back makes no access, before an await as after one.</summary>
+    private const string RECURSIVE_GETTER =
+        "issue 555: an array a recursive method hands back to its caller makes no access in the async method the caller passes it " +
+        "to, before its first await as after it, where a getter that does not recurse is followed";
+
     /// <summary>Why a tail's access to an array handed on by a synchronous helper is lost.</summary>
     private const string SYNCHRONOUS_HELPER =
         "issue 546: a tail's start is bound by the call that started its body, but a caller that runs whole is bound by nothing in " +
         "the tail's execution, its own call path being the parent execution's, so the array it got as a parameter makes no access";
 
-    /// <summary>Why an array a recursive getter hands back makes no access, before an await as after one.</summary>
-    private const string RECURSIVE_GETTER =
-        "issue 555: an array a recursive method hands back to its caller makes no access in the async method the caller passes it " +
-        "to, before its first await as after it, where a getter that does not recurse is followed";
+    /// <summary>Why an array an iterator's body gets as a parameter makes no access in the tail of the async body it starts.</summary>
+    private const string ITERATOR_BODY =
+        "issue 570: an iterator's body runs whole, entered by an enumeration, and binds a tail it starts by nothing, so the array the " +
+        "body got as a parameter makes no access after the first await, whether the iterator is created directly or by a " +
+        "synchronous factory; the call that created it hands over the arguments, the enumeration stands under the guards";
+
+    /// <summary>The claim of a probe whose write after the await is lost: <c>Touch</c>'s write is collected, and the callee's site
+    /// has no access at all.</summary>
+    private static readonly (string[] Collected, string[] Lost) NO_CALLEE_ACCESS = (["Write _cells.[0] Sender.Touch @touch"], ["* @callee"]);
 
     /// <summary>Why a tail started by calls that disagree pairs where none of them would.</summary>
     private const string FRAME_AGREEMENT =
@@ -266,8 +283,140 @@ public sealed class AsyncTailArrayParameterProbeTests
         ["windows-of-unknown-length-differ-by-start"] = (Recutter(string.Empty), [LOOP_WRITE]),
         ["windows-of-known-length-differ-by-start"] = (Recutter(", 1"), [LOOP_WRITE]),
         ["sixteen-cells-written-in-one-tail"] = (Toucher(Written(16), "await FillAsync(_cells);", cells: 18), []),
-        ["seventeen-cells-written-in-one-tail"] = (Toucher(Written(17), "await FillAsync(_cells);", cells: 18), [])
+        ["seventeen-cells-written-in-one-tail"] = (Toucher(Written(17), "await FillAsync(_cells);", cells: 18), []),
+        ["sync-helper-instance"] = (Toucher(FILL + " private Task StartAsync(int[] cells) => FillAsync(cells);", "await StartAsync(_cells);"),
+                                    [CALLEE_WRITE]),
+        ["sync-helper-two-levels"] = (Toucher(
+            FILL + " private static Task Start(int[] cells) => StartAsync(cells); private static Task StartAsync(int[] cells) => FillAsync(cells);",
+            "await Start(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-four-levels"] = (Toucher(FILL + Helpers(4), "await H0(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-in-a-local-function"] = (Toucher(FILL, "Task Start(int[] cells) => FillAsync(cells); await Start(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-in-a-lambda"] = (Toucher(FILL, "Func<int[], Task> start = cells => FillAsync(cells); await start(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-reads-the-field-itself"] = (Toucher(FILL + " private Task StartAsync() => FillAsync(_cells);", "await StartAsync();"),
+                                                  [CALLEE_WRITE]),
+        ["sync-helper-reads-the-field-of-its-argument"] = (Toucher(
+            FILL + " private static Task StartAsync(Sender sender) => FillAsync(sender._cells);", "await StartAsync(this);"), [CALLEE_WRITE]),
+        ["sync-helper-hands-on-a-getter-result"] = (Toucher(
+            FILL + " private static int[] Same(int[] cells) => cells; private static Task StartAsync(int[] cells) => FillAsync(Same(cells));",
+            "await StartAsync(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-called-with-two-arrays"] = (Toucher(
+            FILL + " public bool Other; private readonly int[] _other = new int[1]; " + HELPER,
+            "if (Other) await StartAsync(_other); else await StartAsync(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-called-with-another-array-only"] = (Toucher(FILL + " private readonly int[] _other = new int[1]; " + HELPER,
+                                                                  "await StartAsync(_other);"), []),
+        ["sync-helper-recursive"] = (Toucher(
+            FILL + " private static Task StartAsync(int[] cells, int n) => n > 0 ? StartAsync(cells, n - 1) : FillAsync(cells);",
+            "await StartAsync(_cells, 2);"), [CALLEE_WRITE]),
+        ["sync-helper-recursive-swaps-the-arrays"] = (Toucher(
+            FILL + " private readonly int[] _other = new int[1]; " +
+            "private static Task StartAsync(int[] a, int[] b, int n) => n > 0 ? StartAsync(b, a, n - 1) : FillAsync(a);",
+            "await StartAsync(_other, _cells, 1);"), [CALLEE_WRITE]),
+        ["sync-helper-starts-the-body-unawaited"] = (Toucher(FILL + " private static void Start(int[] cells) { _ = FillAsync(cells); }",
+                                                             "Start(_cells); await Task.Yield();"), [CALLEE_WRITE]),
+        ["sync-helper-not-awaited-by-the-caller"] = (Toucher(FILL + " " + HELPER, "_ = StartAsync(_cells); await Task.Yield();"), [CALLEE_WRITE]),
+        ["sync-helper-hands-on-the-index"] = (Toucher(INDEXED, "await StartAsync(_cells, 0);", cells: 2), [CALLEE_WRITE]),
+        ["sync-helper-hands-on-another-index"] = (Toucher(INDEXED, "await StartAsync(_cells, 1);", cells: 2), []),
+        ["sync-helper-under-a-guard-of-the-index"] = (Toucher("public int Index; " + INDEXED, "var i = Index; if (i == 1) await StartAsync(_cells, i);",
+                                                              cells: 2), []),
+        ["sync-helper-cuts-a-window-at-the-cell"] = (Toucher(MEMORY_FILL + " private static Task Start(int[] cells) => Fill(cells.AsMemory(0, 1));",
+                                                             "await Start(_cells);", cells: 2), [WINDOW_WRITE]),
+        ["sync-helper-cuts-a-window-off-the-cell"] = (Toucher(MEMORY_FILL + " private static Task Start(int[] cells) => Fill(cells.AsMemory(1, 1));",
+                                                              "await Start(_cells);", cells: 2), []),
+        ["sync-helper-hands-on-a-memory-window"] = (Toucher(MEMORY_FILL + " private static Task Start(Memory<int> p) => Fill(p);",
+                                                            "await Start(_cells.AsMemory(0, 1));", cells: 2), [WINDOW_WRITE]),
+        ["sync-helper-hands-on-a-window-off-the-cell"] = (Toucher(MEMORY_FILL + " private static Task Start(Memory<int> p) => Fill(p);",
+                                                                  "await Start(_cells.AsMemory(1, 1));", cells: 2), []),
+        ["sync-helper-slices-the-window-it-gets"] = (Toucher(MEMORY_FILL + " private static Task Start(Memory<int> p) => Fill(p.Slice(1));",
+                                                             "await Start(_cells.AsMemory());", cells: 2), []),
+        ["sync-helper-under-an-async-callee"] = (Toucher(
+            FILL + " " + HELPER + " private static async Task PassAsync(int[] cells) { await StartAsync(cells); }", "await PassAsync(_cells);"),
+            [CALLEE_WRITE]),
+        ["sync-helper-under-an-async-callee-after-its-await"] = (Toucher(
+            FILL + " " + HELPER + " private static async Task PassAsync(int[] cells) { await Task.Yield(); await StartAsync(cells); }",
+            "await PassAsync(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-in-a-tail-starts-another-body"] = (Toucher(
+            FILL + " private static async Task FirstAsync(int[] cells) { await Task.Yield(); Start(cells); } " +
+            "private static void Start(int[] cells) { _ = FillAsync(cells); }", "await FirstAsync(_cells);"), [CALLEE_WRITE]),
+        ["sync-helper-called-from-a-task-run-lambda"] = (Toucher(FILL + " " + HELPER, "await Task.Run(() => StartAsync(_cells));"), [CALLEE_WRITE]),
+        ["sync-helper-another-execution-hands-the-cell"] = (new HostedServiceProbe("Sender", """
+            public sealed class Sender
+            {
+                private readonly int[] _cells = new int[2];
+                private static async Task FillAsync(int[] cells, int index) { await Task.Yield(); /*@callee*/cells[index] = 1; }
+                private static Task StartAsync(int[] cells, int index) => FillAsync(cells, index);
+                private static Task Go(int[] cells, int index) => StartAsync(cells, index);
+                public async Task RunAsync() { await Go(_cells, 1); }
+                public Task Peek() => Go(_cells, 0);
+                public void Touch() => /*@touch*/_cells[0] = 2;
+            }
+            """, "_ = _sender.RunAsync();", "_sender.Touch(); _ = _sender.Peek();"), []),
+        ["sync-helper-also-the-entry-of-its-execution"] = (Toucher(
+            "private static async Task FillAsync(int[] cells, int index) { await Task.Yield(); /*@callee*/cells[index] = 1; } " +
+            "private void Body(int i) { if (i == 5) { Body(1); return; } _ = FillAsync(_cells, i); }",
+            "Parallel.For(0, 2, Body); await Task.Yield();", cells: 2), [CALLEE_WRITE]),
+        ["sync-helper-entry-guard-holds-of-no-call"] = (Toucher(
+            FILL + " private void Body(int i) { if (i == 5) { Body(1); return; } _ = FillAsync(_cells); }",
+            "Parallel.For(0, 2, Body); await Task.Yield();"),
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[0]: Write Sender.FillAsync @callee | Write Sender.FillAsync @callee"]),
+        ["sync-helper-iterator-of-an-unknown-creation"] = (Toucher(
+            "public bool Flag = Environment.TickCount % 2 == 0; public int Seen; " +
+            "private static async Task FillAsync(int[] cells, int index) { await Task.Yield(); /*@callee*/cells[index] = 1; } " +
+            "private IEnumerable<int> Walk(int i) { _ = FillAsync(_cells, i); yield return i; }",
+            "foreach (var x in Walk(1)) Seen = x; foreach (var x in Flag ? Walk(0) : Walk(1)) Seen = x; await Task.Yield();", cells: 2),
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[1]: Write Sender.FillAsync @callee | Write Sender.FillAsync @callee"]),
+        ["sync-helper-iterator-enumerated-under-a-guard"] = (Toucher(
+            "public int Index; public int Seen; " + ITERATOR_FILL +
+            "private static IEnumerable<int> Walk(int[] p, int i) { _ = FillAsync(p, i); yield return i; }",
+            "var i = Index; var walk = Walk(_cells, i); if (i == 1) foreach (var x in walk) Seen = x; await Task.Yield();", cells: 2), []),
+        ["sync-helper-iterator-enumerated-unconditionally"] = (Toucher(
+            "public int Seen; " + ITERATOR_FILL + "private static IEnumerable<int> Walk(int[] p, int i) { _ = FillAsync(p, i); yield return i; }",
+            "foreach (var x in Walk(_cells, 0)) Seen = x; await Task.Yield();", cells: 2), [CALLEE_WRITE]),
+        ["sync-helper-iterator-made-by-a-sync-factory"] = (Toucher(
+            "public int Seen; private static async Task FillAsync(int[] p) { /*@before*/p[0] = 1; await Task.Yield(); /*@callee*/p[0] = 1; } " +
+            "private static IEnumerable<int> Walk(int[] p) { _ = FillAsync(p); yield return 0; } private static IEnumerable<int> Make(int[] p) => Walk(p);",
+            "foreach (var x in Make(_cells)) Seen = x; await Task.Yield();"),
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[0]: Write Sender.FillAsync @before | Write Sender.Touch @touch"]),
+        ["sync-helper-iterator-enumerated-twice"] = (Toucher(
+            "public int Seen; " + ITERATOR_FILL + "private static IEnumerable<int> Walk(int[] p, int i) { _ = FillAsync(p, i); yield return i; }",
+            "var walk = Walk(_cells, 0); foreach (var x in walk) Seen = x; foreach (var x in walk) Seen = x; await Task.Yield();", cells: 2),
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[0]: Write Sender.FillAsync @callee | Write Sender.FillAsync @callee"]),
+        ["sync-helper-iterator-in-a-local-function"] = (Toucher(
+            "public int Seen; " + ITERATOR_FILL,
+            "IEnumerable<int> Walk(int[] p) { _ = FillAsync(p, 0); yield return 0; } foreach (var x in Walk(_cells)) Seen = x; await Task.Yield();",
+            cells: 2), [CALLEE_WRITE]),
+        ["tail-started-directly-and-by-its-own-call"] = (new HostedServiceProbe("Sender", """
+            public sealed class Sender
+            {
+                private readonly int[] _cells = new int[1];
+                private readonly int _gate = 0;
+                private async Task Work() { if (_gate == 1) await Work(); await Task.Yield(); if (_gate == 0) /*@callee*/_cells[0] = 1; }
+                public void Start() { Task.Factory.StartNew(Work); }
+                public void Touch() => /*@touch*/_cells[0] = 2;
+            }
+            """, "_sender.Start();", "_sender.Touch();"),
+            ["DCA1001 unprotected _cells.[0]: Write Sender.Touch @touch | Write Sender.Work @callee"])
     };
+
+    /// <summary>An async body that writes the cell its index names after its first await, for an iterator's body to start.</summary>
+    private const string ITERATOR_FILL = "private static async Task FillAsync(int[] cells, int index) { await Task.Yield(); /*@callee*/cells[index] = 1; } ";
+
+    /// <summary>A synchronous helper that hands the array it gets to <c>FillAsync</c> and returns its task.</summary>
+    private const string HELPER = "private static Task StartAsync(int[] cells) => FillAsync(cells);";
+
+    /// <summary>An async body that writes the cell its index names after its first await, and a synchronous helper that hands it the
+    /// array and the index it gets.</summary>
+    private const string INDEXED = "private static async Task FillAsync(int[] cells, int index) { await Task.Yield(); /*@callee*/cells[index] = 1; } " +
+                                   "private static Task StartAsync(int[] cells, int index) => FillAsync(cells, index);";
+
+    /// <summary>An async body that writes its window's first cell through <c>Memory&lt;T&gt;.Span</c> after its first await.</summary>
+    private const string MEMORY_FILL = "private static async Task Fill(Memory<int> p) { await Task.Yield(); /*@callee*/p.Span[0] = 1; }";
+
+    /// <summary>A chain of synchronous helpers <c>H0</c> to <c>Hn-1</c>, each handing the array it gets to the next, the last to
+    /// <c>FillAsync</c>.</summary>
+    /// <param name="levels">How many helpers.</param>
+    private static string Helpers(int levels) =>
+        string.Concat(Enumerable.Range(0, levels).Select(level =>
+            $"private static Task H{level}(int[] p) => {(level == levels - 1 ? "FillAsync" : $"H{level + 1}")}(p); "));
 
     /// <summary>The write of the first cell by the recursive helper <c>Loop</c> the tail calls, against <c>Touch</c>.</summary>
     private const string LOOP_WRITE = "DCA1001 unprotected _cells.[0]: Write Sender.Loop @callee | Write Sender.Touch @touch";
@@ -327,6 +476,28 @@ public sealed class AsyncTailArrayParameterProbeTests
     private static readonly Dictionary<string, ProbeDifference> Differences = new(StringComparer.Ordinal)
     {
         ["handed-on-by-a-synchronous-helper"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-instance"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-two-levels"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-four-levels"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-in-a-local-function"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-in-a-lambda"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-hands-on-a-getter-result"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-called-with-two-arrays"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-recursive"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-recursive-swaps-the-arrays"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-starts-the-body-unawaited"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-not-awaited-by-the-caller"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-hands-on-the-index"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-cuts-a-window-at-the-cell"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-hands-on-a-memory-window"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-under-an-async-callee"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-under-an-async-callee-after-its-await"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-in-a-tail-starts-another-body"] = new([], SYNCHRONOUS_HELPER),
+        ["sync-helper-called-from-a-task-run-lambda"] = new([], SYNCHRONOUS_HELPER),
+        ["tail-started-directly-and-by-its-own-call"] = new(
+            [],
+            "issue 569: a tail the work's direct start and its own call both start takes the guard of that call for every way in, so " +
+            "the write after the await stands under a guard the direct start does not, and its pair with Touch is refuted"),
         ["array-a-recursive-getter-hands-back"] = new([], RECURSIVE_GETTER),
         ["array-a-recursive-getter-hands-back-written-before-its-await"] = new([], RECURSIVE_GETTER),
         ["one-method-reads-the-guard-in-construction-and-after"] = new(
@@ -334,6 +505,20 @@ public sealed class AsyncTailArrayParameterProbeTests
             "issue 557: the value the constructor stores in the readonly field after it calls the method is not known, so the tail the " +
             "method starts after construction under the field's default value, which never runs, pairs with the tail the constructor " +
             "started; the same pair stood before the tail's binding, which carried no guards"),
+        ["sync-helper-also-the-entry-of-its-execution"] = new(
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[?]: Write Sender.FillAsync @callee | Write Sender.FillAsync @callee"],
+            "issue 563: the iteration index a Parallel.For body hands to a callee is not told apart per iteration, so the cells two " +
+            "iterations write through it pair, before an await as after it and with a synchronous callee too"),
+        ["sync-helper-iterator-of-an-unknown-creation"] = new(
+            [CALLEE_WRITE, "DCA1001 unprotected _cells.[?]: Write Sender.FillAsync @callee | Write Sender.FillAsync @callee"],
+            "issue 570: an iterator's body binds a tail it starts by nothing, so the tails index the array, which the body reads " +
+            "from its own field, by a value of their own: the pair of the two iterations' tails on the second cell names the cell " +
+            "it may be, not that cell"),
+        ["sync-helper-iterator-made-by-a-sync-factory"] = new(
+            ["DCA1001 unprotected _cells.[0]: Write Sender.FillAsync @before | Write Sender.Touch @touch"], ITERATOR_BODY),
+        ["sync-helper-iterator-enumerated-unconditionally"] = new([], ITERATOR_BODY),
+        ["sync-helper-iterator-enumerated-twice"] = new([], ITERATOR_BODY),
+        ["sync-helper-iterator-in-a-local-function"] = new([], ITERATOR_BODY),
         ["two-sites-hand-different-arrays-and-indices"] = new([CALLEE_WRITE], FRAME_AGREEMENT),
         ["two-sites-under-different-readonly-guards"] = new([CALLEE_WRITE], FRAME_AGREEMENT),
         ["seventeen-cells-written-in-one-tail"] = new(
@@ -342,11 +527,37 @@ public sealed class AsyncTailArrayParameterProbeTests
             "hand over, so the write of a cell nobody else writes pairs with every cell of that array")
     };
 
-    /// <summary>For each probe of a lost access: the accesses that were collected, as <see cref="HostedServiceProbe.DescribeAccess"/>
-    /// writes them, and the resources at marked sites that have none, as <c>resource @marker</c>.</summary>
+    /// <summary>For each probe with a claim about accesses: the accesses that were collected, as
+    /// <see cref="HostedServiceProbe.DescribeAccess"/> writes them, and the resources at marked sites that have none, as
+    /// <c>resource @marker</c>.</summary>
     private static readonly Dictionary<string, (string[] Collected, string[] Lost)> AccessClaims = new(StringComparer.Ordinal)
     {
-        ["handed-on-by-a-synchronous-helper"] = (["Write _cells.[0] Sender.Touch @touch"], ["_cells.[0] @callee"])
+        ["handed-on-by-a-synchronous-helper"] = (["Write _cells.[0] Sender.Touch @touch"], ["_cells.[0] @callee"]),
+        ["sync-helper-instance"] = NO_CALLEE_ACCESS,
+        ["sync-helper-two-levels"] = NO_CALLEE_ACCESS,
+        ["sync-helper-four-levels"] = NO_CALLEE_ACCESS,
+        ["sync-helper-in-a-local-function"] = NO_CALLEE_ACCESS,
+        ["sync-helper-in-a-lambda"] = NO_CALLEE_ACCESS,
+        ["sync-helper-hands-on-a-getter-result"] = NO_CALLEE_ACCESS,
+        ["sync-helper-called-with-two-arrays"] = NO_CALLEE_ACCESS,
+        ["sync-helper-recursive"] = NO_CALLEE_ACCESS,
+        ["sync-helper-recursive-swaps-the-arrays"] = NO_CALLEE_ACCESS,
+        ["sync-helper-starts-the-body-unawaited"] = NO_CALLEE_ACCESS,
+        ["sync-helper-not-awaited-by-the-caller"] = NO_CALLEE_ACCESS,
+        ["sync-helper-hands-on-the-index"] = NO_CALLEE_ACCESS,
+        ["sync-helper-cuts-a-window-at-the-cell"] = NO_CALLEE_ACCESS,
+        ["sync-helper-hands-on-a-memory-window"] = NO_CALLEE_ACCESS,
+        ["sync-helper-under-an-async-callee"] = NO_CALLEE_ACCESS,
+        ["sync-helper-under-an-async-callee-after-its-await"] = NO_CALLEE_ACCESS,
+        ["sync-helper-in-a-tail-starts-another-body"] = NO_CALLEE_ACCESS,
+        ["sync-helper-called-from-a-task-run-lambda"] = NO_CALLEE_ACCESS,
+        ["sync-helper-iterator-enumerated-unconditionally"] = NO_CALLEE_ACCESS,
+        ["sync-helper-iterator-enumerated-twice"] = NO_CALLEE_ACCESS,
+        ["sync-helper-iterator-in-a-local-function"] = NO_CALLEE_ACCESS,
+        ["sync-helper-iterator-made-by-a-sync-factory"] =
+            (["Write _cells.[0] Sender.FillAsync @before", "Write _cells.[0] Sender.Touch @touch"], ["* @callee"]),
+        // The write is collected; the guard refutes its pair.
+        ["tail-started-directly-and-by-its-own-call"] = (["Write _cells.[0] Sender.Touch @touch", "Write _cells.[0] Sender.Work @callee"], [])
     };
 
     /// <summary>The names of the probes.</summary>
