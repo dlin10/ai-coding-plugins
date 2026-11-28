@@ -2458,6 +2458,13 @@ public static partial class InterproceduralAccesses
             return calls;
         }
 
+        /// <summary>What enumerating one enumeration of an instance does to locks (<see cref="EnumerationState"/>), solved on a fresh stack
+        /// (<see cref="FreshStack"/>).</summary>
+        /// <param name="instance">The instance whose body enumerates.</param>
+        /// <param name="enumeration">The enumeration's id in that body.</param>
+        private EnumerationLocks? EnumerationStateOnFreshStack(MethodInstance instance, int enumeration) =>
+            FreshStack.Run(() => EnumerationState(instance, enumeration));
+
         private EnumerationLocks? EnumerationState(MethodInstance instance, int enumeration)
         {
             // An iterator's lock effects are asked of the callee's operations in turn, so each descent enters here again.
@@ -2465,6 +2472,10 @@ public static partial class InterproceduralAccesses
             var key = (instance.Id, enumeration);
             if (_enumerationStates.TryGetValue(key, out var cached))
                 return cached;
+            // Solving the iterator's body asks for the lifts of what it calls, one level of the chain each time, so a deep chain goes
+            // on on a fresh stack.
+            if (FreshStack.IsShort && !_enumerationInProgress.Contains(key))
+                return EnumerationStateOnFreshStack(instance, enumeration);
             if (!_enumerationInProgress.Add(key))
                 return null;
             try
@@ -2706,6 +2717,11 @@ public static partial class InterproceduralAccesses
             input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[calleeInstance].BodyId, out var body) &&
             body is { IsAsync: true, IsAsyncIterator: false };
 
+        /// <summary>What an instance leaves open and what it closes without having opened it (<see cref="LiftedOf"/>), solved on a fresh
+        /// stack (<see cref="FreshStack"/>).</summary>
+        /// <param name="instanceId">The instance whose body is read.</param>
+        private LiftedLocks LiftedOfOnFreshStack(string instanceId) => FreshStack.Run(() => LiftedOf(instanceId));
+
         /// <summary>What an instance leaves open and what it closes without having opened it, read from its own body alone.</summary>
         /// <param name="instanceId">The instance whose body is read.</param>
         private LiftedLocks LiftedOf(string instanceId)
@@ -2714,6 +2730,10 @@ public static partial class InterproceduralAccesses
             CheckCancellation();
             if (_lifted.TryGetValue(instanceId, out var known))
                 return known;
+            // Solving the body asks for the lifts of its callees, one level of the chain of calls each time, so a deep chain goes on on
+            // a fresh stack, the whole body's solve with it.
+            if (FreshStack.IsShort && !_liftingInProgress.Contains(instanceId))
+                return LiftedOfOnFreshStack(instanceId);
             if (!_liftingInProgress.Add(instanceId))
                 return LiftedLocks.None;
 

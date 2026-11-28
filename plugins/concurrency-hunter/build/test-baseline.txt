@@ -8963,6 +8963,30 @@ ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field-control")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-a-reassigned-field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LockIdentityProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "lock-on-the-list-it-replaces")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.A_cancellation_on_a_fresh_stack_cancels_the_collection	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Lifting_on_workers_goes_on_on_fresh_stacks_with_the_same_pairs	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Lifting_through_a_chain_deeper_than_its_stack_completes(form: "awaited")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Lifting_through_a_chain_deeper_than_its_stack_completes(form: "called")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Lifting_through_a_chain_deeper_than_its_stack_completes(form: "iterated")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "acquire-lifted-through-forty-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "acquire-lifted-through-two-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "cycle-through-forty-entered-at-its-release")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "cycle-through-forty-may-release")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "cycle-through-two-entered-at-its-release")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "cycle-through-two-may-release")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "held-at-yield-through-forty-iterators")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "held-at-yield-through-two-iterators")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "may-release-iterator-beside-a-36-call-iterator")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "may-release-iterator-beside-a-two-call-iterator")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "monitor-lifted-over-a-release-and-forty-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "monitor-lifted-over-a-release-and-two-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursion-through-forty-acquires-at-its-end")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "recursion-through-two-acquires-at-its-end")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "release-lifted-through-forty-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "release-lifted-through-two-calls")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Probe_answers_as_run_time_calls_for_or_as_its_named_difference(name: "self-recursion-acquires-at-its-end")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LockLiftingDepthProbeTests.Solving_finally_blocks_nested_deeper_than_its_stack_completes	Passed
 ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.A_string_window_is_only_read	Passed
 ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Every_difference_names_a_probe_and_differs_from_its_truth	Passed
 ConcurrencyHunter.Core.Tests.Engine.MemoryWindowProbeTests.Marked_site_collected_what_the_record_names(name: "memory-in-a-field")	Passed

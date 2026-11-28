@@ -1048,10 +1048,19 @@ internal static class MustHeldLocks
         {
             if (!_throughFinally.TryGetValue(finallyRegion.Id, out var known))
                 _throughFinally[finallyRegion.Id] = known = new Dictionary<Dictionary<string, HeldLock>, Dictionary<string, HeldLock>?>(StateComparer.Instance);
+            // A finally nested in a finally is solved inside the outer one's solve, one level of nesting each time, so a deep nesting
+            // goes on on a fresh stack.
             if (!known.TryGetValue(state, out var exit))
-                known[Copy(state)] = exit = ThroughFinallySolved(finallyRegion, state);
+                known[Copy(state)] = exit = FreshStack.IsShort ? ThroughFinallyOnFreshStack(finallyRegion, state) : ThroughFinallySolved(finallyRegion, state);
             return exit;
         }
+
+        /// <summary>What leaves <paramref name="finallyRegion"/> entered with <paramref name="state"/> (<see cref="ThroughFinally"/>),
+        /// solved on a fresh stack (<see cref="FreshStack"/>).</summary>
+        /// <param name="finallyRegion">The finally region.</param>
+        /// <param name="state">The locks held on entry to it.</param>
+        private Dictionary<string, HeldLock>? ThroughFinallyOnFreshStack(IrRegion finallyRegion, Dictionary<string, HeldLock> state) =>
+            FreshStack.Run(() => ThroughFinallySolved(finallyRegion, state));
 
         private Dictionary<string, HeldLock>? ThroughFinallySolved(IrRegion finallyRegion, Dictionary<string, HeldLock> state)
         {
